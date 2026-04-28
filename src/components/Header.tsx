@@ -10,7 +10,7 @@ export function Header() {
             <span className="absolute inset-x-2 bottom-1 h-px bg-signal-cyan/50" />
           </span>
           <span className="flex flex-col leading-none">
-            <span className="font-display text-xl tracking-tight text-porcelain-50">Lumio Forge</span>
+            <span className="font-display text-xl tracking-tight text-porcelain-50">Miastra Studio</span>
             <span className="mt-1 text-[0.62rem] uppercase tracking-[0.34em] text-porcelain-100/50">Sub2API Image Lab</span>
           </span>
         </a>

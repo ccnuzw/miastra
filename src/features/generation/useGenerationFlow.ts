@@ -92,10 +92,10 @@ export function useGenerationFlow({
   status,
 }: UseGenerationFlowOptions) {
   function validateGenerationInput() {
-    if (!config.apiUrl || !config.model || !config.apiKey || !prompt.trim()) {
+    if (!config.model || !config.apiKey || !prompt.trim()) {
       setStatus('error')
       setStage('error')
-      setStatusText('请先在右上角设置里补全 Provider API URL、Model 和 API Key')
+      setStatusText('请先在右上角设置里补全 Model、API Key 和提示词；Provider API URL 可留空走 /sub2api 代理')
       setSettingsOpen(true)
       return false
     }

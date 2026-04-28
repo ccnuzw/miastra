@@ -1,9 +1,9 @@
 import type { DrawStrategyOption, DrawTaskStatus, VariationStrength } from './drawCard.types'
 
 export const drawStrategyOptions: DrawStrategyOption[] = [
-  { label: '线性稳定', value: 'linear', hint: '逐张 · 最稳', concurrency: 1, delayMs: 1200, timeoutSec: 180, retries: 2, safeMode: true },
-  { label: '智能并发', value: 'smart', hint: '四路 · 推荐', concurrency: 4, delayMs: 700, timeoutSec: 180, retries: 1, safeMode: true },
-  { label: '极速并发', value: 'turbo', hint: '八路 · 高速', concurrency: 8, delayMs: 0, timeoutSec: 240, retries: 1, safeMode: false },
+  { label: '线性稳定', value: 'linear', hint: '逐张 · 最稳', concurrency: 1, delayMs: 1200, timeoutSec: 300, retries: 2, safeMode: true },
+  { label: '智能并发', value: 'smart', hint: '四路 · 推荐', concurrency: 4, delayMs: 700, timeoutSec: 300, retries: 1, safeMode: true },
+  { label: '极速并发', value: 'turbo', hint: '八路 · 高速', concurrency: 8, delayMs: 0, timeoutSec: 300, retries: 1, safeMode: false },
 ]
 
 export const drawTaskStatusText: Record<DrawTaskStatus, string> = {

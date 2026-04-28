@@ -221,9 +221,9 @@ function App() {
 
 
   async function handleTestConnection() {
-    if (!config.apiUrl || !config.model || !config.apiKey) {
+    if (!config.model || !config.apiKey) {
       setStatus('error')
-      setStatusText('请先在设置里补全 Provider API URL、Model 和 API Key')
+      setStatusText('请先在设置里补全 Model 和 API Key；Provider API URL 可留空走 /sub2api 代理')
       setSettingsOpen(true)
       return
     }

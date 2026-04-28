@@ -58,7 +58,7 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
               value={draftConfig.apiUrl}
               onChange={(event) => onDraftConfigChange({ ...draftConfig, apiUrl: event.target.value })}
               className="input-shell"
-              placeholder="https://your-image-api.example.com"
+              placeholder="留空使用当前站点 /sub2api 代理，避免浏览器 CORS"
             />
           </label>
           <label className="field-block">
@@ -91,7 +91,9 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
         </div>
 
         <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <p className="truncate font-mono text-xs text-porcelain-100/[0.52]">{`生成：${resolveImageApiUrl(draftConfig.apiUrl, generationEndpoint)} · 编辑：${resolveImageApiUrl(draftConfig.apiUrl, editEndpoint)}`}</p>
+          <p className="truncate font-mono text-xs text-porcelain-100/[0.52]">
+            {`生成：${resolveImageApiUrl(draftConfig.apiUrl, generationEndpoint)} · 编辑：${resolveImageApiUrl(draftConfig.apiUrl, editEndpoint)}`}
+          </p>
           <button type="button" onClick={onSave} className="generate-button">
             <Save className="h-5 w-5" />
             保存配置

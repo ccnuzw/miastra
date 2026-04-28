@@ -41,7 +41,7 @@ export function useDrawCardSettings() {
   const [enabledVariationDimensions, setEnabledVariationDimensions] = useState<string[]>(variationDimensions.map((item) => item.id))
   const [drawDelayMs, setDrawDelayMs] = useState(1200)
   const [drawRetries, setDrawRetries] = useState(1)
-  const [drawTimeoutSec, setDrawTimeoutSec] = useState(90)
+  const [drawTimeoutSec, setDrawTimeoutSec] = useState(240)
   const [drawSafeMode, setDrawSafeMode] = useState(true)
 
   const effectiveDrawConcurrency = clampDrawConcurrency(drawConcurrency)
@@ -84,10 +84,10 @@ export function useDrawCardSettings() {
 
   function applyDrawShortcut(preset: DrawShortcut): DrawShortcutResult {
     const shortcutMap = {
-      safe3: { count: 3, strategy: 'linear' as DrawStrategy, concurrency: 1, delayMs: 2000, timeoutSec: 180, retries: 2, safeMode: true, quality: 'low', variation: 'low' as VariationStrength },
-      balanced5: { count: 5, strategy: 'smart' as DrawStrategy, concurrency: 4, delayMs: 1500, timeoutSec: 180, retries: 1, safeMode: true, quality: 'low', variation: 'medium' as VariationStrength },
-      fast8: { count: 8, strategy: 'turbo' as DrawStrategy, concurrency: 6, delayMs: 1200, timeoutSec: 220, retries: 1, safeMode: true, quality: 'low', variation: 'medium' as VariationStrength },
-      turbo10: { count: 10, strategy: 'turbo' as DrawStrategy, concurrency: 8, delayMs: 1000, timeoutSec: 240, retries: 1, safeMode: false, quality: 'low', variation: 'high' as VariationStrength },
+      safe3: { count: 3, strategy: 'linear' as DrawStrategy, concurrency: 1, delayMs: 2000, timeoutSec: 300, retries: 2, safeMode: true, quality: 'low', variation: 'low' as VariationStrength },
+      balanced5: { count: 5, strategy: 'smart' as DrawStrategy, concurrency: 4, delayMs: 1500, timeoutSec: 300, retries: 1, safeMode: true, quality: 'low', variation: 'medium' as VariationStrength },
+      fast8: { count: 8, strategy: 'turbo' as DrawStrategy, concurrency: 6, delayMs: 1200, timeoutSec: 300, retries: 1, safeMode: true, quality: 'low', variation: 'medium' as VariationStrength },
+      turbo10: { count: 10, strategy: 'turbo' as DrawStrategy, concurrency: 8, delayMs: 1000, timeoutSec: 300, retries: 1, safeMode: false, quality: 'low', variation: 'high' as VariationStrength },
     }[preset]
 
     setDrawCount(shortcutMap.count)

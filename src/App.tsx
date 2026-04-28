@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   BadgeCheck,
   Bolt,
@@ -13,12 +14,15 @@ import { useProviderConfig } from '@/features/provider/useProviderConfig'
 import { ImageViewerModal } from '@/features/works/ImageViewerModal'
 import { ImageWallModal } from '@/features/works/ImageWallModal'
 import { WorksRail } from '@/features/works/WorksRail'
-import { useWorksGallery } from '@/features/works/useWorksGallery'
+import { filterWorksGallery, useWorksGallery } from '@/features/works/useWorksGallery'
 import { DrawCardPanel } from '@/features/draw-card/DrawCardPanel'
 import { useDrawCardSettings } from '@/features/draw-card/useDrawCardSettings'
+import { PromptTemplateLibrary, type PromptTemplateListItem } from '@/features/prompt-templates/PromptTemplateLibrary'
+import { usePromptTemplates } from '@/features/prompt-templates/usePromptTemplates'
 import { ParameterPanel } from '@/features/studio/ParameterPanel'
 import { PromptComposer } from '@/features/studio/PromptComposer'
 import { StyleTokensPanel } from '@/features/studio/StyleTokensPanel'
+import { aspectSizeMap } from '@/features/studio/studio.constants'
 import { useStudioSettings } from '@/features/studio/useStudioSettings'
 import { useReferenceImages } from '@/features/references/useReferenceImages'
 import type { GalleryImage } from '@/features/works/works.types'
@@ -27,9 +31,37 @@ import { stageLabels } from '@/features/generation/generation.constants'
 import { useGenerationRuntime } from '@/features/generation/useGenerationRuntime'
 import { useGenerationFlow } from '@/features/generation/useGenerationFlow'
 import { formatElapsed, waitingHint } from '@/features/generation/generation.utils'
-import { downloadImage } from '@/shared/utils/download'
+import { downloadImage, downloadWorksZip } from '@/shared/utils/download'
+
+type SavePromptTemplateInput = {
+  title: string
+  content: string
+}
+
+type SavePromptTemplate = (template: SavePromptTemplateInput) => Promise<unknown> | unknown
+type DeletePromptTemplate = (templateId: string) => Promise<unknown> | unknown
+
+function createPromptTemplateTitle(content: string) {
+  const firstLine = content.split('\n').find((line) => line.trim())?.trim() ?? 'Prompt 模板'
+  return firstLine.length > 28 ? `${firstLine.slice(0, 28)}…` : firstLine
+}
 
 function App() {
+  const [templateLibraryOpen, setTemplateLibraryOpen] = useState(false)
+  const [templateFeedback, setTemplateFeedback] = useState('')
+  const [includeZipMetadata, setIncludeZipMetadata] = useState(true)
+  const {
+    templates: promptTemplates,
+    loading: promptTemplatesLoading,
+    error: promptTemplatesError,
+    saveTemplate,
+    deleteTemplate,
+    refresh: refreshPromptTemplates,
+  } = usePromptTemplates()
+  const promptTemplateErrorText = promptTemplatesError
+    ? promptTemplatesError instanceof Error ? promptTemplatesError.message : String(promptTemplatesError)
+    : null
+
   const {
     status,
     statusText,
@@ -69,6 +101,7 @@ function App() {
     activePreset,
     setDraftConfig,
     setSettingsOpen,
+    applyProviderSnapshot,
     handleProviderChange,
     saveProviderConfig,
   } = useProviderConfig({
@@ -94,6 +127,7 @@ function App() {
     setStudioMode,
     setResolutionTier,
     setAspectLabel,
+    setSize,
     setQuality,
     setDetailStrength,
     setNegativePrompt,
@@ -118,6 +152,7 @@ function App() {
     drawStats,
     taskSlots,
     setDrawCount,
+    setDrawStrategy,
     setDrawConcurrency,
     setDrawTasks,
     setDrawBatches,
@@ -127,6 +162,7 @@ function App() {
     setDrawRetries,
     setDrawTimeoutSec,
     setDrawSafeMode,
+    setEnabledVariationDimensions,
     toggleVariationDimension,
     applyDrawStrategy,
     applyDrawShortcut,
@@ -138,10 +174,21 @@ function App() {
     setGallery,
     setWallOpen,
     setViewerImage,
+    availableTags,
+    workSearchQuery,
+    activeTagFilter,
+    favoritesOnly,
+    setWorkSearchQuery,
+    setActiveTagFilter,
+    setFavoritesOnly,
+    clearWorkFilters,
     selectedWorkIds,
     toggleWorkSelection,
     clearWorkSelection,
     removeSelectedWorks,
+    toggleWorkFavorite,
+    addWorkTag,
+    removeWorkTag,
     handleRemoveImage,
   } = useWorksGallery({
     onRemoveImage: (id) => setPreviewImage((current) => (current?.id === id ? null : current)),
@@ -210,8 +257,14 @@ function App() {
     : studioMode === 'draw'
       ? `${hasReferenceImage ? '参考图抽卡' : '开始抽卡'} ×${clampDrawCount(drawCount)}`
       : hasReferenceImage ? '参考图生成' : '生成图片'
-  const filteredTasks = activeBatchId === 'all' ? taskSlots : taskSlots.filter((item) => item.batchId === activeBatchId)
-  const filteredGallery = activeBatchId === 'all' ? gallery : gallery.filter((item) => item.batchId === activeBatchId)
+  const workFilters = {
+    batchId: activeBatchId,
+    searchQuery: workSearchQuery,
+    tag: activeTagFilter,
+    favoritesOnly,
+  }
+  const filteredTasks = filterWorksGallery(taskSlots, workFilters)
+  const filteredGallery = filterWorksGallery(gallery, workFilters)
   const visibleWorks = [...filteredTasks, ...filteredGallery]
   const workSlots: GalleryImage[] = Array.from({ length: 10 }, (_, index) => visibleWorks[index] ?? {
     id: `empty-work-slot-${index}`,
@@ -231,8 +284,42 @@ function App() {
     setStatusText('已填入最小测试参数，请点击生成图片验证链路')
   }
 
-  function handleDownloadSelectedWorks() {
-    gallery.filter((item) => selectedWorkIds.includes(item.id)).forEach(downloadImage)
+  async function handleDownloadSelectedWorks() {
+    const selectedWorks = gallery.filter((item) => selectedWorkIds.includes(item.id) && item.src)
+    const selectedWithoutImageCount = selectedWorkIds.length - selectedWorks.length
+
+    if (!selectedWorks.length) {
+      setStatus('error')
+      setStatusText(selectedWorkIds.length ? '已选作品中没有可下载的图片，请避开任务占位项。' : '请先选择要导出的作品')
+      return
+    }
+
+    setStatus('loading')
+    setStatusText(`正在打包 ${selectedWorks.length} 张作品为 ZIP${includeZipMetadata ? '，包含 metadata.json' : ''}…`)
+
+    try {
+      const result = await downloadWorksZip(selectedWorks, { includeMetadata: includeZipMetadata })
+      const skippedText = selectedWithoutImageCount > 0 ? `，已跳过 ${selectedWithoutImageCount} 个无图片占位项` : ''
+
+      if (!result.blob || result.imageCount === 0) {
+        setStatus('error')
+        setStatusText(`ZIP 导出失败：没有成功写入图片${skippedText}${result.failedCount ? `，失败 ${result.failedCount} 项` : ''}`)
+        return
+      }
+
+      if (result.failedCount > 0 || selectedWithoutImageCount > 0) {
+        setStatus('error')
+        setStatusText(`ZIP 已下载，成功 ${result.imageCount} 张，失败 ${result.failedCount} 项${skippedText}`)
+        return
+      }
+
+      setStatus('success')
+      setStatusText(`ZIP 已下载：${result.imageCount} 张图片${result.metadataIncluded ? '，包含 metadata.json' : ''}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误'
+      setStatus('error')
+      setStatusText(`ZIP 导出失败：${message}`)
+    }
   }
 
   function handleApplyDrawStrategy(value: Parameters<typeof applyDrawStrategy>[0]) {
@@ -243,6 +330,132 @@ function App() {
   function handleApplyDrawShortcut(preset: Parameters<typeof applyDrawShortcut>[0]) {
     const result = applyDrawShortcut(preset)
     setQuality(result.quality)
+  }
+
+  function handleOpenTemplateLibrary() {
+    setTemplateLibraryOpen(true)
+    setTemplateFeedback('')
+    void Promise.resolve(refreshPromptTemplates()).catch(() => undefined)
+  }
+
+  async function handleSaveCurrentPromptTemplate() {
+    const content = prompt.trim()
+    if (!content) {
+      const message = 'Prompt 为空，无法保存为模板'
+      setTemplateFeedback(message)
+      setStatus('error')
+      setStatusText(message)
+      return
+    }
+
+    try {
+      await (saveTemplate as SavePromptTemplate)({
+        title: createPromptTemplateTitle(content),
+        content,
+      })
+      const message = '已保存当前 Prompt 为模板'
+      setTemplateFeedback(message)
+      setStatus('success')
+      setStatusText(message)
+      void Promise.resolve(refreshPromptTemplates()).catch(() => undefined)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '保存 Prompt 模板失败'
+      setTemplateFeedback(message)
+      setStatus('error')
+      setStatusText(message)
+    }
+  }
+
+  function handleApplyPromptTemplate(template: PromptTemplateListItem) {
+    setPrompt(template.content)
+    setTemplateLibraryOpen(false)
+    setTemplateFeedback('')
+    setStatus('success')
+    setStatusText(`已应用 Prompt 模板：${template.title || template.name || '未命名模板'}`)
+    window.setTimeout(() => document.getElementById('studio')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+  }
+
+  async function handleDeletePromptTemplate(templateId: string) {
+    try {
+      await (deleteTemplate as DeletePromptTemplate)(templateId)
+      const message = '已删除 Prompt 模板'
+      setTemplateFeedback(message)
+      setStatus('success')
+      setStatusText(message)
+      void Promise.resolve(refreshPromptTemplates()).catch(() => undefined)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '删除 Prompt 模板失败'
+      setTemplateFeedback(message)
+      setStatus('error')
+      setStatusText(message)
+    }
+  }
+
+  function applySnapshotSize(nextSize?: string) {
+    if (!nextSize) return
+    const matched = Object.entries(aspectSizeMap).flatMap(([aspect, tiers]) =>
+      Object.entries(tiers).map(([tier, value]) => ({ aspect, tier, value })),
+    ).find((item) => item.value === nextSize)
+
+    if (matched) {
+      setAspectLabel(matched.aspect)
+      setResolutionTier(matched.tier as Parameters<typeof setResolutionTier>[0])
+      return
+    }
+
+    setSize(nextSize)
+  }
+
+  function handleReuseParameters(image: GalleryImage, options: { regenerate?: boolean } = {}) {
+    const snapshot = image.generationSnapshot
+    const promptText = snapshot?.workspacePrompt || snapshot?.prompt || image.promptText || image.promptSnippet
+    const mode = snapshot?.mode ?? image.mode
+    const draw = snapshot?.draw
+    const isDrawMode = Boolean(mode?.startsWith('draw') || draw || image.batchId)
+    const nextSize = snapshot?.size || image.size
+    const nextQuality = snapshot?.quality || image.quality
+    const nextModel = snapshot?.model || image.providerModel
+
+    if (promptText) setPrompt(promptText)
+    setStudioMode(isDrawMode ? 'draw' : 'create')
+    applySnapshotSize(nextSize)
+    if (nextQuality) setQuality(nextQuality)
+    if (typeof snapshot?.stream === 'boolean') setStream(snapshot.stream)
+
+    applyProviderSnapshot({
+      providerId: snapshot?.providerId,
+      apiUrl: snapshot?.apiUrl,
+      model: nextModel,
+    })
+
+    if (draw) {
+      setDrawCount(draw.count)
+      setDrawStrategy(draw.strategy)
+      setDrawConcurrency(draw.concurrency)
+      setDrawDelayMs(draw.delayMs)
+      setDrawRetries(draw.retries)
+      setDrawTimeoutSec(draw.timeoutSec)
+      setDrawSafeMode(draw.safeMode)
+      setVariationStrength(draw.variationStrength)
+      setEnabledVariationDimensions(draw.dimensions)
+      setActiveBatchId(draw.batchId)
+    } else if (image.batchId) {
+      setActiveBatchId(image.batchId)
+    }
+
+    const referenceWarning = snapshot?.references?.count || mode?.includes('image2image')
+      ? '；参考图文件需重新提供'
+      : ''
+    setStatus('success')
+    setStatusText(options.regenerate
+      ? `已复用旧参数${referenceWarning}。为避免状态异步读取旧值，请确认后点击主生成按钮再次生成。`
+      : `已将作品参数回填到当前工作区${referenceWarning}。`)
+    setViewerImage(null)
+    window.setTimeout(() => document.getElementById('studio')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+  }
+
+  function handleRegenerateFromParameters(image: GalleryImage) {
+    handleReuseParameters(image, { regenerate: true })
   }
 
 
@@ -343,6 +556,9 @@ function App() {
               onPromptChange={setPrompt}
               onReferenceUpload={handleReferenceUpload}
               onRemoveReference={handleRemoveReferenceImage}
+              onSaveTemplate={handleSaveCurrentPromptTemplate}
+              onOpenTemplateLibrary={handleOpenTemplateLibrary}
+              templateActionDisabled={promptTemplatesLoading}
             />
 
             <ParameterPanel
@@ -397,19 +613,33 @@ function App() {
             <WorksRail
               items={workSlots}
               totalCount={gallery.length}
+              filteredCount={filteredGallery.length}
               batches={drawBatches}
               activeBatchId={activeBatchId}
               selectedIds={selectedWorkIds}
+              searchQuery={workSearchQuery}
+              availableTags={availableTags}
+              activeTag={activeTagFilter}
+              favoritesOnly={favoritesOnly}
               onBatchChange={setActiveBatchId}
+              onSearchChange={setWorkSearchQuery}
+              onTagChange={setActiveTagFilter}
+              onFavoritesOnlyChange={setFavoritesOnly}
+              onClearFilters={clearWorkFilters}
               onOpenWall={() => setWallOpen(true)}
               onPreview={setViewerImage}
               onDownload={downloadImage}
               onPushReference={handlePushReferenceImage}
               onRemove={handleRemoveImage}
               onToggleSelect={toggleWorkSelection}
+              onToggleFavorite={toggleWorkFavorite}
+              onAddTag={addWorkTag}
+              onRemoveTag={removeWorkTag}
               onClearSelection={clearWorkSelection}
               onRemoveSelected={removeSelectedWorks}
               onDownloadSelected={handleDownloadSelectedWorks}
+              includeMetadata={includeZipMetadata}
+              onIncludeMetadataChange={setIncludeZipMetadata}
             />
           </aside>
         </div>
@@ -420,18 +650,49 @@ function App() {
         onClose={() => setViewerImage(null)}
         onDownload={downloadImage}
         onPushReference={handlePushReferenceImage}
+        onReuseParameters={handleReuseParameters}
+        onRegenerateFromParameters={handleRegenerateFromParameters}
       />
 
       <ImageWallModal
         open={wallOpen}
-        gallery={activeBatchId === 'all' ? gallery : gallery.filter((item) => item.batchId === activeBatchId)}
+        gallery={filteredGallery}
+        totalCount={gallery.length}
         selectedIds={selectedWorkIds}
+        searchQuery={workSearchQuery}
+        availableTags={availableTags}
+        activeTag={activeTagFilter}
+        favoritesOnly={favoritesOnly}
+        onSearchChange={setWorkSearchQuery}
+        onTagChange={setActiveTagFilter}
+        onFavoritesOnlyChange={setFavoritesOnly}
+        onClearFilters={clearWorkFilters}
         onToggleSelect={toggleWorkSelection}
+        onToggleFavorite={toggleWorkFavorite}
+        onAddTag={addWorkTag}
+        onRemoveTag={removeWorkTag}
         onRemove={handleRemoveImage}
         onClose={() => setWallOpen(false)}
         onPreview={setViewerImage}
         onDownload={downloadImage}
+        onDownloadSelected={handleDownloadSelectedWorks}
+        includeMetadata={includeZipMetadata}
+        onIncludeMetadataChange={setIncludeZipMetadata}
         onPushReference={handlePushReferenceImage}
+      />
+
+      <PromptTemplateLibrary
+        open={templateLibraryOpen}
+        templates={promptTemplates}
+        loading={promptTemplatesLoading}
+        error={promptTemplateErrorText}
+        currentPrompt={prompt}
+        saveFeedback={templateFeedback}
+        onSaveCurrent={handleSaveCurrentPromptTemplate}
+        onApply={handleApplyPromptTemplate}
+        onDelete={handleDeletePromptTemplate}
+        onRefresh={refreshPromptTemplates}
+        onClose={() => setTemplateLibraryOpen(false)}
       />
 
       <ProviderModal

@@ -1,5 +1,5 @@
 import { ChangeEvent, RefObject } from 'react'
-import { ImagePlus, Wand2, X } from 'lucide-react'
+import { BookmarkPlus, ImagePlus, Library, Wand2, X } from 'lucide-react'
 import type { ReferenceImage } from '@/features/references/reference.types'
 
 type PromptComposerProps = {
@@ -10,15 +10,49 @@ type PromptComposerProps = {
   onPromptChange: (value: string) => void
   onReferenceUpload: (event: ChangeEvent<HTMLInputElement>) => void
   onRemoveReference: (id: string) => void
+  onSaveTemplate: () => void
+  onOpenTemplateLibrary: () => void
+  templateActionDisabled?: boolean
 }
 
-export function PromptComposer({ prompt, referenceImages, hasReferenceImage, inputRef, onPromptChange, onReferenceUpload, onRemoveReference }: PromptComposerProps) {
+export function PromptComposer({
+  prompt,
+  referenceImages,
+  hasReferenceImage,
+  inputRef,
+  onPromptChange,
+  onReferenceUpload,
+  onRemoveReference,
+  onSaveTemplate,
+  onOpenTemplateLibrary,
+  templateActionDisabled = false,
+}: PromptComposerProps) {
+  const hasPrompt = prompt.trim().length > 0
+
   return (
     <div className="field-block prompt-composer">
-      <span className="field-label">
-        <Wand2 className="h-4 w-4" />
-        Prompt
-      </span>
+      <div className="prompt-composer-header">
+        <span className="field-label">
+          <Wand2 className="h-4 w-4" />
+          Prompt
+        </span>
+        <div className="prompt-template-entry-group" aria-label="Prompt 模板操作">
+          <button
+            type="button"
+            className="settings-button prompt-template-entry"
+            onClick={onSaveTemplate}
+            disabled={templateActionDisabled}
+            title={hasPrompt ? '保存当前 Prompt 为模板' : 'Prompt 为空，无法保存为模板'}
+          >
+            <BookmarkPlus className="h-4 w-4" />
+            保存为模板
+          </button>
+          <button type="button" className="settings-button prompt-template-entry" onClick={onOpenTemplateLibrary}>
+            <Library className="h-4 w-4" />
+            模板库
+          </button>
+        </div>
+      </div>
       <textarea value={prompt} onChange={(event) => onPromptChange(event.target.value)} className="prompt-area" rows={9} />
       <div className="reference-tray">
         <div className="reference-strip">

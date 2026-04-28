@@ -1,0 +1,921 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color: #fffaf0;
+    background-color: #07080a;
+    font-synthesis: none;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    background-color: #07080a;
+    font-family: 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  }
+
+  input,
+  textarea,
+  select {
+    color-scheme: dark;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+
+  ::selection {
+    background-color: rgba(94, 234, 212, 0.35);
+    color: #fffaf0;
+  }
+}
+
+@layer components {
+  .panel-shell {
+    @apply rounded-[2.35rem] border border-porcelain-50/10 bg-ink-900/[0.62] p-5 shadow-card backdrop-blur-2xl;
+  }
+
+  .panel-strip {
+    @apply rounded-[2rem] border border-porcelain-50/10 bg-ink-900/[0.58] p-5 shadow-card backdrop-blur-2xl;
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.34em] text-signal-cyan;
+  }
+
+  .preview-eyebrow {
+    @apply rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-3.5 py-1.5 shadow-[0_0_28px_rgba(80,240,255,0.10)];
+  }
+
+  .response-eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-3.5 py-1.5 text-signal-cyan shadow-[0_0_28px_rgba(80,240,255,0.10)];
+  }
+
+  .provider-card {
+    @apply flex w-full items-center gap-3 rounded-[1.35rem] border border-porcelain-50/10 bg-porcelain-50/[0.035] p-3 transition duration-300 hover:-translate-y-0.5 hover:border-signal-cyan/40 hover:bg-signal-cyan/[0.07];
+  }
+
+  .provider-card-active {
+    @apply border-signal-cyan/70 bg-signal-cyan/[0.12] shadow-glow;
+  }
+
+  .status-pill {
+    @apply inline-flex max-w-full items-center gap-2 rounded-full border border-porcelain-50/10 bg-ink-950/[0.65] px-4 py-2 text-xs font-semibold text-porcelain-100/[0.72] shadow-card;
+  }
+
+  .progress-card {
+    @apply rounded-[1.75rem] border border-porcelain-50/10 bg-ink-950/[0.55] p-4 shadow-card;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full bg-signal-cyan transition-all duration-500 ease-out;
+    box-shadow: 0 0 22px rgba(94, 234, 212, 0.55);
+  }
+
+  .cancel-button {
+    @apply inline-flex shrink-0 items-center justify-center rounded-full border border-signal-coral/30 bg-signal-coral/10 px-4 py-2.5 text-sm font-bold text-signal-coral transition hover:-translate-y-0.5 hover:bg-signal-coral hover:text-ink-950;
+  }
+
+  .field-block {
+    @apply flex flex-col gap-2;
+  }
+
+  .field-label {
+    @apply inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-porcelain-100/[0.52];
+  }
+
+  .input-shell {
+    @apply h-12 w-full rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.70] px-4 text-sm text-porcelain-50 outline-none transition placeholder:text-porcelain-100/25 focus:border-signal-cyan/70 focus:bg-ink-950 focus:shadow-glow;
+  }
+
+  .prompt-area {
+    @apply min-h-52 w-full resize-none rounded-[1.75rem] border border-porcelain-50/10 bg-ink-950/[0.72] p-5 text-base leading-8 text-porcelain-50 outline-none transition placeholder:text-porcelain-100/25 focus:border-signal-cyan/70 focus:shadow-glow;
+  }
+
+  .prompt-composer {
+    @apply rounded-[2rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-3;
+  }
+
+  .prompt-composer .prompt-area {
+    @apply border-0 bg-transparent p-3 shadow-none focus:border-0 focus:shadow-none;
+  }
+
+  .reference-tray {
+    @apply flex flex-col gap-3 rounded-[1.5rem] border border-porcelain-50/10 bg-ink-950/70 p-3 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .reference-strip {
+    @apply flex min-w-0 flex-wrap items-center gap-2;
+  }
+
+  .reference-thumb {
+    @apply relative h-16 w-16 overflow-hidden rounded-2xl border border-signal-cyan/25 bg-porcelain-50/[0.06] shadow-card;
+  }
+
+  .reference-thumb img {
+    @apply h-full w-full object-cover;
+  }
+
+  .reference-thumb span {
+    @apply absolute inset-x-1 bottom-1 rounded-full bg-ink-950/75 px-1 py-0.5 text-center text-[10px] font-bold text-signal-cyan backdrop-blur;
+  }
+
+  .reference-thumb button {
+    @apply absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-ink-950/80 text-porcelain-50 transition hover:bg-signal-coral hover:text-ink-950;
+  }
+
+  .reference-add {
+    @apply flex h-16 min-w-16 flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-porcelain-50/20 bg-porcelain-50/[0.035] px-3 text-xs font-bold text-porcelain-100/60 transition hover:border-signal-cyan/60 hover:bg-signal-cyan/10 hover:text-signal-cyan;
+  }
+
+  .reference-mode {
+    @apply inline-flex shrink-0 items-center justify-center rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.035] px-3 py-2 text-xs font-bold text-porcelain-100/45;
+  }
+
+  .reference-mode-active {
+    @apply border-signal-cyan/35 bg-signal-cyan/10 text-signal-cyan;
+  }
+
+
+  .parameter-panel {
+    @apply grid gap-4 rounded-[2rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-4;
+  }
+
+  .parameter-top-row {
+    @apply grid gap-4;
+  }
+
+  .parameter-card {
+    @apply rounded-[1.45rem] border border-porcelain-50/10 bg-porcelain-50/[0.035] p-4;
+  }
+
+  .param-value {
+    @apply rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-3 py-1 text-xs font-bold text-signal-cyan;
+  }
+
+  .aspect-grid {
+    @apply grid grid-cols-2 gap-2 md:grid-cols-5;
+  }
+
+  .aspect-chip {
+    @apply flex min-h-16 flex-col items-center justify-center gap-1 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-3 py-2 text-sm font-extrabold text-porcelain-100/[0.72] transition hover:-translate-y-0.5 hover:border-signal-cyan/45 hover:bg-porcelain-50/[0.055] hover:text-porcelain-50;
+  }
+
+  .aspect-chip small {
+    @apply whitespace-nowrap text-[11px] font-semibold text-porcelain-100/40;
+  }
+
+  .aspect-chip-active {
+    @apply border-signal-cyan/70 bg-signal-cyan/15 text-signal-cyan shadow-[0_0_26px_rgba(94,234,212,0.12)];
+  }
+
+  .resolution-card {
+    @apply grid gap-3;
+  }
+
+  .resolution-grid {
+    @apply grid grid-cols-3 gap-2;
+  }
+
+  .resolution-chip {
+    @apply flex min-h-16 flex-col items-center justify-center gap-1 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-3 py-2 text-sm font-black tracking-[0.08em] text-porcelain-100/[0.72] transition hover:-translate-y-0.5 hover:border-signal-cyan/45 hover:bg-porcelain-50/[0.055] hover:text-porcelain-50;
+  }
+
+  .resolution-chip small {
+    @apply text-[11px] font-semibold tracking-normal text-porcelain-100/40;
+  }
+
+  .resolution-chip-active {
+    @apply border-signal-cyan/70 bg-signal-cyan/15 text-signal-cyan shadow-[0_0_26px_rgba(94,234,212,0.12)];
+  }
+
+  .resolution-note {
+    @apply rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.35] px-3 py-2 text-xs font-semibold leading-5 text-porcelain-100/45;
+  }
+
+  .detail-control {
+    @apply rounded-[1.45rem] border border-porcelain-50/10 bg-porcelain-50/[0.035] p-4;
+  }
+
+  .detail-slider {
+    @apply h-8 w-full cursor-pointer appearance-none bg-transparent;
+  }
+
+  .detail-slider::-webkit-slider-runnable-track {
+    height: 12px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgb(94 234 212) var(--detail-value), rgb(255 250 240 / 0.12) var(--detail-value));
+  }
+
+  .detail-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 24px;
+    height: 24px;
+    margin-top: -6px;
+    border-radius: 999px;
+    border: 3px solid rgb(255 250 240);
+    background: rgb(7 8 10);
+    box-shadow: 0 0 0 1px rgb(94 234 212 / 0.5), 0 0 26px rgb(94 234 212 / 0.35);
+  }
+
+  .detail-slider::-moz-range-track {
+    height: 12px;
+    border-radius: 999px;
+    background: rgb(255 250 240 / 0.12);
+  }
+
+  .detail-slider::-moz-range-progress {
+    height: 12px;
+    border-radius: 999px;
+    background: rgb(94 234 212);
+  }
+
+  .detail-slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    border: 3px solid rgb(255 250 240);
+    background: rgb(7 8 10);
+  }
+
+  .generation-controls {
+    @apply grid gap-3 lg:grid-cols-[1fr_168px] lg:items-center;
+  }
+
+  .quality-grid {
+    @apply grid grid-cols-4 gap-2;
+  }
+
+  .quality-chip {
+    @apply flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-3 py-2 text-sm font-extrabold text-porcelain-100/70 transition hover:-translate-y-0.5 hover:border-signal-cyan/45 hover:bg-porcelain-50/[0.055] hover:text-porcelain-50;
+  }
+
+  .quality-chip small {
+    @apply whitespace-nowrap text-[11px] font-semibold text-porcelain-100/40;
+  }
+
+  .quality-chip-active {
+    @apply border-signal-cyan/70 bg-signal-cyan/15 text-signal-cyan shadow-[0_0_24px_rgba(94,234,212,0.12)];
+  }
+
+  .stream-switch {
+    @apply flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-3 py-2 transition hover:border-signal-cyan/35 hover:bg-porcelain-50/[0.055];
+  }
+
+  .stream-switch input {
+    @apply sr-only;
+  }
+
+  .switch-copy {
+    @apply flex min-w-0 flex-col;
+  }
+
+  .switch-copy strong {
+    @apply whitespace-nowrap text-xs font-extrabold text-porcelain-50 xl:text-sm;
+  }
+
+  .switch-copy small {
+    @apply hidden;
+  }
+
+  .switch-track {
+    @apply relative h-5 w-9 shrink-0 rounded-full border border-porcelain-50/10 bg-porcelain-50/10 transition;
+  }
+
+  .switch-thumb {
+    @apply absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-porcelain-100 transition;
+  }
+
+  .stream-switch input:checked + .switch-track {
+    @apply border-signal-cyan/60 bg-signal-cyan/25;
+  }
+
+  .stream-switch input:checked + .switch-track .switch-thumb {
+    @apply translate-x-4 bg-signal-cyan;
+  }
+
+  .negative-area {
+    @apply min-h-24 w-full resize-none rounded-[1.45rem] border border-porcelain-50/10 bg-ink-950/[0.72] p-4 text-sm leading-6 text-porcelain-50 outline-none transition placeholder:text-porcelain-100/25 focus:border-signal-cyan/70 focus:shadow-glow;
+  }
+
+  .chip-grid {
+    @apply grid grid-cols-2 gap-2;
+  }
+
+  .option-chip {
+    @apply rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.035] px-3 py-2 text-xs font-semibold text-porcelain-100/[0.62] transition hover:border-signal-cyan/40 hover:text-porcelain-50;
+  }
+
+  .option-chip-active {
+    @apply border-signal-cyan/70 bg-signal-cyan/15 text-signal-cyan;
+  }
+
+  .stream-toggle {
+    @apply flex min-h-20 items-center justify-center gap-3 rounded-[1.45rem] border border-porcelain-50/10 bg-porcelain-50/[0.035] px-5 text-sm font-semibold text-porcelain-50;
+  }
+
+  .stream-toggle input {
+    @apply h-4 w-4 accent-signal-cyan;
+  }
+
+  .generate-button {
+    @apply inline-flex min-w-[132px] shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-porcelain-50 px-6 py-3 text-sm font-bold text-ink-950 transition hover:-translate-y-0.5 hover:bg-signal-cyan disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .settings-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-5 py-3 text-sm font-bold text-porcelain-50 transition hover:-translate-y-0.5 hover:border-signal-cyan/50 hover:text-signal-cyan disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
+  }
+
+  .preview-stage {
+    @apply relative min-w-0 overflow-hidden rounded-[2.25rem] border border-porcelain-50/10 bg-ink-950/[0.70] p-4 shadow-card;
+    contain: layout paint;
+  }
+
+  .preview-image-frame {
+    @apply relative mt-5 block h-[clamp(360px,58vh,620px)] max-h-[620px] min-h-0 w-full max-w-full min-w-0 shrink-0 overflow-hidden rounded-[2rem] border border-porcelain-50/10 bg-porcelain-50/[0.04] p-3 shadow-card;
+    box-sizing: border-box;
+    contain: strict;
+    isolation: isolate;
+  }
+
+  .preview-image-frame-active {
+    @apply cursor-zoom-in transition hover:border-signal-cyan/45 focus:outline-none focus:ring-2 focus:ring-signal-cyan/45;
+  }
+
+  .preview-image-canvas {
+    @apply relative block h-full max-h-full min-h-0 w-full max-w-full min-w-0 overflow-hidden rounded-[1.5rem];
+    background-color: rgb(7 8 10 / 0.42);
+    contain: strict;
+  }
+
+  .preview-image-safe {
+    @apply absolute inset-0 h-full max-h-full min-h-0 w-full max-w-full min-w-0 select-none object-contain;
+  }
+
+  .preview-image-hint {
+    @apply pointer-events-none absolute bottom-6 right-6 rounded-full border border-porcelain-50/10 bg-ink-950/70 px-3 py-1.5 text-xs font-bold text-porcelain-50/75 opacity-0 shadow-card backdrop-blur-md transition;
+  }
+
+  .preview-image-frame-active:hover .preview-image-hint {
+    @apply opacity-100;
+  }
+
+  .preview-placeholder {
+    @apply mt-5 flex h-[clamp(360px,58vh,620px)] max-h-[620px] min-h-0 w-full max-w-full min-w-0 shrink-0 flex-col items-center justify-center gap-4 overflow-hidden rounded-[2rem] border border-dashed border-porcelain-50/15 bg-[radial-gradient(circle_at_50%_12%,rgba(255,250,240,0.20),transparent_22%),linear-gradient(145deg,rgba(255,250,240,0.10),rgba(94,234,212,0.05)_45%,rgba(7,8,10,0.72))] text-center text-sm text-porcelain-100/[0.6];
+    box-sizing: border-box;
+    contain: strict;
+  }
+
+  .response-panel {
+    @apply lg:mt-2;
+  }
+
+  .response-panel-collapsed {
+    @apply py-3;
+  }
+
+  .response-header {
+    @apply flex min-w-0 items-center justify-between gap-3;
+  }
+
+  .response-title-button {
+    @apply flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-1 py-1 text-left transition hover:bg-porcelain-50/[0.035];
+  }
+
+  .response-summary {
+    @apply min-w-0 flex-1 truncate font-mono text-xs text-porcelain-100/45;
+  }
+
+  .response-toggle-text {
+    @apply shrink-0 rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-3 py-1 text-xs font-bold text-signal-cyan;
+  }
+
+  .preview-orb {
+    @apply absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-signal-cyan/10 blur-3xl;
+    animation: pulse-orb 5.5s ease-in-out infinite;
+  }
+
+  .icon-button {
+    @apply grid h-9 w-9 place-items-center rounded-xl border border-porcelain-50/10 bg-porcelain-50/[0.04] text-porcelain-100/[0.62] transition hover:border-signal-cyan/40 hover:text-signal-cyan;
+  }
+
+  .response-box {
+    @apply mt-3 max-h-72 min-h-40 overflow-y-auto overflow-x-hidden whitespace-pre-wrap rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.78] p-4 font-mono text-xs leading-6 text-porcelain-100/[0.62];
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .gallery-section {
+    @apply relative z-10 mt-5 grid min-w-0 gap-4 xl:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.48fr)];
+  }
+
+  .style-panel,
+  .works-panel {
+    @apply min-w-0 rounded-[2rem] border border-porcelain-50/10 bg-ink-900/[0.58] p-5 shadow-card backdrop-blur-2xl;
+  }
+
+  .style-token {
+    @apply rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.045] px-3 py-1.5 text-xs font-semibold text-porcelain-100/[0.66] transition hover:-translate-y-0.5 hover:border-signal-cyan/40 hover:text-porcelain-50;
+  }
+
+  .style-token-active {
+    @apply border-signal-cyan/60 bg-signal-cyan/15 text-signal-cyan shadow-[0_0_20px_rgba(94,234,212,0.10)];
+  }
+
+  .more-wall-button {
+    @apply inline-flex shrink-0 items-center gap-2 rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.08] px-4 py-2 text-sm font-bold text-signal-cyan transition hover:-translate-y-0.5 hover:bg-signal-cyan hover:text-ink-950;
+  }
+
+  .gallery-rail {
+    @apply flex max-w-full gap-3 overflow-x-auto overscroll-x-contain pb-1 pr-3;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .gallery-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sample-tile {
+    @apply relative overflow-hidden rounded-[1.75rem] border border-porcelain-50/10 bg-ink-900/[0.62] p-4 shadow-card transition duration-300;
+  }
+
+  .rail-tile {
+    @apply w-[220px] min-w-[220px] shrink-0 sm:w-[240px] sm:min-w-[240px] xl:w-[260px] xl:min-w-[260px];
+  }
+
+  .sample-tile-active {
+    @apply cursor-pointer hover:-translate-y-0.5 hover:border-signal-cyan/45 focus:outline-none focus:ring-2 focus:ring-signal-cyan/45;
+  }
+
+  .tile-image {
+    @apply absolute inset-0 h-full w-full object-contain opacity-100;
+  }
+
+  .tile-caption {
+    @apply rounded-2xl border border-ink-950/20 bg-ink-950/55 p-3 shadow-card backdrop-blur-md;
+  }
+
+  .tile-actions {
+    @apply flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/70 p-1 opacity-100 shadow-card backdrop-blur-md;
+  }
+
+  .tile-action {
+    @apply grid h-7 w-7 place-items-center rounded-full text-porcelain-50/75 transition hover:bg-signal-cyan/20 hover:text-signal-cyan;
+  }
+
+  .tile-action-danger {
+    @apply hover:bg-signal-coral/20 hover:text-signal-coral;
+  }
+
+  .tile-action-success {
+    @apply bg-signal-cyan/20 text-signal-cyan;
+  }
+
+  .sample-gradient {
+    @apply absolute inset-0 opacity-70;
+    background:
+      radial-gradient(circle at 24% 18%, rgba(94, 234, 212, 0.2), transparent 28%),
+      radial-gradient(circle at 70% 82%, rgba(251, 191, 36, 0.18), transparent 30%),
+      linear-gradient(145deg, rgba(255, 250, 240, 0.08), rgba(7, 8, 10, 0.1));
+    animation: float-card 5s ease-in-out infinite;
+  }
+
+  .image-wall-card {
+    @apply h-[94vh] max-h-[94vh] w-[96vw] max-w-[1680px] overflow-auto rounded-[2.4rem] border border-porcelain-50/10 bg-ink-900/[0.95] p-5 shadow-card md:p-7;
+    scrollbar-width: none;
+  }
+
+  .image-wall-card::-webkit-scrollbar {
+    display: none;
+  }
+
+  .image-wall-grid {
+    @apply mt-6 grid auto-rows-[280px] grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4;
+  }
+
+  .wall-tile {
+    @apply relative cursor-pointer overflow-hidden rounded-[1.7rem] border border-porcelain-50/10 bg-porcelain-50/[0.035] shadow-card transition hover:-translate-y-1 hover:border-signal-cyan/45;
+  }
+
+  .wall-tile:nth-child(5n + 1) {
+    @apply sm:row-span-2;
+  }
+
+  .wall-tile img {
+    @apply h-full w-full object-cover transition duration-500;
+  }
+
+  .wall-tile:hover img {
+    transform: scale(1.05);
+  }
+
+  .wall-tile-overlay {
+    @apply absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 bg-gradient-to-t from-ink-950/90 via-ink-950/45 to-transparent p-4 opacity-95;
+  }
+
+  .image-wall-empty {
+    @apply mt-6 flex min-h-[62vh] items-center justify-center rounded-[1.7rem] border border-dashed border-porcelain-50/15 bg-porcelain-50/[0.035] text-sm font-semibold text-porcelain-100/45;
+  }
+
+
+  .image-viewer-backdrop {
+    @apply z-[90];
+  }
+
+  .image-viewer-card {
+    @apply flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2.2rem] border border-porcelain-50/10 bg-ink-950/[0.96] p-4 shadow-card;
+  }
+
+  .image-viewer-header {
+    @apply flex items-start justify-between gap-4 pb-4;
+  }
+
+  .image-viewer-body {
+    @apply flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[1.6rem] border border-porcelain-50/10 bg-porcelain-50/[0.035];
+  }
+
+  .image-viewer-body img {
+    @apply max-h-[78vh] max-w-full object-contain;
+  }
+
+  .modal-backdrop {
+    @apply fixed inset-0 z-[80] flex items-center justify-center bg-ink-950/[0.80] p-4 backdrop-blur-xl;
+  }
+
+  .modal-card {
+    @apply max-h-[92vh] w-full max-w-4xl overflow-auto rounded-[2.4rem] border border-porcelain-50/10 bg-ink-900/[0.95] p-5 shadow-card md:p-7;
+  }
+}
+
+@layer utilities {
+  .studio-grid {
+    background-image:
+      linear-gradient(rgba(255, 250, 240, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 250, 240, 0.055) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(to bottom, black, transparent 82%);
+  }
+
+  .grain-layer {
+    background-image:
+      radial-gradient(circle at 20% 20%, rgba(255, 250, 240, 0.08) 0 1px, transparent 1px),
+      radial-gradient(circle at 80% 40%, rgba(94, 234, 212, 0.08) 0 1px, transparent 1px);
+    background-size: 22px 22px, 34px 34px;
+    opacity: 0.22;
+    mix-blend-mode: screen;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .bg-lumio-orbit {
+    background:
+      radial-gradient(circle at 10% 90%, rgba(56, 189, 248, 0.15), transparent 28%),
+      radial-gradient(circle at 90% 35%, rgba(251, 191, 36, 0.12), transparent 24%),
+      linear-gradient(120deg, transparent 0 35%, rgba(255, 250, 240, 0.035) 35% 36%, transparent 36% 100%);
+  }
+}
+
+@keyframes pulse-orb {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.88);
+    opacity: 0.55;
+  }
+
+  50% {
+    transform: translate(-50%, -50%) scale(1.08);
+    opacity: 0.9;
+  }
+}
+
+@keyframes float-card {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  50% {
+    transform: translate3d(0, -8px, 0) scale(1.03);
+  }
+}
+
+@layer components {
+  .mode-panel {
+    @apply rounded-[2rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-4;
+  }
+
+  .mode-tabs {
+    @apply grid grid-cols-2 gap-2 rounded-full border border-porcelain-50/10 bg-ink-950/[0.42] p-1;
+  }
+
+  .mode-tab {
+    @apply rounded-full px-4 py-3 text-sm font-extrabold text-porcelain-100/55 transition hover:text-porcelain-50;
+  }
+
+  .mode-tab-active {
+    @apply bg-signal-cyan/15 text-signal-cyan shadow-[0_0_24px_rgba(94,234,212,0.12)];
+  }
+
+  .draw-panel {
+    @apply mt-4 grid gap-4;
+  }
+
+  .draw-card-pools {
+    @apply grid gap-2 sm:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .pool-chip {
+    @apply flex min-h-20 flex-col items-start justify-center rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.035] px-4 py-3 text-left transition hover:-translate-y-0.5 hover:border-signal-cyan/45;
+  }
+
+  .pool-chip span {
+    @apply text-sm font-extrabold text-porcelain-50;
+  }
+
+  .pool-chip small {
+    @apply mt-1 text-xs font-semibold leading-5 text-porcelain-100/40;
+  }
+
+  .pool-chip-active {
+    @apply border-signal-cyan/65 bg-signal-cyan/10 shadow-[0_0_24px_rgba(94,234,212,0.10)];
+  }
+
+  .draw-strategy-section {
+    @apply grid gap-3 rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.035] p-3;
+  }
+
+  .draw-strategy-grid {
+    @apply grid grid-cols-3 gap-2;
+  }
+
+  .draw-strategy-chip {
+    @apply flex min-h-16 flex-col items-center justify-center gap-1 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-3 py-2 text-sm font-extrabold text-porcelain-100/65 transition hover:-translate-y-0.5 hover:border-signal-cyan/45 hover:text-porcelain-50;
+  }
+
+  .draw-strategy-chip small {
+    @apply text-[11px] font-semibold text-porcelain-100/40;
+  }
+
+  .draw-strategy-chip-active {
+    @apply border-signal-cyan/70 bg-signal-cyan/15 text-signal-cyan shadow-[0_0_24px_rgba(94,234,212,0.10)];
+  }
+
+  .concurrency-row {
+    @apply grid grid-cols-4 gap-2 md:grid-cols-8;
+  }
+
+  .concurrency-chip {
+    @apply h-10 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.40] font-mono text-sm font-black text-porcelain-100/60 transition hover:border-signal-cyan/45 hover:text-signal-cyan disabled:cursor-not-allowed disabled:opacity-35;
+  }
+
+  .concurrency-chip-active {
+    @apply border-signal-cyan/70 bg-signal-cyan/15 text-signal-cyan;
+  }
+
+
+  .draw-controls-grid {
+    @apply grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .draw-input-card {
+    @apply grid min-w-0 gap-2 overflow-hidden rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.035] p-3;
+  }
+
+  .draw-input-card input {
+    @apply h-11 w-full min-w-0 rounded-xl border border-porcelain-50/10 bg-ink-950/70 px-3 font-mono text-sm font-bold text-signal-cyan outline-none focus:border-signal-cyan/70;
+  }
+
+  .draw-input-card small {
+    @apply text-xs font-semibold text-porcelain-100/40;
+  }
+
+  .draw-shortcuts {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .stability-toggle {
+    @apply inline-flex min-h-10 items-center gap-2 rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-4 text-xs font-bold text-signal-cyan;
+  }
+
+  .stability-toggle input {
+    @apply h-4 w-4 accent-signal-cyan;
+  }
+
+  .shortcut-chip {
+    @apply rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.045] px-3 py-2 text-xs font-bold text-porcelain-100/65 transition hover:border-signal-cyan/40 hover:text-signal-cyan;
+  }
+
+  .rarity-strip {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .rarity-pill,
+  .rarity-badge {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-black tracking-[0.16em];
+  }
+
+  .rarity-r {
+    @apply border-porcelain-50/15 bg-porcelain-50/[0.06] text-porcelain-100/65;
+  }
+
+  .rarity-sr {
+    @apply border-signal-cyan/35 bg-signal-cyan/10 text-signal-cyan;
+  }
+
+  .rarity-ssr {
+    @apply border-signal-amber/45 bg-signal-amber/10 text-signal-amber;
+  }
+
+  .rarity-ur {
+    @apply border-signal-coral/45 bg-signal-coral/10 text-signal-coral;
+  }
+}
+
+@layer components {
+  .draw-summary-card {
+    @apply grid gap-1 rounded-2xl border border-signal-cyan/20 bg-signal-cyan/[0.08] p-4;
+  }
+
+  .draw-summary-card strong {
+    @apply text-sm font-black text-signal-cyan;
+  }
+
+  .draw-summary-card span {
+    @apply text-xs font-semibold leading-5 text-porcelain-100/55;
+  }
+
+  .variation-section {
+    @apply grid gap-3 rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.035] p-3;
+  }
+
+  .variation-strength-grid {
+    @apply grid grid-cols-3 gap-2;
+  }
+
+  .variation-chip {
+    @apply flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-3 py-2 text-sm font-extrabold text-porcelain-100/70 transition hover:-translate-y-0.5 hover:border-signal-cyan/45;
+  }
+
+  .variation-chip small {
+    @apply text-[11px] font-semibold text-porcelain-100/40;
+  }
+
+  .variation-chip-active {
+    @apply border-signal-cyan/70 bg-signal-cyan/15 text-signal-cyan;
+  }
+
+  .variation-dimension-grid {
+    @apply grid grid-cols-3 gap-2 sm:grid-cols-5;
+  }
+
+  .dimension-chip {
+    @apply rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-3 py-2 text-sm font-bold text-porcelain-100/65 transition hover:-translate-y-0.5 hover:border-signal-cyan/45 hover:text-porcelain-50;
+  }
+
+  .dimension-chip-active {
+    @apply border-signal-cyan/65 bg-signal-cyan/15 text-signal-cyan;
+  }
+
+  .variation-badge {
+    @apply inline-flex items-center rounded-full border border-signal-cyan/35 bg-signal-cyan/10 px-2.5 py-1 text-[11px] font-black tracking-[0.16em] text-signal-cyan;
+  }
+}
+
+@layer components {
+  .style-inline-panel {
+    @apply rounded-[2rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-4;
+  }
+
+  .works-panel-stacked {
+    @apply flex flex-col;
+  }
+
+  .works-grid {
+    @apply grid grid-cols-2 gap-3;
+  }
+
+  .grid-tile {
+    @apply aspect-[16/10] min-h-[112px] w-full;
+  }
+
+  .sample-tile-empty {
+    @apply border-dashed border-porcelain-50/[0.08] bg-porcelain-50/[0.025] shadow-none;
+  }
+
+  .sample-tile-task {
+    @apply border-porcelain-50/10 bg-ink-950/[0.42];
+  }
+
+  .task-slot-body {
+    @apply relative z-10 flex h-full flex-col justify-between rounded-[1.25rem] border border-porcelain-50/10 bg-ink-950/35 p-3;
+  }
+
+  .empty-work-slot {
+    @apply absolute inset-0 grid place-items-center text-porcelain-100/20;
+    background:
+      radial-gradient(circle at 50% 40%, rgba(94, 234, 212, 0.08), transparent 34%),
+      linear-gradient(145deg, rgba(255, 250, 240, 0.035), rgba(7, 8, 10, 0.08));
+  }
+}
+
+@layer components {
+  .batch-strip {
+    @apply mb-4 flex gap-2 overflow-x-auto pb-1;
+    scrollbar-width: none;
+  }
+
+  .batch-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .batch-chip {
+    @apply inline-flex shrink-0 flex-col rounded-2xl border border-porcelain-50/10 bg-ink-950/45 px-3 py-2 text-left text-xs font-black text-porcelain-100/60 transition hover:border-signal-cyan/45 hover:text-signal-cyan;
+  }
+
+  .batch-chip small {
+    @apply mt-1 font-semibold text-porcelain-100/[0.38];
+  }
+
+  .batch-chip-active {
+    @apply border-signal-cyan/65 bg-signal-cyan/15 text-signal-cyan;
+  }
+
+  .bulk-action-bar {
+    @apply inline-flex items-center gap-2 rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.08] px-3 py-1.5 text-xs font-black text-signal-cyan;
+  }
+
+  .bulk-danger,
+  .bulk-ghost {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-1 transition;
+  }
+
+  .bulk-danger {
+    @apply text-signal-coral hover:bg-signal-coral/15;
+  }
+
+  .bulk-ghost {
+    @apply text-porcelain-100/55 hover:bg-porcelain-50/10 hover:text-porcelain-50;
+  }
+
+  .tile-select {
+    @apply absolute right-3 top-3 z-20 grid h-7 w-7 place-items-center rounded-full border border-porcelain-50/15 bg-ink-950/70 text-signal-cyan shadow-card backdrop-blur-md transition hover:border-signal-cyan/60;
+  }
+
+  .tile-select-bottom {
+    @apply bottom-3 left-3 right-auto top-auto;
+  }
+
+  .tile-select-active {
+    @apply border-signal-cyan/70 bg-signal-cyan text-ink-950;
+  }
+
+  .sample-tile-selected,
+  .wall-tile-selected {
+    @apply border-signal-cyan/70 ring-2 ring-signal-cyan/25;
+  }
+
+  .wall-select {
+    @apply left-3 right-auto;
+  }
+
+  .wall-selected-count {
+    @apply rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.08] px-3 py-2 text-xs font-black text-signal-cyan;
+  }
+}
+
+
+@layer components {
+  .tile-select-left {
+    @apply left-3 right-auto;
+  }
+}
+
+
+@layer components {
+  .copy-toast {
+    @apply absolute right-4 top-16 z-30 rounded-full border px-3 py-1.5 text-xs font-black shadow-card backdrop-blur-md;
+  }
+
+  .copy-toast-success {
+    @apply border-signal-cyan/35 bg-signal-cyan/15 text-signal-cyan;
+  }
+
+  .copy-toast-error {
+    @apply border-signal-coral/35 bg-signal-coral/15 text-signal-coral;
+  }
+}

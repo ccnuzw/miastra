@@ -22,10 +22,10 @@ export function PromptComposer({ prompt, referenceImages, hasReferenceImage, inp
       <textarea value={prompt} onChange={(event) => onPromptChange(event.target.value)} className="prompt-area" rows={9} />
       <div className="reference-tray">
         <div className="reference-strip">
-          {referenceImages.map((image) => (
+          {referenceImages.map((image, index) => (
             <div key={image.id} className="reference-thumb" title={image.name}>
               <img src={image.src} alt={image.name} />
-              <span>{image.source === 'upload' ? '上传' : '作品'}</span>
+              <span>{`图 ${index + 1} · ${image.source === 'upload' ? '上传' : '作品'}`}</span>
               <button type="button" onClick={() => onRemoveReference(image.id)} aria-label="移除参考图">
                 <X className="h-3 w-3" />
               </button>
@@ -37,7 +37,7 @@ export function PromptComposer({ prompt, referenceImages, hasReferenceImage, inp
           </button>
         </div>
         <span className={`reference-mode ${hasReferenceImage ? 'reference-mode-active' : ''}`}>
-          {hasReferenceImage ? '已启用图生图 · 使用第 1 张参考图' : '无参考图时使用文生图'}
+          {hasReferenceImage ? `已启用图生图 · 将按顺序发送 ${referenceImages.length} 张参考图` : '无参考图时使用文生图'}
         </span>
         <input
           ref={inputRef}

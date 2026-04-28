@@ -5,7 +5,7 @@ import { referenceImageToFile } from '@/features/references/reference.utils'
 import type { GalleryImage } from '@/features/works/works.types'
 import type { GenerationRequestOptions, GenerationStage } from '@/features/generation/generation.types'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
-import { extractImageSrc, isGatewayTimeoutPayload } from '@/features/generation/generation.parser'
+import { extractGenerationError, extractImageSrc, isGatewayTimeoutPayload } from '@/features/generation/generation.parser'
 import { postFormImageGeneration, postJsonImageGeneration } from '@/features/generation/generation.api'
 
 type RequestContext = {
@@ -88,6 +88,8 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
     context.setStage('finalizing')
     context.setResponseText([`HTTP ${response.status} ${response.statusText}`, debugHeaders, text.slice(0, 1800)].filter(Boolean).join('\n\n'))
     if (isGatewayTimeoutPayload(response.status, text)) throw new Error('远端 openresty 网关超时 504')
+    const responseError = extractGenerationError(text)
+    if (responseError) throw new Error(responseError)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
     const src = latestImageSrc || extractImageSrc(text)
@@ -105,8 +107,7 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
 }
 
 async function requestEditImage(context: RequestContext, options: GenerationRequestOptions) {
-  const reference = context.referenceImages[0]
-  if (!reference) throw new Error('请先上传或从作品区推送一张参考图')
+  if (!context.referenceImages.length) throw new Error('请先上传或从作品区推送一张参考图')
 
   const controller = new AbortController()
   context.abortRef.current = controller
@@ -118,15 +119,14 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
   }, timeoutSec * 1000)
 
   try {
-    const imageFile = await referenceImageToFile(reference)
+    const imageFiles = await Promise.all(context.referenceImages.map((reference) => referenceImageToFile(reference)))
     const formData = new FormData()
     formData.append('model', context.config.model)
     formData.append('prompt', options.promptText)
-    formData.append('image', imageFile)
+    imageFiles.forEach((imageFile) => formData.append('image', imageFile))
     formData.append('size', context.size)
     formData.append('quality', options.qualityValue ?? context.quality)
     formData.append('n', '1')
-    formData.append('stream', String(options.streamValue ?? context.stream))
 
     context.setStage('waiting')
     const { response, debugHeaders, text, latestImageSrc } = await postFormImageGeneration({
@@ -144,6 +144,8 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
     context.setResponseText([`HTTP ${response.status} ${response.statusText}`, `当前请求地址：${context.editRequestUrl}`, debugHeaders, text.slice(0, 1800)].filter(Boolean).join('\n\n'))
     if (response.status === 404 || response.status === 405) throw new Error('当前 Provider 不支持标准 /v1/images/edits 图生图接口，或代理未开放该路径')
     if (isGatewayTimeoutPayload(response.status, text)) throw new Error('远端 openresty 网关超时 504')
+    const responseError = extractGenerationError(text)
+    if (responseError) throw new Error(responseError)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
     const src = latestImageSrc || extractImageSrc(text)

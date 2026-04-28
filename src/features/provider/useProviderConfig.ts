@@ -45,6 +45,18 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
     onSaved?.()
   }
 
+  function applyProviderSnapshot(snapshot: Partial<Pick<ProviderConfig, 'providerId' | 'apiUrl' | 'model'>>) {
+    const normalized = {
+      ...config,
+      providerId: snapshot.providerId?.trim() || config.providerId,
+      apiUrl: snapshot.apiUrl?.trim() ?? config.apiUrl,
+      model: snapshot.model?.trim() || config.model,
+    }
+    setConfig(normalized)
+    setDraftConfig(normalized)
+    window.localStorage.setItem(providerStorageKey, JSON.stringify(normalized))
+  }
+
   return {
     config,
     draftConfig,
@@ -54,6 +66,7 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
     activePreset,
     setDraftConfig,
     setSettingsOpen,
+    applyProviderSnapshot,
     handleProviderChange,
     saveProviderConfig,
   }

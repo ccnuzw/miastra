@@ -1,5 +1,5 @@
-import { Bolt, Check, CheckCircle2, ClipboardCopy, Download, Eye, ImagePlus, Loader2, Trash2 } from 'lucide-react'
-import { useState, type MouseEvent } from 'react'
+import { Bolt, Check, CheckCircle2, ClipboardCopy, Download, Eye, ImagePlus, Loader2, Star, Tag, Trash2, X } from 'lucide-react'
+import { useState, type FormEvent, type MouseEvent } from 'react'
 import { drawTaskStatusText } from '@/features/draw-card/drawCard.constants'
 import type { GalleryImage } from './works.types'
 
@@ -12,13 +12,31 @@ type WorkTileProps = {
   onRemove: (id: string) => void
   selected?: boolean
   onToggleSelect?: (id: string) => void
+  onToggleFavorite?: (id: string) => void
+  onAddTag?: (id: string, tag: string) => void
+  onRemoveTag?: (id: string, tag: string) => void
 }
 
-export function WorkTile({ item, mode = 'grid', onPreview, onDownload, onPushReference, onRemove, selected = false, onToggleSelect }: WorkTileProps) {
+export function WorkTile({
+  item,
+  mode = 'grid',
+  onPreview,
+  onDownload,
+  onPushReference,
+  onRemove,
+  selected = false,
+  onToggleSelect,
+  onToggleFavorite,
+  onAddTag,
+  onRemoveTag,
+}: WorkTileProps) {
   const hasImage = Boolean(item.src)
   const hasTask = Boolean(item.taskStatus)
   const promptText = item.promptText || item.promptSnippet || item.meta
+  const isFavorite = Boolean(item.isFavorite ?? item.favorite)
+  const tags = item.tags ?? []
   const [copyState, setCopyState] = useState<'idle' | 'success' | 'error'>('idle')
+  const [tagDraft, setTagDraft] = useState('')
 
   async function handleCopyPrompt(event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation()
@@ -30,6 +48,15 @@ export function WorkTile({ item, mode = 'grid', onPreview, onDownload, onPushRef
       setCopyState('error')
     }
     window.setTimeout(() => setCopyState('idle'), 1400)
+  }
+
+  function handleAddTag(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    const nextTag = tagDraft.trim()
+    if (!nextTag) return
+    onAddTag?.(item.id, nextTag)
+    setTagDraft('')
   }
 
   return (
@@ -61,6 +88,7 @@ export function WorkTile({ item, mode = 'grid', onPreview, onDownload, onPushRef
             <div className="flex items-center gap-2">
               <Bolt className="h-5 w-5 text-signal-cyan" />
               {item.variation && <span className="variation-badge">{item.drawIndex ? `#${item.drawIndex}` : '变体'}</span>}
+              {isFavorite && <span className="variation-badge text-signal-amber"><Star className="h-3 w-3 fill-current" /> 收藏</span>}
             </div>
             <div className="tile-actions" aria-label="作品操作">
               {onToggleSelect && (
@@ -71,6 +99,16 @@ export function WorkTile({ item, mode = 'grid', onPreview, onDownload, onPushRef
                   aria-label={selected ? '取消选择作品' : '选择作品'}
                 >
                   <Check className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onToggleFavorite && (
+                <button
+                  type="button"
+                  className={`tile-action ${isFavorite ? 'tile-action-success text-signal-amber' : ''}`}
+                  onClick={(event) => { event.stopPropagation(); onToggleFavorite(item.id) }}
+                  aria-label={isFavorite ? '取消收藏作品' : '收藏作品'}
+                >
+                  <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-current' : ''}`} />
                 </button>
               )}
               <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onPreview(item) }} aria-label="放大预览">
@@ -98,6 +136,33 @@ export function WorkTile({ item, mode = 'grid', onPreview, onDownload, onPushRef
           <div className="tile-caption">
             <p className="text-sm font-medium text-porcelain-50">{item.title}</p>
             <p className="mt-1 line-clamp-2 text-xs text-porcelain-100/[0.52]">{item.meta}</p>
+            {(tags.length > 0 || onAddTag) && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+                {tags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full border border-signal-cyan/20 bg-signal-cyan/10 px-2 py-1 text-[10px] font-bold text-signal-cyan transition hover:border-signal-coral/45 hover:text-signal-coral"
+                    onClick={(event) => { event.stopPropagation(); onRemoveTag?.(item.id, tag) }}
+                    aria-label={`删除标签 ${tag}`}
+                  >
+                    #{tag}<X className="h-3 w-3" />
+                  </button>
+                ))}
+                {onAddTag && (
+                  <form onSubmit={handleAddTag} className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1">
+                    <Tag className="h-3 w-3 text-porcelain-100/35" />
+                    <input
+                      value={tagDraft}
+                      onChange={(event) => setTagDraft(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      placeholder="加标签"
+                      className="w-16 bg-transparent text-[10px] font-bold text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
+                    />
+                  </form>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

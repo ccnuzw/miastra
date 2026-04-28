@@ -3,7 +3,7 @@ import type { ProviderConfig } from '@/features/provider/provider.types'
 import type { ReferenceImage } from '@/features/references/reference.types'
 import { referenceImageToFile } from '@/features/references/reference.utils'
 import type { GalleryImage } from '@/features/works/works.types'
-import type { GenerationRequestOptions, GenerationStage } from '@/features/generation/generation.types'
+import type { GenerationMode, GenerationReferenceSnapshot, GenerationRequestOptions, GenerationSnapshot, GenerationStage } from '@/features/generation/generation.types'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
 import { extractGenerationError, extractImageSrc, isGatewayTimeoutPayload } from '@/features/generation/generation.parser'
 import { postFormImageGeneration, postJsonImageGeneration } from '@/features/generation/generation.api'
@@ -24,12 +24,55 @@ type RequestContext = {
   setPreviewImage: Dispatch<SetStateAction<GalleryImage | null>>
 }
 
+function createReferenceSnapshot(referenceImages: ReferenceImage[]): GenerationReferenceSnapshot | undefined {
+  if (!referenceImages.length) return undefined
+  return {
+    count: referenceImages.length,
+    sources: referenceImages.map((reference, index) => ({
+      source: reference.source,
+      name: reference.name || `${reference.source === 'work' ? '作品区参考图' : '上传参考图'} #${index + 1}`,
+    })),
+    note: '图生图参考图仅保存数量与来源提示，不保存图片二进制；复用参数时需重新提供参考图。',
+  }
+}
+
+function createGenerationSnapshot(
+  context: RequestContext,
+  options: GenerationRequestOptions,
+  mode: GenerationMode,
+  createdAt: number,
+  resolvedQuality: string,
+): GenerationSnapshot {
+  const requestUrl = mode === 'image2image' || mode === 'draw-image2image' ? context.editRequestUrl : context.requestUrl
+  return {
+    id: options.snapshotId ?? crypto.randomUUID(),
+    createdAt,
+    mode,
+    prompt: options.promptText,
+    requestPrompt: options.promptText,
+    workspacePrompt: options.workspacePrompt ?? options.promptText,
+    size: context.size,
+    quality: resolvedQuality,
+    model: context.config.model,
+    providerId: context.config.providerId,
+    apiUrl: context.config.apiUrl,
+    requestUrl,
+    stream: options.streamValue ?? context.stream,
+    references: createReferenceSnapshot(context.referenceImages),
+    draw: options.drawSnapshot,
+  }
+}
+
 function createGalleryImage(
   context: RequestContext,
   options: GenerationRequestOptions,
   src: string,
-  mode: 'text2image' | 'image2image',
+  mode: GenerationMode,
 ): GalleryImage {
+  const createdAt = Date.now()
+  const resolvedQuality = options.qualityValue ?? context.quality
+  const generationSnapshot = createGenerationSnapshot(context, options, mode, createdAt, resolvedQuality)
+
   return {
     id: crypto.randomUUID(),
     title: options.title,
@@ -38,12 +81,13 @@ function createGalleryImage(
     variation: options.variation,
     batchId: options.batchId,
     drawIndex: options.drawIndex,
-    snapshotId: options.snapshotId,
-    createdAt: Date.now(),
+    snapshotId: generationSnapshot.id,
+    createdAt,
     mode,
     providerModel: context.config.model,
     size: context.size,
-    quality: options.qualityValue ?? context.quality,
+    quality: resolvedQuality,
+    generationSnapshot,
     promptSnippet: options.promptText.slice(0, 180),
     promptText: options.promptText,
   }
@@ -94,7 +138,7 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
 
     const src = latestImageSrc || extractImageSrc(text)
     if (!src) throw new Error('接口已返回，但未解析到图片数据，请检查响应格式或关闭模型兼容层后重试')
-    const image = createGalleryImage(context, options, src, 'text2image')
+    const image = createGalleryImage(context, options, src, options.mode ?? 'text2image')
     applyPreview(context, options, image)
     return image
   } catch (error) {
@@ -150,7 +194,7 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
 
     const src = latestImageSrc || extractImageSrc(text)
     if (!src) throw new Error('接口已返回，但未解析到图片数据，请检查图生图响应格式或关闭模型兼容层后重试')
-    const image = createGalleryImage(context, options, src, 'image2image')
+    const image = createGalleryImage(context, options, src, options.mode ?? 'image2image')
     applyPreview(context, options, image)
     return image
   } catch (error) {

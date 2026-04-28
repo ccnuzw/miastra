@@ -5,7 +5,7 @@ import type { GalleryImage } from '@/features/works/works.types'
 import type { DrawBatch, DrawStrategy, DrawTask, VariationStrength } from '@/features/draw-card/drawCard.types'
 import { drawStrategyOptions, variationStrengthText } from '@/features/draw-card/drawCard.constants'
 import { clampDrawCount, clampDrawConcurrency, pickVariationPrompts } from '@/features/draw-card/drawCard.utils'
-import type { GenerationStage, GenerationStatus } from '@/features/generation/generation.types'
+import type { GenerationMode, GenerationStage, GenerationStatus } from '@/features/generation/generation.types'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
 import { requestGenerationImage } from '@/features/generation/generation.request'
 import { sleep } from '@/shared/utils/sleep'
@@ -135,8 +135,12 @@ export function useGenerationFlow({
 
     try {
       const snapshotId = crypto.randomUUID()
+      const workspacePrompt = prompt.trim()
+      const requestPrompt = buildPrompt()
       const nextImage = await requestGeneration({
-        promptText: buildPrompt(),
+        promptText: requestPrompt,
+        workspacePrompt,
+        mode: hasReferenceImage ? 'image2image' : 'text2image',
         title: prompt.slice(0, 28),
         meta: `${hasReferenceImage ? '图生图' : '文生图'} · ${config.model} · ${size} · ${quality}`,
         timeoutSec: singleGenerationTimeoutSec,
@@ -169,8 +173,10 @@ export function useGenerationFlow({
     const total = clampDrawCount(drawCount)
     const stableQuality = drawSafeMode ? 'low' : quality
     const stableStream = true
+    const workspacePrompt = prompt.trim()
     const batchId = `Batch ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
-    const snapshotId = crypto.randomUUID()
+    const batchSnapshotId = crypto.randomUUID()
+    const drawMode: GenerationMode = hasReferenceImage ? 'draw-image2image' : 'draw-text2image'
     const concurrency = clampDrawConcurrency(drawConcurrency)
     const tasks: DrawTask[] = Array.from({ length: total }, (_, taskIndex) => {
       const index = taskIndex + 1
@@ -189,7 +195,7 @@ export function useGenerationFlow({
         meta: `${batchId} · ${hasReferenceImage ? '参考图抽卡' : '文生图抽卡'} · ${variationLabel} · ${config.model} · ${size} · ${stableQuality}`,
         variation: variationLabel,
         batchId,
-        snapshotId,
+        snapshotId: crypto.randomUUID(),
         status: 'pending',
         retryCount: 0,
       }
@@ -223,6 +229,8 @@ export function useGenerationFlow({
         try {
           const image = await requestGeneration({
             promptText: task.prompt,
+            workspacePrompt,
+            mode: drawMode,
             title: task.title,
             meta: task.meta,
             variation: task.variation,
@@ -233,6 +241,21 @@ export function useGenerationFlow({
             qualityValue: stableQuality,
             streamValue: stableStream,
             previewMode: 'none',
+            drawSnapshot: {
+              count: total,
+              strategy: drawStrategy,
+              concurrency,
+              delayMs: drawDelayMs,
+              retries: drawRetries,
+              timeoutSec: drawTimeoutSec,
+              safeMode: drawSafeMode,
+              variationStrength,
+              dimensions: [...enabledVariationDimensions],
+              batchId,
+              batchSnapshotId,
+              drawIndex: task.index,
+              variation: task.variation,
+            },
             onReceiveImage: () => patchTask(task.id, { status: 'receiving', retryCount: attempt }),
           })
           results.push(image)
@@ -287,7 +310,7 @@ export function useGenerationFlow({
       count: total,
       successCount: 0,
       failedCount: 0,
-      snapshotId,
+      snapshotId: batchSnapshotId,
     }, ...items].slice(0, 12))
     setStatusText(`${hasReferenceImage ? '参考图抽卡' : '抽卡'}队列启动：${drawStrategyOptions.find((item) => item.value === drawStrategy)?.label} · 并发 ${concurrency} · 共 ${total} 张`)
 

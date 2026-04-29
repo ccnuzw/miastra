@@ -68,6 +68,7 @@ export function useStudioSettings() {
     setStudioMode,
     setResolutionTier,
     setAspectLabel,
+    setSize,
     setQuality,
     setDetailStrength,
     setNegativePrompt,

@@ -14,6 +14,30 @@ export function extractImageSrc(payload: string) {
   }
 }
 
+export function extractGenerationError(payload: string) {
+  const candidates: string[] = []
+  payload.split('\n').forEach((line) => {
+    if (!line.startsWith('data:')) return
+    candidates.push(line.replace(/^data:\s*/, '').trim())
+  })
+  candidates.push(payload.trim())
+
+  for (const candidate of candidates) {
+    if (!candidate || candidate === '[DONE]') continue
+    try {
+      const json = JSON.parse(candidate)
+      const error = json.error ?? json
+      const message = error?.message || json.message
+      if (message) return String(message)
+    } catch {
+      if (/event:\s*error/i.test(payload)) return candidate
+    }
+  }
+
+  if (/event:\s*error/i.test(payload)) return '远端流式响应返回 error 事件，但未提供可解析的错误信息'
+  return ''
+}
+
 export function imageSrcFromEventData(data: string) {
   if (!data || data === '[DONE]') return ''
   return extractImageSrc(data)

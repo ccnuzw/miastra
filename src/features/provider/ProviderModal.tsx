@@ -1,6 +1,8 @@
-import { KeyRound, Lock, RadioTower, Save, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, CheckCircle2, KeyRound, Loader2, Lock, PlugZap, RadioTower, Save, X } from 'lucide-react'
 import type { ProviderConfig } from './provider.types'
 import { providerPresets } from './provider.constants'
+import { testProviderConnection } from './provider.testConnection'
 import { editEndpoint, generationEndpoint } from '@/features/generation/generation.constants'
 import { resolveImageApiUrl } from '@/shared/utils/url'
 
@@ -13,7 +15,64 @@ type ProviderModalProps = {
   onClose: () => void
 }
 
+type ConnectionTestState = {
+  status: 'idle' | 'loading' | 'success' | 'error'
+  message: string
+  requestUrl?: string
+}
+
+const idleConnectionTestState: ConnectionTestState = { status: 'idle', message: '' }
+
 export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProviderChange, onSave, onClose }: ProviderModalProps) {
+  const [connectionTest, setConnectionTest] = useState<ConnectionTestState>(idleConnectionTestState)
+  const testRunRef = useRef(0)
+  const connectionFingerprint = useMemo(
+    () => [draftConfig.providerId, draftConfig.apiUrl, draftConfig.apiKey, draftConfig.model].join('\n'),
+    [draftConfig.apiKey, draftConfig.apiUrl, draftConfig.model, draftConfig.providerId],
+  )
+  const isTestingConnection = connectionTest.status === 'loading'
+
+  useEffect(() => {
+    testRunRef.current += 1
+    setConnectionTest(idleConnectionTestState)
+  }, [connectionFingerprint])
+
+  useEffect(() => {
+    if (open) return
+    testRunRef.current += 1
+    setConnectionTest(idleConnectionTestState)
+  }, [open])
+
+  const updateDraftConfig = useCallback(
+    (patch: Partial<ProviderConfig>) => {
+      onDraftConfigChange({ ...draftConfig, ...patch })
+    },
+    [draftConfig, onDraftConfigChange],
+  )
+
+  const handleProviderChange = useCallback(
+    (providerId: string) => {
+      onProviderChange(providerId)
+    },
+    [onProviderChange],
+  )
+
+  const handleTestConnection = useCallback(async () => {
+    const runId = testRunRef.current + 1
+    testRunRef.current = runId
+    setConnectionTest({ status: 'loading', message: '正在使用当前弹窗配置测试连接…' })
+
+    try {
+      const result = await testProviderConnection(draftConfig)
+      if (runId !== testRunRef.current) return
+      setConnectionTest({ status: 'success', message: result.message, requestUrl: result.requestUrl })
+    } catch (error) {
+      if (runId !== testRunRef.current) return
+      const message = error instanceof Error ? error.message : '测试连接失败：未知错误'
+      setConnectionTest({ status: 'error', message })
+    }
+  }, [draftConfig])
+
   if (!open) return null
 
   return (
@@ -37,7 +96,7 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
             <button
               key={provider.id}
               type="button"
-              onClick={() => onProviderChange(provider.id)}
+              onClick={() => handleProviderChange(provider.id)}
               className={`provider-card ${draftConfig.providerId === provider.id ? 'provider-card-active' : ''}`}
             >
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-porcelain-50/[0.08] text-signal-cyan">
@@ -56,14 +115,14 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
             <span className="field-label">Provider API URL</span>
             <input
               value={draftConfig.apiUrl}
-              onChange={(event) => onDraftConfigChange({ ...draftConfig, apiUrl: event.target.value })}
+              onChange={(event) => updateDraftConfig({ apiUrl: event.target.value })}
               className="input-shell"
               placeholder="留空使用当前站点 /sub2api 代理，避免浏览器 CORS"
             />
           </label>
           <label className="field-block">
             <span className="field-label">Model</span>
-            <input value={draftConfig.model} onChange={(event) => onDraftConfigChange({ ...draftConfig, model: event.target.value })} className="input-shell" />
+            <input value={draftConfig.model} onChange={(event) => updateDraftConfig({ model: event.target.value })} className="input-shell" />
           </label>
           <label className="field-block">
             <span className="field-label">
@@ -72,12 +131,61 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
             </span>
             <input
               value={draftConfig.apiKey}
-              onChange={(event) => onDraftConfigChange({ ...draftConfig, apiKey: event.target.value })}
+              onChange={(event) => updateDraftConfig({ apiKey: event.target.value })}
               className="input-shell"
               placeholder="sk-... 或 sub2api key"
               type="password"
             />
           </label>
+        </div>
+
+        <div className="mt-6 rounded-[1.75rem] border border-porcelain-50/10 bg-porcelain-50/[0.035] p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
+                <PlugZap className="h-4 w-4 text-signal-cyan" />
+                测试连接
+              </div>
+              <p className="mt-2 text-xs leading-5 text-porcelain-100/[0.55]">
+                使用当前弹窗草稿配置发起一次最小生图请求；不会保存配置，也不会写入作品区、预览区或正式生成状态。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              className="settings-button min-w-[132px]"
+              disabled={isTestingConnection}
+              aria-describedby={connectionTest.status === 'idle' ? undefined : 'provider-connection-test-result'}
+            >
+              {isTestingConnection ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
+              {isTestingConnection ? '测试中…' : '测试连接'}
+            </button>
+          </div>
+
+          {connectionTest.status !== 'idle' && (
+            <div
+              id="provider-connection-test-result"
+              role={connectionTest.status === 'error' ? 'alert' : 'status'}
+              aria-live="polite"
+              className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+                connectionTest.status === 'success'
+                  ? 'border-signal-cyan/35 bg-signal-cyan/15 text-signal-cyan'
+                  : connectionTest.status === 'error'
+                    ? 'border-signal-coral/35 bg-signal-coral/15 text-signal-coral'
+                    : 'border-porcelain-50/10 bg-ink-950/45 text-porcelain-100/70'
+              }`}
+            >
+              <div className="flex items-start gap-2 font-semibold">
+                {connectionTest.status === 'success' && <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+                {connectionTest.status === 'error' && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+                {connectionTest.status === 'loading' && <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />}
+                <span>{connectionTest.message}</span>
+              </div>
+              {connectionTest.requestUrl && (
+                <p className="mt-2 break-all font-mono text-[11px] leading-5 opacity-75">测试地址：{connectionTest.requestUrl}</p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="mt-6 rounded-[1.75rem] border border-signal-cyan/20 bg-signal-cyan/[0.055] p-4">

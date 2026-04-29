@@ -1,7 +1,36 @@
+export type GenerationMode = 'text2image' | 'image2image' | 'draw-text2image' | 'draw-image2image'
+
+export type GenerationReferenceSnapshot = {
+  count: number
+  sources: Array<{
+    source: 'upload' | 'work'
+    name: string
+  }>
+  note: string
+}
+
+export type GenerationDrawSnapshot = {
+  count: number
+  strategy: 'linear' | 'smart' | 'turbo'
+  concurrency: number
+  delayMs: number
+  retries: number
+  timeoutSec: number
+  safeMode: boolean
+  variationStrength: 'low' | 'medium' | 'high'
+  dimensions: string[]
+  batchId: string
+  batchSnapshotId?: string
+  drawIndex: number
+  variation: string
+}
+
 export type GenerationRequestOptions = {
   promptText: string
+  workspacePrompt?: string
   title: string
   meta: string
+  mode?: GenerationMode
   variation?: string
   batchId?: string
   drawIndex?: number
@@ -13,27 +42,25 @@ export type GenerationRequestOptions = {
   abortController?: AbortController
   onReceiveImage?: (src: string) => void
   snapshotId?: string
+  drawSnapshot?: GenerationDrawSnapshot
 }
 
 export type GenerationSnapshot = {
   id: string
   createdAt: number
-  mode: 'text2image' | 'image2image' | 'draw-text2image' | 'draw-image2image'
+  mode: GenerationMode
   prompt: string
+  requestPrompt: string
+  workspacePrompt: string
   size: string
   quality: string
   model: string
-  draw?: {
-    count: number
-    strategy: string
-    concurrency: number
-    delayMs: number
-    retries: number
-    timeoutSec: number
-    safeMode: boolean
-    variationStrength: string
-    dimensions: string[]
-  }
+  providerId: string
+  apiUrl: string
+  requestUrl: string
+  stream: boolean
+  references?: GenerationReferenceSnapshot
+  draw?: GenerationDrawSnapshot
 }
 
 export type GenerationStatus = 'idle' | 'loading' | 'success' | 'error'

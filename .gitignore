@@ -19,3 +19,6 @@ dist/
 .bytro
 .claude/
 swarm_reports/
+
+# SpectrAI worktree isolation
+.spectrai-worktrees/

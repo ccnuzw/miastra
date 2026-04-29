@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GalleryImage } from '@/features/works/works.types'
+import type { DrawTask } from '@/features/draw-card/drawCard.types'
 import type { GenerationStage, GenerationStatus } from '@/features/generation/generation.types'
 import { stageProgress } from '@/features/generation/generation.constants'
 
@@ -13,8 +14,13 @@ export function useGenerationRuntime() {
   const [stage, setStage] = useState<GenerationStage>('idle')
   const [elapsedMs, setElapsedMs] = useState(0)
   const [debounceMs, setDebounceMs] = useState(0)
+  const [drawQueuePaused, setDrawQueuePaused] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const cancelRequestedRef = useRef(false)
+  const drawQueuePausedRef = useRef(false)
+  const taskControllersRef = useRef<Map<string, AbortController>>(new Map())
+  const drawTaskSnapshotsRef = useRef<Map<string, DrawTask>>(new Map())
+  const pauseResolversRef = useRef<Array<() => void>>([])
   const debounceTimerRef = useRef<number | null>(null)
   const startedAtRef = useRef<number>(0)
 
@@ -49,7 +55,12 @@ export function useGenerationRuntime() {
   useEffect(() => {
     return () => {
       cancelRequestedRef.current = true
+      drawQueuePausedRef.current = false
+      setDrawQueuePaused(false)
       abortRef.current?.abort()
+      taskControllersRef.current.forEach((controller) => controller.abort())
+      taskControllersRef.current.clear()
+      pauseResolversRef.current.splice(0).forEach((resolve) => resolve())
       if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current)
     }
   }, [])
@@ -64,8 +75,13 @@ export function useGenerationRuntime() {
     stage,
     elapsedMs,
     debounceMs,
+    drawQueuePaused,
     abortRef,
     cancelRequestedRef,
+    drawQueuePausedRef,
+    taskControllersRef,
+    drawTaskSnapshotsRef,
+    pauseResolversRef,
     debounceTimerRef,
     startedAtRef,
     progressValue,
@@ -81,5 +97,6 @@ export function useGenerationRuntime() {
     setStage,
     setElapsedMs,
     setDebounceMs,
+    setDrawQueuePaused,
   }
 }

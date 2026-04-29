@@ -34,10 +34,12 @@ export type GenerationRequestOptions = {
   variation?: string
   batchId?: string
   drawIndex?: number
+  taskId?: string
   timeoutSec?: number
   qualityValue?: string
   streamValue?: boolean
   previewMode?: 'live' | 'final' | 'none'
+  abortController?: AbortController
   onReceiveImage?: (src: string) => void
   snapshotId?: string
   drawSnapshot?: GenerationDrawSnapshot

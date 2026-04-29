@@ -100,8 +100,9 @@ function applyPreview(context: RequestContext, options: GenerationRequestOptions
 }
 
 async function requestTextImage(context: RequestContext, options: GenerationRequestOptions) {
-  const controller = new AbortController()
-  context.abortRef.current = controller
+  const controller = options.abortController ?? new AbortController()
+  const ownsController = !options.abortController
+  if (ownsController) context.abortRef.current = controller
   let didTimeout = false
   const timeoutSec = Math.max(20, options.timeoutSec ?? singleGenerationTimeoutSec)
   const timeout = window.setTimeout(() => {
@@ -146,15 +147,16 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
     throw error
   } finally {
     window.clearTimeout(timeout)
-    context.abortRef.current = null
+    if (ownsController && context.abortRef.current === controller) context.abortRef.current = null
   }
 }
 
 async function requestEditImage(context: RequestContext, options: GenerationRequestOptions) {
   if (!context.referenceImages.length) throw new Error('请先上传或从作品区推送一张参考图')
 
-  const controller = new AbortController()
-  context.abortRef.current = controller
+  const controller = options.abortController ?? new AbortController()
+  const ownsController = !options.abortController
+  if (ownsController) context.abortRef.current = controller
   let didTimeout = false
   const timeoutSec = Math.max(20, options.timeoutSec ?? singleGenerationTimeoutSec)
   const timeout = window.setTimeout(() => {
@@ -202,7 +204,7 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
     throw error
   } finally {
     window.clearTimeout(timeout)
-    context.abortRef.current = null
+    if (ownsController && context.abortRef.current === controller) context.abortRef.current = null
   }
 }
 

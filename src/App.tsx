@@ -72,8 +72,13 @@ function App() {
     stage,
     elapsedMs,
     debounceMs,
+    drawQueuePaused,
     abortRef,
     cancelRequestedRef,
+    drawQueuePausedRef,
+    taskControllersRef,
+    drawTaskSnapshotsRef,
+    pauseResolversRef,
     debounceTimerRef,
     startedAtRef,
     progressValue,
@@ -89,6 +94,7 @@ function App() {
     setStage,
     setElapsedMs,
     setDebounceMs,
+    setDrawQueuePaused,
   } = useGenerationRuntime()
 
 
@@ -210,7 +216,15 @@ function App() {
       setStatusText(message)
     },
   })
-  const { handleGenerate, handleCancelGeneration } = useGenerationFlow({
+  const {
+    handleGenerate,
+    handleCancelGeneration,
+    handlePauseQueue,
+    handleResumeQueue,
+    handleCancelDrawTask,
+    handleRetryDrawTask,
+    handleCancelAllQueue,
+  } = useGenerationFlow({
     config,
     requestUrl,
     editRequestUrl,
@@ -244,8 +258,13 @@ function App() {
     setStage,
     setElapsedMs,
     setDebounceMs,
+    setDrawQueuePaused,
     abortRef,
     cancelRequestedRef,
+    drawQueuePausedRef,
+    taskControllersRef,
+    drawTaskSnapshotsRef,
+    pauseResolversRef,
     debounceTimerRef,
     startedAtRef,
     status,
@@ -459,6 +478,20 @@ function App() {
   }
 
 
+  const drawQueueState = {
+    paused: drawQueuePaused,
+    isGenerating: isBusy,
+    tasks: taskSlots,
+    stats: drawStats,
+  }
+  const drawQueueActions = {
+    pause: handlePauseQueue,
+    resume: handleResumeQueue,
+    cancelTask: handleCancelDrawTask,
+    retryTask: handleRetryDrawTask,
+    cancelAll: handleCancelAllQueue,
+  }
+
   return (
     <main id="top" className="relative min-h-screen overflow-hidden bg-ink-950 text-porcelain-50">
       <div className="absolute inset-0 bg-aurora-radial" />
@@ -535,6 +568,11 @@ function App() {
               variationStrength={variationStrength}
               enabledVariationDimensions={enabledVariationDimensions}
               drawSafeMode={drawSafeMode}
+              drawQueuePaused={drawQueuePaused}
+              isGenerating={isBusy}
+              taskSlots={taskSlots}
+              drawQueueState={drawQueueState}
+              drawQueueActions={drawQueueActions}
               onModeChange={setStudioMode}
               onApplyStrategy={handleApplyDrawStrategy}
               onConcurrencyChange={setDrawConcurrency}
@@ -546,6 +584,11 @@ function App() {
               onToggleDimension={toggleVariationDimension}
               onSafeModeChange={setDrawSafeMode}
               onShortcut={handleApplyDrawShortcut}
+              onPauseQueue={handlePauseQueue}
+              onResumeQueue={handleResumeQueue}
+              onCancelTask={handleCancelDrawTask}
+              onRetryTask={handleRetryDrawTask}
+              onCancelAllQueue={handleCancelAllQueue}
             />
 
             <PromptComposer

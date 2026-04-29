@@ -1,6 +1,22 @@
+import type { GalleryImage } from '@/features/works/works.types'
 import type { DrawStrategy, VariationStrength, DrawTaskStatus } from './drawCard.types'
 import { drawStrategyOptions, variationDimensions, variationStrengthOptions } from './drawCard.constants'
 import { clampDrawCount } from './drawCard.utils'
+
+type DrawQueueState = {
+  paused: boolean
+  isGenerating: boolean
+  tasks: GalleryImage[]
+  stats: Partial<Record<DrawTaskStatus, number>>
+}
+
+type DrawQueueActions = {
+  pause: () => void
+  resume: () => void
+  cancelTask: (taskId: string) => void
+  retryTask: (taskId: string) => void
+  cancelAll: () => void
+}
 
 type DrawCardPanelProps = {
   studioMode: 'create' | 'draw'
@@ -14,6 +30,11 @@ type DrawCardPanelProps = {
   variationStrength: VariationStrength
   enabledVariationDimensions: string[]
   drawSafeMode: boolean
+  drawQueuePaused: boolean
+  isGenerating: boolean
+  taskSlots: GalleryImage[]
+  drawQueueState?: DrawQueueState
+  drawQueueActions?: DrawQueueActions
   onModeChange: (mode: 'create' | 'draw') => void
   onApplyStrategy: (value: DrawStrategy) => void
   onConcurrencyChange: (value: number) => void
@@ -25,9 +46,31 @@ type DrawCardPanelProps = {
   onToggleDimension: (id: string) => void
   onSafeModeChange: (checked: boolean) => void
   onShortcut: (preset: 'safe3' | 'balanced5' | 'fast8' | 'turbo10') => void
+  onPauseQueue: () => void
+  onResumeQueue: () => void
+  onCancelTask: (taskId: string) => void
+  onRetryTask: (taskId: string) => void
+  onCancelAllQueue: () => void
 }
 
 export function DrawCardPanel(props: DrawCardPanelProps) {
+  const drawQueueState = props.drawQueueState ?? {
+    paused: props.drawQueuePaused,
+    isGenerating: props.isGenerating,
+    tasks: props.taskSlots,
+    stats: props.drawStats,
+  }
+  const drawQueueActions = props.drawQueueActions ?? {
+    pause: props.onPauseQueue,
+    resume: props.onResumeQueue,
+    cancelTask: props.onCancelTask,
+    retryTask: props.onRetryTask,
+    cancelAll: props.onCancelAllQueue,
+  }
+  const actionableTasks = drawQueueState.tasks.filter((task) => task.taskStatus && task.taskStatus !== 'success')
+  const activeTaskCount = actionableTasks.filter((task) => task.taskStatus === 'pending' || task.taskStatus === 'running' || task.taskStatus === 'receiving' || task.taskStatus === 'retrying').length
+  const failedTasks = actionableTasks.filter((task) => task.taskStatus === 'failed')
+
   return (
     <div className="mode-panel">
       <div className="mode-tabs" role="tablist" aria-label="生成模式">
@@ -39,7 +82,41 @@ export function DrawCardPanel(props: DrawCardPanelProps) {
           <div className="draw-summary-card">
             <strong>固定参数抽卡</strong>
             <span>基于当前 Prompt、负面提示词、画幅、质量和细节强度，批量生成相近但有轻微风格差异的图片。</span>
-            <span>当前策略：{drawStrategyOptions.find((item) => item.value === props.drawStrategy)?.label} · 有效并发 {props.effectiveDrawConcurrency} · 完成 {props.drawStats.success ?? 0} / 失败 {props.drawStats.failed ?? 0}</span>
+            <span>当前策略：{drawStrategyOptions.find((item) => item.value === props.drawStrategy)?.label} · 有效并发 {props.effectiveDrawConcurrency} · 完成 {drawQueueState.stats.success ?? 0} / 失败 {drawQueueState.stats.failed ?? 0}</span>
+          </div>
+          <div className="draw-strategy-section">
+            <div className="flex items-center justify-between gap-3">
+              <span className="field-label">队列控制</span>
+              <span className="param-value">{drawQueueState.paused ? '已暂停' : drawQueueState.isGenerating ? '运行中' : '待命'} · 活跃 {activeTaskCount}</span>
+            </div>
+            <div className="draw-shortcuts">
+              <button type="button" onClick={drawQueueActions.pause} disabled={!drawQueueState.isGenerating || drawQueueState.paused} className="shortcut-chip">暂停队列</button>
+              <button type="button" onClick={drawQueueActions.resume} disabled={!drawQueueState.paused} className="shortcut-chip">继续队列</button>
+              <button type="button" onClick={drawQueueActions.cancelAll} disabled={!drawQueueState.isGenerating && activeTaskCount === 0} className="shortcut-chip">取消全部</button>
+            </div>
+            {actionableTasks.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {actionableTasks.slice(0, 8).map((task) => (
+                  <div key={task.id} className="draw-summary-card">
+                    <span className="flex items-center justify-between gap-3">
+                      <strong>{task.title}</strong>
+                      <small>{task.taskStatus}{task.retryCount ? ` · 重试 ${task.retryCount}` : ''}</small>
+                    </span>
+                    <span>{task.meta}</span>
+                    {task.error && <span>失败原因：{task.error}</span>}
+                    <span className="draw-shortcuts">
+                      {(task.taskStatus === 'pending' || task.taskStatus === 'running' || task.taskStatus === 'receiving' || task.taskStatus === 'retrying') && (
+                        <button type="button" onClick={() => drawQueueActions.cancelTask(task.id)} className="shortcut-chip">取消该任务</button>
+                      )}
+                      {task.taskStatus === 'failed' && (
+                        <button type="button" onClick={() => drawQueueActions.retryTask(task.id)} disabled={drawQueueState.isGenerating} className="shortcut-chip">重试失败项</button>
+                      )}
+                    </span>
+                  </div>
+                ))}
+                {failedTasks.length > 8 && <small className="text-porcelain-100/[0.5]">还有 {failedTasks.length - 8} 个失败任务可在作品区筛选后查看。</small>}
+              </div>
+            )}
           </div>
           <div className="draw-strategy-section">
             <div className="flex items-center justify-between gap-3">

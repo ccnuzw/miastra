@@ -5,7 +5,7 @@ import { referenceImageToFile } from '@/features/references/reference.utils'
 import type { GalleryImage } from '@/features/works/works.types'
 import type { GenerationRequestOptions, GenerationStage } from '@/features/generation/generation.types'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
-import { extractGenerationError, extractImageSrc, isGatewayTimeoutPayload } from '@/features/generation/generation.parser'
+import { extractImageSrc, isGatewayTimeoutPayload } from '@/features/generation/generation.parser'
 import { postFormImageGeneration, postJsonImageGeneration } from '@/features/generation/generation.api'
 
 type RequestContext = {
@@ -56,8 +56,9 @@ function applyPreview(context: RequestContext, options: GenerationRequestOptions
 }
 
 async function requestTextImage(context: RequestContext, options: GenerationRequestOptions) {
-  const controller = new AbortController()
-  context.abortRef.current = controller
+  const controller = options.abortController ?? new AbortController()
+  const ownsController = !options.abortController
+  if (ownsController) context.abortRef.current = controller
   let didTimeout = false
   const timeoutSec = Math.max(20, options.timeoutSec ?? singleGenerationTimeoutSec)
   const timeout = window.setTimeout(() => {
@@ -88,8 +89,6 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
     context.setStage('finalizing')
     context.setResponseText([`HTTP ${response.status} ${response.statusText}`, debugHeaders, text.slice(0, 1800)].filter(Boolean).join('\n\n'))
     if (isGatewayTimeoutPayload(response.status, text)) throw new Error('远端 openresty 网关超时 504')
-    const responseError = extractGenerationError(text)
-    if (responseError) throw new Error(responseError)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
     const src = latestImageSrc || extractImageSrc(text)
@@ -102,15 +101,16 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
     throw error
   } finally {
     window.clearTimeout(timeout)
-    context.abortRef.current = null
+    if (ownsController && context.abortRef.current === controller) context.abortRef.current = null
   }
 }
 
 async function requestEditImage(context: RequestContext, options: GenerationRequestOptions) {
   if (!context.referenceImages.length) throw new Error('请先上传或从作品区推送一张参考图')
 
-  const controller = new AbortController()
-  context.abortRef.current = controller
+  const controller = options.abortController ?? new AbortController()
+  const ownsController = !options.abortController
+  if (ownsController) context.abortRef.current = controller
   let didTimeout = false
   const timeoutSec = Math.max(20, options.timeoutSec ?? singleGenerationTimeoutSec)
   const timeout = window.setTimeout(() => {
@@ -144,8 +144,6 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
     context.setResponseText([`HTTP ${response.status} ${response.statusText}`, `当前请求地址：${context.editRequestUrl}`, debugHeaders, text.slice(0, 1800)].filter(Boolean).join('\n\n'))
     if (response.status === 404 || response.status === 405) throw new Error('当前 Provider 不支持标准 /v1/images/edits 图生图接口，或代理未开放该路径')
     if (isGatewayTimeoutPayload(response.status, text)) throw new Error('远端 openresty 网关超时 504')
-    const responseError = extractGenerationError(text)
-    if (responseError) throw new Error(responseError)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
     const src = latestImageSrc || extractImageSrc(text)
@@ -158,7 +156,7 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
     throw error
   } finally {
     window.clearTimeout(timeout)
-    context.abortRef.current = null
+    if (ownsController && context.abortRef.current === controller) context.abortRef.current = null
   }
 }
 

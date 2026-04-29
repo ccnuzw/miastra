@@ -5,7 +5,7 @@ import type { GalleryImage } from '@/features/works/works.types'
 import type { DrawBatch, DrawStrategy, DrawTask, VariationStrength } from '@/features/draw-card/drawCard.types'
 import { drawStrategyOptions, variationStrengthText } from '@/features/draw-card/drawCard.constants'
 import { clampDrawCount, clampDrawConcurrency, pickVariationPrompts } from '@/features/draw-card/drawCard.utils'
-import type { GenerationStage, GenerationStatus } from '@/features/generation/generation.types'
+import type { GenerationMode, GenerationRequestOptions, GenerationStage, GenerationStatus } from '@/features/generation/generation.types'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
 import { requestGenerationImage } from '@/features/generation/generation.request'
 import { sleep } from '@/shared/utils/sleep'
@@ -44,11 +44,24 @@ type UseGenerationFlowOptions = {
   setStage: Dispatch<SetStateAction<GenerationStage>>
   setElapsedMs: Dispatch<SetStateAction<number>>
   setDebounceMs: Dispatch<SetStateAction<number>>
+  setDrawQueuePaused: Dispatch<SetStateAction<boolean>>
   abortRef: MutableRefObject<AbortController | null>
   cancelRequestedRef: MutableRefObject<boolean>
+  drawQueuePausedRef: MutableRefObject<boolean>
+  taskControllersRef: MutableRefObject<Map<string, AbortController>>
+  drawTaskSnapshotsRef: MutableRefObject<Map<string, DrawTask>>
+  pauseResolversRef: MutableRefObject<Array<() => void>>
   debounceTimerRef: MutableRefObject<number | null>
   startedAtRef: MutableRefObject<number>
   status: GenerationStatus
+}
+
+function isActiveDrawStatus(status: DrawTask['status']) {
+  return status === 'pending' || status === 'running' || status === 'receiving' || status === 'retrying'
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError'
 }
 
 export function useGenerationFlow({
@@ -85,8 +98,13 @@ export function useGenerationFlow({
   setStage,
   setElapsedMs,
   setDebounceMs,
+  setDrawQueuePaused,
   abortRef,
   cancelRequestedRef,
+  drawQueuePausedRef,
+  taskControllersRef,
+  drawTaskSnapshotsRef,
+  pauseResolversRef,
   debounceTimerRef,
   startedAtRef,
   status,
@@ -102,8 +120,43 @@ export function useGenerationFlow({
     return true
   }
 
+  function syncTaskSnapshots(tasks: DrawTask[]) {
+    drawTaskSnapshotsRef.current = new Map(tasks.map((task) => [task.id, task]))
+  }
 
-  async function requestGeneration(options: Parameters<typeof requestGenerationImage>[1]) {
+  function patchTask(taskId: string, patch: Partial<DrawTask>) {
+    setDrawTasks((items) => {
+      const nextItems = items.map((item) => (item.id === taskId ? { ...item, ...patch } : item))
+      syncTaskSnapshots(nextItems)
+      return nextItems
+    })
+  }
+
+  function updateBatchCounts(batchId: string) {
+    const tasks = [...drawTaskSnapshotsRef.current.values()].filter((task) => task.batchId === batchId)
+    setDrawBatches((items) => items.map((item) => item.id === batchId ? {
+      ...item,
+      successCount: tasks.filter((task) => task.status === 'success').length,
+      failedCount: tasks.filter((task) => task.status === 'failed').length,
+    } : item))
+  }
+
+  function wakePausedQueue() {
+    pauseResolversRef.current.splice(0).forEach((resolve) => resolve())
+  }
+
+  async function waitForQueueResume() {
+    while (drawQueuePausedRef.current && !cancelRequestedRef.current) {
+      setStage('queued')
+      setStatusText('抽卡队列已暂停，运行中任务完成后不再领取新任务')
+      await new Promise<void>((resolve) => {
+        pauseResolversRef.current.push(resolve)
+      })
+    }
+    if (cancelRequestedRef.current) throw new DOMException('cancelled', 'AbortError')
+  }
+
+  async function requestGeneration(options: GenerationRequestOptions) {
     return requestGenerationImage({
       config,
       requestUrl,
@@ -147,7 +200,7 @@ export function useGenerationFlow({
       setStage('success')
       setStatusText(nextImage.src ? '生成成功，图片已加入作品区' : '请求成功，未解析到图片，已保留响应')
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      if (isAbortError(error)) {
         setStatus('idle')
         setStage('cancelled')
         setStatusText('已取消当前生成任务')
@@ -164,11 +217,103 @@ export function useGenerationFlow({
     }
   }
 
+  function buildDrawRequestOptions(task: DrawTask, attempt: number, total: number, concurrency: number, workspacePrompt: string, drawMode: GenerationMode, batchSnapshotId: string, abortController: AbortController): GenerationRequestOptions {
+    return {
+      promptText: task.prompt,
+      workspacePrompt,
+      mode: drawMode,
+      title: task.title,
+      meta: task.meta,
+      variation: task.variation,
+      batchId: task.batchId,
+      drawIndex: task.index,
+      taskId: task.id,
+      snapshotId: task.snapshotId,
+      timeoutSec: drawTimeoutSec,
+      qualityValue: drawSafeMode ? 'low' : quality,
+      streamValue: true,
+      previewMode: 'none',
+      abortController,
+      drawSnapshot: {
+        count: total,
+        strategy: drawStrategy,
+        concurrency,
+        delayMs: drawDelayMs,
+        retries: drawRetries,
+        timeoutSec: drawTimeoutSec,
+        safeMode: drawSafeMode,
+        variationStrength,
+        dimensions: [...enabledVariationDimensions],
+        batchId: task.batchId,
+        batchSnapshotId,
+        drawIndex: task.index,
+        variation: task.variation,
+      },
+      onReceiveImage: () => patchTask(task.id, { status: 'receiving', retryCount: attempt }),
+    }
+  }
+
+  async function executeDrawTask(task: DrawTask, options: {
+    total: number
+    concurrency: number
+    workspacePrompt: string
+    drawMode: GenerationMode
+    batchSnapshotId: string
+    maxRetries: number
+    manualRetry?: boolean
+    onSuccess?: (image: GalleryImage) => void
+    onFailure?: (task: DrawTask) => void
+  }) {
+    const latest = drawTaskSnapshotsRef.current.get(task.id) ?? task
+    if (latest.status === 'cancelled') return 'cancelled' as const
+
+    patchTask(task.id, { status: 'running', startedAt: Date.now(), error: undefined, image: undefined })
+
+    for (let attempt = 0; attempt <= options.maxRetries; attempt += 1) {
+      await waitForQueueResume()
+      const current = drawTaskSnapshotsRef.current.get(task.id) ?? task
+      if (current.status === 'cancelled') return 'cancelled' as const
+      if (attempt > 0) {
+        patchTask(task.id, { status: 'retrying', retryCount: attempt })
+        setStatusText(`第 ${task.index} 张重试中（${attempt}/${options.maxRetries}）`)
+        await sleep(900)
+        await waitForQueueResume()
+      }
+
+      const controller = new AbortController()
+      taskControllersRef.current.set(task.id, controller)
+      try {
+        const image = await requestGeneration(buildDrawRequestOptions(task, attempt, options.total, options.concurrency, options.workspacePrompt, options.drawMode, options.batchSnapshotId, controller))
+        taskControllersRef.current.delete(task.id)
+        patchTask(task.id, { status: 'success', image, retryCount: attempt, finishedAt: Date.now(), error: undefined })
+        setGallery((items) => [image, ...items])
+        setPreviewImage(image)
+        options.onSuccess?.(image)
+        return 'success' as const
+      } catch (error) {
+        taskControllersRef.current.delete(task.id)
+        if (controller.signal.aborted) {
+          patchTask(task.id, { status: 'cancelled', error: '用户已取消该任务', finishedAt: Date.now() })
+          return 'cancelled' as const
+        }
+        if (cancelRequestedRef.current || isAbortError(error)) throw error
+        const message = error instanceof Error ? error.message : '未知错误'
+        if (attempt >= options.maxRetries) {
+          const failedTask = { ...(drawTaskSnapshotsRef.current.get(task.id) ?? task), status: 'failed' as const, error: message, retryCount: attempt, finishedAt: Date.now() }
+          patchTask(task.id, failedTask)
+          options.onFailure?.(failedTask)
+          return 'failed' as const
+        }
+      }
+    }
+    return 'failed' as const
+  }
+
   async function runDrawGeneration() {
     if (!validateGenerationInput() || abortRef.current) return
     const total = clampDrawCount(drawCount)
     const stableQuality = drawSafeMode ? 'low' : quality
-    const stableStream = true
+    const workspacePrompt = prompt.trim()
     const batchId = `Batch ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
     const snapshotId = crypto.randomUUID()
     const concurrency = clampDrawConcurrency(drawConcurrency)
@@ -200,75 +345,55 @@ export function useGenerationFlow({
     let completed = 0
     let running = 0
 
-    const patchTask = (taskId: string, patch: Partial<DrawTask>) => {
-      setDrawTasks((items) => items.map((item) => (item.id === taskId ? { ...item, ...patch } : item)))
-    }
-
     const updateQueueStatus = () => {
-      const pending = Math.max(0, total - completed - running)
-      setStatusText(`抽卡中：${completed}/${total} 已处理 · ${running} 运行中 · ${pending} 排队中 · 并发 ${concurrency}`)
+      const pending = [...drawTaskSnapshotsRef.current.values()].filter((task) => task.status === 'pending').length
+      setStatusText(`抽卡中：${completed}/${total} 已处理 · ${running} 运行中 · ${pending} 排队中 · 并发 ${concurrency}${drawQueuePausedRef.current ? ' · 已暂停' : ''}`)
     }
 
-    async function executeTask(task: DrawTask) {
-      running += 1
-      patchTask(task.id, { status: 'running', startedAt: Date.now(), error: undefined })
-      updateQueueStatus()
-      for (let attempt = 0; attempt <= drawRetries; attempt += 1) {
-        if (cancelRequestedRef.current) throw new DOMException('cancelled', 'AbortError')
-        if (attempt > 0) {
-          patchTask(task.id, { status: 'retrying', retryCount: attempt })
-          setStatusText(`第 ${task.index} 张重试中（${attempt}/${drawRetries}）`)
-          await sleep(900)
+    async function worker() {
+      while (!cancelRequestedRef.current) {
+        await waitForQueueResume()
+        const task = tasks[cursor]
+        cursor += 1
+        if (!task) return
+        const latest = drawTaskSnapshotsRef.current.get(task.id) ?? task
+        if (latest.status === 'cancelled') {
+          completed += 1
+          updateQueueStatus()
+          continue
         }
+        running += 1
+        updateQueueStatus()
         try {
-          const image = await requestGeneration({
-            promptText: task.prompt,
-            title: task.title,
-            meta: task.meta,
-            variation: task.variation,
-            batchId: task.batchId,
-            drawIndex: task.index,
-            snapshotId: task.snapshotId,
-            timeoutSec: drawTimeoutSec,
-            qualityValue: stableQuality,
-            streamValue: stableStream,
-            previewMode: 'none',
-            onReceiveImage: () => patchTask(task.id, { status: 'receiving', retryCount: attempt }),
+          const outcome = await executeDrawTask(task, {
+            total,
+            concurrency,
+            workspacePrompt,
+            drawMode,
+            batchSnapshotId,
+            maxRetries: drawRetries,
+            onSuccess: (image) => results.push(image),
+            onFailure: (failedTask) => failures.push(failedTask),
           })
-          results.push(image)
-          patchTask(task.id, { status: 'success', image, retryCount: attempt, finishedAt: Date.now() })
-          setGallery((items) => [image, ...items])
-          setPreviewImage(image)
-          return
-        } catch (error) {
-          if (cancelRequestedRef.current) throw error
-          const message = error instanceof Error ? error.message : '未知错误'
-          if (attempt >= drawRetries) {
-            failures.push({ ...task, status: 'failed', error: message, retryCount: attempt, finishedAt: Date.now() })
-            patchTask(task.id, { status: 'failed', error: message, retryCount: attempt, finishedAt: Date.now() })
-            return
+          if (outcome === 'cancelled') updateBatchCounts(batchId)
+        } finally {
+          running = Math.max(0, running - 1)
+          completed += 1
+          updateQueueStatus()
+          if (drawDelayMs > 0 && cursor < total && !cancelRequestedRef.current) {
+            await waitForQueueResume()
+            await sleep(drawDelayMs)
           }
         }
       }
     }
 
-    async function worker() {
-      while (!cancelRequestedRef.current) {
-        const task = tasks[cursor]
-        cursor += 1
-        if (!task) return
-        try {
-          await executeTask(task)
-        } finally {
-          running = Math.max(0, running - 1)
-          completed += 1
-          updateQueueStatus()
-          if (drawDelayMs > 0 && cursor < total && !cancelRequestedRef.current) await sleep(drawDelayMs)
-        }
-      }
-    }
-
     cancelRequestedRef.current = false
+    drawQueuePausedRef.current = false
+    setDrawQueuePaused(false)
+    wakePausedQueue()
+    taskControllersRef.current.clear()
+    syncTaskSnapshots(tasks)
     startedAtRef.current = Date.now()
     setStatus('loading')
     setStage('connecting')
@@ -294,16 +419,20 @@ export function useGenerationFlow({
     try {
       await Promise.all(Array.from({ length: concurrency }, () => worker()))
       if (cancelRequestedRef.current) throw new DOMException('cancelled', 'AbortError')
-      setDrawBatches((items) => items.map((item) => item.id === batchId ? { ...item, successCount: results.length, failedCount: failures.length } : item))
+      updateBatchCounts(batchId)
       setStatus(failures.length ? 'error' : 'success')
       setStage(failures.length ? 'error' : 'success')
-      setStatusText(failures.length ? `抽卡完成：成功 ${results.length} 张，失败 ${failures.length} 张` : `抽卡完成：成功生成 ${results.length} 张相近变体`)
+      setStatusText(failures.length ? `抽卡完成：成功 ${results.length} 张，失败 ${failures.length} 张，可手动重试失败项` : `抽卡完成：成功生成 ${results.length} 张相近变体`)
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      if (isAbortError(error)) {
         setStatus('idle')
         setStage('cancelled')
-        setDrawTasks((items) => items.map((item) => (item.status === 'pending' || item.status === 'running' || item.status === 'receiving' || item.status === 'retrying') ? { ...item, status: 'cancelled' } : item))
-        setDrawBatches((items) => items.map((item) => item.id === batchId ? { ...item, successCount: results.length, failedCount: failures.length } : item))
+        setDrawTasks((items) => {
+          const nextItems = items.map((item) => isActiveDrawStatus(item.status) ? { ...item, status: 'cancelled' as const, error: '队列已取消', finishedAt: Date.now() } : item)
+          syncTaskSnapshots(nextItems)
+          return nextItems
+        })
+        updateBatchCounts(batchId)
         setStatusText(`抽卡已取消，已保留成功生成的 ${results.length} 张`)
         return
       }
@@ -314,7 +443,115 @@ export function useGenerationFlow({
     } finally {
       startedAtRef.current = 0
       abortRef.current = null
+      taskControllersRef.current.clear()
+      drawQueuePausedRef.current = false
+      setDrawQueuePaused(false)
+      wakePausedQueue()
     }
+  }
+
+  function handlePauseQueue() {
+    if (status !== 'loading') return
+    drawQueuePausedRef.current = true
+    setDrawQueuePaused(true)
+    setStatusText('抽卡队列已暂停：运行中任务继续，新的任务和自动重试将等待继续')
+  }
+
+  function handleResumeQueue() {
+    drawQueuePausedRef.current = false
+    setDrawQueuePaused(false)
+    wakePausedQueue()
+    setStatusText('抽卡队列已继续，等待中的 worker 将恢复领取任务')
+  }
+
+  function handleCancelDrawTask(taskId: string) {
+    const task = drawTaskSnapshotsRef.current.get(taskId)
+    if (!task || task.status === 'success' || task.status === 'failed' || task.status === 'cancelled') return
+    patchTask(taskId, { status: 'cancelled', error: '用户已取消该任务', finishedAt: Date.now() })
+    const controller = taskControllersRef.current.get(taskId)
+    if (controller) {
+      controller.abort()
+      taskControllersRef.current.delete(taskId)
+    }
+    setStatusText(`已取消 ${task.title}，运行中请求会被单独中断，其他任务继续`)
+  }
+
+  async function handleRetryDrawTask(taskId: string) {
+    if (status === 'loading') {
+      setStatusText('队列运行中，请等待当前批次结束后再手动重试失败任务')
+      return
+    }
+    const task = drawTaskSnapshotsRef.current.get(taskId)
+    if (!task || task.status !== 'failed') return
+    if (!validateGenerationInput()) return
+    cancelRequestedRef.current = false
+    const batch = [...drawTaskSnapshotsRef.current.values()].filter((item) => item.batchId === task.batchId)
+    const total = Math.max(batch.length, task.index)
+    const batchSnapshotId = crypto.randomUUID()
+    const concurrency = 1
+    const drawMode: GenerationMode = hasReferenceImage ? 'draw-image2image' : 'draw-text2image'
+    const workspacePrompt = prompt.trim()
+
+    startedAtRef.current = Date.now()
+    setStatus('loading')
+    setStage('connecting')
+    setElapsedMs(0)
+    setStatusText(`正在手动重试 ${task.title}`)
+    try {
+      const outcome = await executeDrawTask(task, {
+        total,
+        concurrency,
+        workspacePrompt,
+        drawMode,
+        batchSnapshotId,
+        maxRetries: 0,
+        manualRetry: true,
+      })
+      updateBatchCounts(task.batchId)
+      setStatus(outcome === 'success' ? 'success' : 'error')
+      setStage(outcome === 'success' ? 'success' : outcome === 'cancelled' ? 'cancelled' : 'error')
+      setStatusText(outcome === 'success' ? `${task.title} 重试成功，图片已加入作品区` : `${task.title} 重试未成功`)
+    } catch (error) {
+      if (isAbortError(error)) {
+        setStatus('idle')
+        setStage('cancelled')
+        setStatusText(`${task.title} 重试已取消`)
+        return
+      }
+      const message = error instanceof Error ? error.message : '未知错误'
+      setStatus('error')
+      setStage('error')
+      setStatusText(`${task.title} 重试失败：${message}`)
+    } finally {
+      startedAtRef.current = 0
+      taskControllersRef.current.delete(taskId)
+      drawQueuePausedRef.current = false
+      setDrawQueuePaused(false)
+      wakePausedQueue()
+    }
+  }
+
+  function handleCancelAllQueue() {
+    if (debounceTimerRef.current) {
+      window.clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+      setDebounceMs(0)
+    }
+    cancelRequestedRef.current = true
+    drawQueuePausedRef.current = false
+    setDrawQueuePaused(false)
+    wakePausedQueue()
+    abortRef.current?.abort()
+    taskControllersRef.current.forEach((controller) => controller.abort())
+    taskControllersRef.current.clear()
+    setDrawTasks((items) => {
+      const nextItems = items.map((item) => isActiveDrawStatus(item.status) ? { ...item, status: 'cancelled' as const, error: '队列已全部取消', finishedAt: Date.now() } : item)
+      syncTaskSnapshots(nextItems)
+      return nextItems
+    })
+    setStatus('idle')
+    setStage('cancelled')
+    setStatusText('已取消全部队列任务')
   }
 
   function handleGenerate(event: FormEvent<HTMLFormElement>) {
@@ -341,6 +578,10 @@ export function useGenerationFlow({
       setStatusText('已取消排队中的生成任务')
       return
     }
+    if (studioMode === 'draw') {
+      handleCancelAllQueue()
+      return
+    }
     cancelRequestedRef.current = true
     abortRef.current?.abort()
   }
@@ -348,6 +589,11 @@ export function useGenerationFlow({
   return {
     handleGenerate,
     handleCancelGeneration,
+    handlePauseQueue,
+    handleResumeQueue,
+    handleCancelDrawTask,
+    handleRetryDrawTask,
+    handleCancelAllQueue,
     runGeneration,
     runDrawGeneration,
   }

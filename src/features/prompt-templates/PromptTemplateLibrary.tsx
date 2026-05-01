@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { AlertTriangle, BookOpen, Check, Loader2, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react'
 
 export type PromptTemplateListItem = {
@@ -43,6 +44,10 @@ function getTemplateTitle(template: PromptTemplateListItem) {
   return template.title || template.name || '未命名模板'
 }
 
+function getTemplateSearchText(template: PromptTemplateListItem) {
+  return `${template.title ?? ''} ${template.name ?? ''} ${template.content ?? ''}`.toLowerCase()
+}
+
 export function PromptTemplateLibrary({
   open,
   templates,
@@ -56,9 +61,20 @@ export function PromptTemplateLibrary({
   onRefresh,
   onClose,
 }: PromptTemplateLibraryProps) {
+  const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    if (!open) setSearchQuery('')
+  }, [open])
+
   if (!open) return null
 
   const canSaveCurrent = currentPrompt.trim().length > 0
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase()
+  const isSearching = normalizedSearchQuery.length > 0
+  const filteredTemplates = isSearching
+    ? templates.filter((template) => getTemplateSearchText(template).includes(normalizedSearchQuery))
+    : templates
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Prompt 模板库">
@@ -77,17 +93,43 @@ export function PromptTemplateLibrary({
         </div>
 
         <div className="prompt-template-toolbar">
-          <div className="prompt-template-current">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-signal-cyan/10 text-signal-cyan">
-              <Sparkles className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-porcelain-50">保存当前 Prompt</p>
-              <p className="mt-1 truncate text-xs text-porcelain-100/45">
-                {canSaveCurrent ? getPromptPreview(currentPrompt) : '当前 Prompt 为空，无法保存为模板'}
-              </p>
+          <div className="flex min-w-0 flex-1 flex-col gap-4">
+            <div className="prompt-template-current">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-signal-cyan/10 text-signal-cyan">
+                <Sparkles className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-porcelain-50">保存当前 Prompt</p>
+                <p className="mt-1 truncate text-xs text-porcelain-100/45">
+                  {canSaveCurrent ? getPromptPreview(currentPrompt) : '当前 Prompt 为空，无法保存为模板'}
+                </p>
+              </div>
+            </div>
+
+            <div className="field-block">
+              <label className="field-label" htmlFor="prompt-template-search">
+                <Search className="h-3.5 w-3.5" />
+                关键词搜索
+              </label>
+              <div className="prompt-template-search-row">
+                <Search className="ml-1 h-4 w-4 shrink-0 text-signal-cyan" />
+                <input
+                  id="prompt-template-search"
+                  type="search"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="按标题、名称或内容搜索"
+                  className="prompt-template-search-input"
+                />
+                {searchQuery.length > 0 && (
+                  <button type="button" onClick={() => setSearchQuery('')} className="prompt-template-search-clear">
+                    清空
+                  </button>
+                )}
+              </div>
             </div>
           </div>
+
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {onRefresh && (
               <button type="button" onClick={onRefresh} className="settings-button" disabled={loading}>
@@ -127,14 +169,19 @@ export function PromptTemplateLibrary({
               <Loader2 className="h-6 w-6 animate-spin text-signal-cyan" />
               <p>正在读取模板库…</p>
             </div>
-          ) : templates.length === 0 ? (
+          ) : filteredTemplates.length === 0 ? (
             <div className="prompt-template-empty">
-              <BookOpen className="h-8 w-8 text-signal-cyan" />
-              <p className="text-base font-bold text-porcelain-50">还没有 Prompt 模板</p>
-              <span>输入 Prompt 后点击“保存为模板”，它会出现在这里。</span>
+              {isSearching ? <Search className="h-8 w-8 text-signal-cyan" /> : <BookOpen className="h-8 w-8 text-signal-cyan" />}
+              <p className="text-base font-bold text-porcelain-50">{isSearching ? '没有匹配的模板' : '还没有 Prompt 模板'}</p>
+              <span>{isSearching ? '换个关键词试试，或清空搜索恢复全部模板。' : '输入 Prompt 后点击“保存为模板”，它会出现在这里。'}</span>
+              {isSearching && (
+                <button type="button" className="settings-button" onClick={() => setSearchQuery('')}>
+                  清空关键词
+                </button>
+              )}
             </div>
           ) : (
-            templates.map((template) => (
+            filteredTemplates.map((template) => (
               <article key={template.id} className="prompt-template-card">
                 <div className="flex min-w-0 flex-1 flex-col gap-3">
                   <div className="flex flex-wrap items-center gap-2">

@@ -82,6 +82,9 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
   }, [gallery])
 
   const availableTags = useMemo(() => Array.from(new Set(gallery.flatMap((item) => item.tags ?? []))).sort((a, b) => a.localeCompare(b, 'zh-CN')), [gallery])
+  const selectedWorkSet = useMemo(() => new Set(selectedWorkIds), [selectedWorkIds])
+  const selectedWorks = useMemo(() => gallery.filter((item) => selectedWorkSet.has(item.id)), [gallery, selectedWorkSet])
+  const selectedWorkTags = useMemo(() => Array.from(new Set(selectedWorks.flatMap((item) => item.tags ?? []))).sort((a, b) => a.localeCompare(b, 'zh-CN')), [selectedWorks])
 
   const filteredGallery = useMemo(() => filterWorksGallery(gallery, {
     searchQuery: workSearchQuery,
@@ -89,9 +92,21 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
     favoritesOnly,
   }), [activeTagFilter, favoritesOnly, gallery, workSearchQuery])
 
+  useEffect(() => {
+    if (activeTagFilter === 'all') return
+    if (availableTags.includes(activeTagFilter)) return
+    setActiveTagFilter('all')
+  }, [activeTagFilter, availableTags])
+
+  function updateWorks(ids: string[], updater: (item: GalleryImage) => GalleryImage) {
+    if (!ids.length) return
+    const targetIds = new Set(ids)
+    setGallery((items) => items.map((item) => (targetIds.has(item.id) ? normalizeGalleryImage(updater(item)) : item)))
+    setViewerImage((current) => current && targetIds.has(current.id) ? normalizeGalleryImage(updater(current)) : current)
+  }
+
   function updateWork(id: string, updater: (item: GalleryImage) => GalleryImage) {
-    setGallery((items) => items.map((item) => (item.id === id ? normalizeGalleryImage(updater(item)) : item)))
-    setViewerImage((current) => current?.id === id ? normalizeGalleryImage(updater(current)) : current)
+    updateWorks([id], updater)
   }
 
   function addImage(image: GalleryImage) {
@@ -135,7 +150,25 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
   }
 
   function removeWorkTag(id: string, tag: string) {
-    updateWork(id, (item) => ({ ...item, tags: (item.tags ?? []).filter((currentTag) => currentTag !== tag) }))
+    const nextTag = normalizeTag(tag)
+    if (!nextTag) return
+    updateWork(id, (item) => ({ ...item, tags: (item.tags ?? []).filter((currentTag) => currentTag !== nextTag) }))
+  }
+
+  function addTagToSelectedWorks(tag: string) {
+    const nextTag = normalizeTag(tag)
+    if (!nextTag || !selectedWorkIds.length) return
+    updateWorks(selectedWorkIds, (item) => {
+      const tags = item.tags ?? []
+      if (tags.includes(nextTag)) return item
+      return { ...item, tags: [...tags, nextTag] }
+    })
+  }
+
+  function removeTagFromSelectedWorks(tag: string) {
+    const nextTag = normalizeTag(tag)
+    if (!nextTag || !selectedWorkIds.length) return
+    updateWorks(selectedWorkIds, (item) => ({ ...item, tags: (item.tags ?? []).filter((currentTag) => currentTag !== nextTag) }))
   }
 
   function clearWorkFilters() {
@@ -162,12 +195,15 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
     clearWorkFilters,
     selectedWorkIds,
     selectedCount: selectedWorkIds.length,
+    selectedWorkTags,
     toggleWorkSelection,
     clearWorkSelection,
     removeSelectedWorks,
     toggleWorkFavorite,
     addWorkTag,
     removeWorkTag,
+    addTagToSelectedWorks,
+    removeTagFromSelectedWorks,
     addImage,
     handleRemoveImage,
   }

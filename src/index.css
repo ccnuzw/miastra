@@ -639,6 +639,18 @@
     @apply flex min-w-0 items-center gap-3;
   }
 
+  .prompt-template-search-row {
+    @apply flex items-center gap-2 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.46] p-2;
+  }
+
+  .prompt-template-search-input {
+    @apply h-11 min-w-0 flex-1 appearance-none border-0 bg-transparent px-2 text-sm text-porcelain-50 outline-none placeholder:text-porcelain-100/25;
+  }
+
+  .prompt-template-search-clear {
+    @apply shrink-0 rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.04] px-4 py-2 text-sm font-bold text-porcelain-50 transition hover:-translate-y-0.5 hover:border-signal-cyan/40 hover:text-signal-cyan;
+  }
+
   .prompt-template-feedback {
     @apply mt-4 rounded-2xl border border-signal-cyan/25 bg-signal-cyan/10 px-4 py-3 text-sm font-semibold text-signal-cyan;
   }

@@ -26,6 +26,12 @@ function getSearchText(item: GalleryImage) {
     item.providerModel,
     item.size,
     item.quality,
+    item.batchId,
+    item.variation,
+    item.taskStatus,
+    item.error,
+    item.snapshotId,
+    item.createdAt ? new Date(item.createdAt).toLocaleString('zh-CN') : '',
     ...(item.tags ?? []),
   ].filter(Boolean).join(' ').toLowerCase()
 }

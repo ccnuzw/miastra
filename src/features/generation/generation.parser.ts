@@ -1,3 +1,5 @@
+import type { GenerationError } from './generation.types'
+
 export function extractImageSrc(payload: string) {
   try {
     const json = JSON.parse(payload)
@@ -12,6 +14,44 @@ export function extractImageSrc(payload: string) {
     if (b64) return `data:image/png;base64,${b64}`
     return ''
   }
+}
+
+function buildGenerationError(code: GenerationError['code'], message: string, retryable: boolean, cause?: unknown): GenerationError {
+  return { code, message, retryable, cause }
+}
+
+function parseHttpStatus(message: string) {
+  const match = message.match(/^HTTP\s+(\d{3})/i)
+  return match ? Number(match[1]) : undefined
+}
+
+export function normalizeGenerationError(error: unknown): GenerationError {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return buildGenerationError('abort', '请求已取消', false, error)
+  }
+
+  if (error instanceof TypeError && /failed to fetch/i.test(error.message)) {
+    return buildGenerationError('network', '浏览器无法访问远端 API，通常是 CORS 或网络不可达', true, error)
+  }
+
+  if (error instanceof Error) {
+    const message = error.message || '未知错误'
+    if (/请先上传|请先在右上角设置里补全/i.test(message)) return buildGenerationError('invalid-input', message, false, error)
+    if (/504 Gateway Time-out|openresty/i.test(message)) return buildGenerationError('gateway-timeout', '远端网关超时 504', true, error)
+    if (/超过 .*s|timeout/i.test(message)) return buildGenerationError('timeout', message, true, error)
+    if (/不支持标准 \/v1\/images\/edits/i.test(message)) return buildGenerationError('provider-unsupported', message, false, error)
+    if (/未解析到图片数据|响应格式/i.test(message)) return buildGenerationError('invalid-response', message, true, error)
+
+    const httpStatus = parseHttpStatus(message)
+    if (httpStatus) {
+      const retryable = httpStatus >= 500 || httpStatus === 408 || httpStatus === 425 || httpStatus === 429
+      return buildGenerationError('http-error', message, retryable, error)
+    }
+
+    return buildGenerationError('unknown', message, true, error)
+  }
+
+  return buildGenerationError('unknown', '未知错误', true, error)
 }
 
 export function extractGenerationError(payload: string) {

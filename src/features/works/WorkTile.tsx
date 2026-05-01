@@ -1,4 +1,4 @@
-import { Bolt, Check, CheckCircle2, ClipboardCopy, Download, Eye, ImagePlus, Loader2, Star, Tag, Trash2, X } from 'lucide-react'
+import { Bolt, Check, CheckCircle2, ClipboardCopy, Download, Eye, ImagePlus, Loader2, Star, Tag, Trash2 } from 'lucide-react'
 import { useState, type FormEvent, type MouseEvent } from 'react'
 import { drawTaskStatusText } from '@/features/draw-card/drawCard.constants'
 import type { GalleryImage } from './works.types'
@@ -10,6 +10,7 @@ type WorkTileProps = {
   onDownload: (item: GalleryImage) => void
   onPushReference: (item: GalleryImage) => void
   onRemove: (id: string) => void
+  onRetry?: (item: GalleryImage) => void
   selected?: boolean
   onToggleSelect?: (id: string) => void
   onToggleFavorite?: (id: string) => void
@@ -24,6 +25,7 @@ export function WorkTile({
   onDownload,
   onPushReference,
   onRemove,
+  onRetry,
   selected = false,
   onToggleSelect,
   onToggleFavorite,
@@ -34,7 +36,6 @@ export function WorkTile({
   const hasTask = Boolean(item.taskStatus)
   const promptText = item.promptText || item.promptSnippet || item.meta
   const isFavorite = Boolean(item.isFavorite ?? item.favorite)
-  const tags = item.tags ?? []
   const [copyState, setCopyState] = useState<'idle' | 'success' | 'error'>('idle')
   const [tagDraft, setTagDraft] = useState('')
 
@@ -62,14 +63,27 @@ export function WorkTile({
   return (
     <div
       className={`sample-tile ${mode === 'rail' ? 'rail-tile' : 'grid-tile'} ${hasImage ? 'sample-tile-active' : hasTask ? 'sample-tile-task' : 'sample-tile-empty'} ${selected ? 'sample-tile-selected' : ''}`}
-      role={hasImage ? 'button' : undefined}
-      tabIndex={hasImage ? 0 : undefined}
-      onClick={() => item.src && onPreview(item)}
-      onKeyDown={(event) => {
-        if (item.src && (event.key === 'Enter' || event.key === ' ')) onPreview(item)
-      }}
     >
-      {item.src ? <img src={item.src} alt={item.title} className="tile-image" /> : hasTask ? (
+      {item.src ? (
+        <div
+          className="tile-image-zone"
+          role="button"
+          tabIndex={0}
+          onClick={() => onPreview(item)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') onPreview(item)
+          }}
+        >
+          <img src={item.src} alt={item.title} className="tile-image" />
+          <div className="tile-image-overlay">
+            <div className="flex items-center gap-2">
+              <Bolt className="h-5 w-5 text-signal-cyan" />
+              {item.variation && <span className="variation-badge">{item.drawIndex ? `#${item.drawIndex}` : '变体'}</span>}
+              {isFavorite && <span className="variation-badge text-signal-amber"><Star className="h-3 w-3 fill-current" /> 收藏</span>}
+            </div>
+          </div>
+        </div>
+      ) : hasTask ? (
         <div className="task-slot-body">
           <div className="flex items-center justify-between gap-2">
             <span className="variation-badge">#{item.drawIndex}</span>
@@ -82,14 +96,10 @@ export function WorkTile({
           </div>
         </div>
       ) : <div className="empty-work-slot" aria-hidden="true"><ImagePlus className="h-5 w-5" /></div>}
+
       {hasImage && (
-        <div className="relative z-10 flex h-full flex-col justify-between">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Bolt className="h-5 w-5 text-signal-cyan" />
-              {item.variation && <span className="variation-badge">{item.drawIndex ? `#${item.drawIndex}` : '变体'}</span>}
-              {isFavorite && <span className="variation-badge text-signal-amber"><Star className="h-3 w-3 fill-current" /> 收藏</span>}
-            </div>
+        <div className="tile-toolbar" onClick={(event) => event.stopPropagation()}>
+          <div className="tile-toolbar-main">
             <div className="tile-actions" aria-label="作品操作">
               {onToggleSelect && (
                 <button
@@ -127,43 +137,26 @@ export function WorkTile({
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
-          </div>
-          {copyState !== 'idle' && (
-            <div className={`copy-toast ${copyState === 'success' ? 'copy-toast-success' : 'copy-toast-error'}`}>
-              {copyState === 'success' ? '提示词已复制' : '复制失败'}
-            </div>
-          )}
-          <div className="tile-caption">
-            <p className="text-sm font-medium text-porcelain-50">{item.title}</p>
-            <p className="mt-1 line-clamp-2 text-xs text-porcelain-100/[0.52]">{item.meta}</p>
-            {(tags.length > 0 || onAddTag) && (
-              <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
-                {tags.map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-full border border-signal-cyan/20 bg-signal-cyan/10 px-2 py-1 text-[10px] font-bold text-signal-cyan transition hover:border-signal-coral/45 hover:text-signal-coral"
-                    onClick={(event) => { event.stopPropagation(); onRemoveTag?.(item.id, tag) }}
-                    aria-label={`删除标签 ${tag}`}
-                  >
-                    #{tag}<X className="h-3 w-3" />
-                  </button>
-                ))}
-                {onAddTag && (
-                  <form onSubmit={handleAddTag} className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1">
-                    <Tag className="h-3 w-3 text-porcelain-100/35" />
-                    <input
-                      value={tagDraft}
-                      onChange={(event) => setTagDraft(event.target.value)}
-                      onClick={(event) => event.stopPropagation()}
-                      placeholder="加标签"
-                      className="w-16 bg-transparent text-[10px] font-bold text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
-                    />
-                  </form>
-                )}
-              </div>
+            {onAddTag && (
+              <form onSubmit={handleAddTag} className="tile-tag-form">
+                <Tag className="h-3 w-3 text-porcelain-100/35" />
+                <input
+                  value={tagDraft}
+                  onChange={(event) => setTagDraft(event.target.value)}
+                  onClick={(event) => event.stopPropagation()}
+                  placeholder="加标签"
+                  className="tile-tag-input"
+                  aria-label="添加标签"
+                />
+                <button type="submit" className="tile-tag-submit">加</button>
+              </form>
             )}
           </div>
+          {copyState !== 'idle' && (
+            <p className={`tile-toolbar-status ${copyState === 'success' ? 'tile-toolbar-status-success' : 'tile-toolbar-status-error'}`}>
+              {copyState === 'success' ? '提示词已复制' : '复制失败'}
+            </p>
+          )}
         </div>
       )}
     </div>

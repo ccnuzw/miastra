@@ -5,7 +5,7 @@ import type { GalleryImage } from '@/features/works/works.types'
 import type { DrawBatch, DrawStrategy, DrawTask, VariationStrength } from '@/features/draw-card/drawCard.types'
 import { drawStrategyOptions, variationStrengthText } from '@/features/draw-card/drawCard.constants'
 import { clampDrawCount, clampDrawConcurrency, pickVariationPrompts } from '@/features/draw-card/drawCard.utils'
-import type { GenerationMode, GenerationRequestOptions, GenerationStage, GenerationStatus } from '@/features/generation/generation.types'
+import type { GenerationError, GenerationMode, GenerationRequestOptions, GenerationStage, GenerationStatus } from '@/features/generation/generation.types'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
 import { requestGenerationImage } from '@/features/generation/generation.request'
 import { sleep } from '@/shared/utils/sleep'
@@ -62,6 +62,10 @@ function isActiveDrawStatus(status: DrawTask['status']) {
 
 function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function isGenerationError(value: unknown): value is GenerationError {
+  return Boolean(value && typeof value === 'object' && 'code' in value && 'message' in value && 'retryable' in value)
 }
 
 export function useGenerationFlow({
@@ -204,17 +208,16 @@ export function useGenerationFlow({
       setStage('success')
       setStatusText(nextImage.src ? '生成成功，图片已加入作品区' : '请求成功，未解析到图片，已保留响应')
     } catch (error) {
-      if (isAbortError(error)) {
+      if (isAbortError(error) || isGenerationError(error) && error.code === 'abort') {
         setStatus('idle')
         setStage('cancelled')
         setStatusText('已取消当前生成任务')
         return
       }
+      const generationError = isGenerationError(error) ? error : undefined
       setStatus('error')
       setStage('error')
-      const message = error instanceof Error ? error.message : '未知错误'
-      const isFetchFailure = /failed to fetch/i.test(message)
-      setStatusText(isFetchFailure ? '生成失败：浏览器无法访问远端 API，通常是 CORS 或网络不可达' : `生成失败：${message}`)
+      setStatusText(`生成失败：${generationError?.message ?? '未知错误'}`)
     } finally {
       startedAtRef.current = 0
       abortRef.current = null
@@ -271,7 +274,7 @@ export function useGenerationFlow({
     const latest = drawTaskSnapshotsRef.current.get(task.id) ?? task
     if (latest.status === 'cancelled') return 'cancelled' as const
 
-    patchTask(task.id, { status: 'running', startedAt: Date.now(), error: undefined, image: undefined })
+    patchTask(task.id, { status: 'running', startedAt: Date.now(), error: undefined, image: undefined, retryable: true })
 
     for (let attempt = 0; attempt <= options.maxRetries; attempt += 1) {
       await waitForQueueResume()
@@ -289,21 +292,22 @@ export function useGenerationFlow({
       try {
         const image = await requestGeneration(buildDrawRequestOptions(task, attempt, options.total, options.concurrency, options.workspacePrompt, options.drawMode, options.batchSnapshotId, controller))
         taskControllersRef.current.delete(task.id)
-        patchTask(task.id, { status: 'success', image, retryCount: attempt, finishedAt: Date.now(), error: undefined })
+        patchTask(task.id, { status: 'success', image, retryCount: attempt, finishedAt: Date.now(), error: undefined, retryable: undefined })
         setGallery((items) => [image, ...items])
         setPreviewImage(image)
         options.onSuccess?.(image)
         return 'success' as const
       } catch (error) {
         taskControllersRef.current.delete(task.id)
-        if (controller.signal.aborted) {
+        if (controller.signal.aborted || (isGenerationError(error) && error.code === 'abort')) {
           patchTask(task.id, { status: 'cancelled', error: '用户已取消该任务', finishedAt: Date.now() })
           return 'cancelled' as const
         }
         if (cancelRequestedRef.current || isAbortError(error)) throw error
-        const message = error instanceof Error ? error.message : '未知错误'
+        const generationError = isGenerationError(error) ? error : undefined
+        const message = generationError?.message ?? '未知错误'
         if (attempt >= options.maxRetries) {
-          const failedTask = { ...(drawTaskSnapshotsRef.current.get(task.id) ?? task), status: 'failed' as const, error: message, retryCount: attempt, finishedAt: Date.now() }
+          const failedTask = { ...(drawTaskSnapshotsRef.current.get(task.id) ?? task), status: 'failed' as const, error: message, retryable: generationError?.retryable ?? true, retryCount: attempt, finishedAt: Date.now() }
           patchTask(task.id, failedTask)
           options.onFailure?.(failedTask)
           return 'failed' as const
@@ -429,11 +433,11 @@ export function useGenerationFlow({
       setStage(failures.length ? 'error' : 'success')
       setStatusText(failures.length ? `抽卡完成：成功 ${results.length} 张，失败 ${failures.length} 张，可手动重试失败项` : `抽卡完成：成功生成 ${results.length} 张相近变体`)
     } catch (error) {
-      if (isAbortError(error)) {
+      if (isAbortError(error) || isGenerationError(error) && error.code === 'abort') {
         setStatus('idle')
         setStage('cancelled')
         setDrawTasks((items) => {
-          const nextItems = items.map((item) => isActiveDrawStatus(item.status) ? { ...item, status: 'cancelled' as const, error: '队列已取消', finishedAt: Date.now() } : item)
+          const nextItems = items.map((item) => isActiveDrawStatus(item.status) ? { ...item, status: 'cancelled' as const, error: '队列已取消', finishedAt: Date.now(), retryable: false } : item)
           syncTaskSnapshots(nextItems)
           return nextItems
         })
@@ -443,8 +447,8 @@ export function useGenerationFlow({
       }
       setStatus('error')
       setStage('error')
-      const message = error instanceof Error ? error.message : '未知错误'
-      setStatusText(`抽卡中断：${message}。已保留成功生成的 ${results.length} 张`)
+      const generationError = isGenerationError(error) ? error : undefined
+      setStatusText(`抽卡中断：${generationError?.message ?? '未知错误'}。已保留成功生成的 ${results.length} 张`)
     } finally {
       startedAtRef.current = 0
       abortRef.current = null
@@ -472,7 +476,7 @@ export function useGenerationFlow({
   function handleCancelDrawTask(taskId: string) {
     const task = drawTaskSnapshotsRef.current.get(taskId)
     if (!task || task.status === 'success' || task.status === 'failed' || task.status === 'cancelled') return
-    patchTask(taskId, { status: 'cancelled', error: '用户已取消该任务', finishedAt: Date.now() })
+    patchTask(taskId, { status: 'cancelled', error: '用户已取消该任务', finishedAt: Date.now(), retryable: false })
     const controller = taskControllersRef.current.get(taskId)
     if (controller) {
       controller.abort()
@@ -487,7 +491,10 @@ export function useGenerationFlow({
       return
     }
     const task = drawTaskSnapshotsRef.current.get(taskId)
-    if (!task || task.status !== 'failed') return
+    if (!task || task.status !== 'failed' || task.retryable === false) {
+      if (task?.retryable === false) setStatusText(`${task.title} 不可重试`)
+      return
+    }
     if (!validateGenerationInput()) return
     cancelRequestedRef.current = false
     const batch = [...drawTaskSnapshotsRef.current.values()].filter((item) => item.batchId === task.batchId)
@@ -517,16 +524,16 @@ export function useGenerationFlow({
       setStage(outcome === 'success' ? 'success' : outcome === 'cancelled' ? 'cancelled' : 'error')
       setStatusText(outcome === 'success' ? `${task.title} 重试成功，图片已加入作品区` : `${task.title} 重试未成功`)
     } catch (error) {
-      if (isAbortError(error)) {
+      if (isAbortError(error) || isGenerationError(error) && error.code === 'abort') {
         setStatus('idle')
         setStage('cancelled')
         setStatusText(`${task.title} 重试已取消`)
         return
       }
-      const message = error instanceof Error ? error.message : '未知错误'
+      const generationError = isGenerationError(error) ? error : undefined
       setStatus('error')
       setStage('error')
-      setStatusText(`${task.title} 重试失败：${message}`)
+      setStatusText(`${task.title} 重试失败：${generationError?.message ?? '未知错误'}`)
     } finally {
       startedAtRef.current = 0
       taskControllersRef.current.delete(taskId)
@@ -550,7 +557,7 @@ export function useGenerationFlow({
     taskControllersRef.current.forEach((controller) => controller.abort())
     taskControllersRef.current.clear()
     setDrawTasks((items) => {
-      const nextItems = items.map((item) => isActiveDrawStatus(item.status) ? { ...item, status: 'cancelled' as const, error: '队列已全部取消', finishedAt: Date.now() } : item)
+      const nextItems = items.map((item) => isActiveDrawStatus(item.status) ? { ...item, status: 'cancelled' as const, error: '队列已全部取消', finishedAt: Date.now(), retryable: false } : item)
       syncTaskSnapshots(nextItems)
       return nextItems
     })

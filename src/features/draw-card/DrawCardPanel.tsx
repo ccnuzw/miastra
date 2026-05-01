@@ -67,7 +67,8 @@ export function DrawCardPanel(props: DrawCardPanelProps) {
     retryTask: props.onRetryTask,
     cancelAll: props.onCancelAllQueue,
   }
-  const actionableTasks = drawQueueState.tasks.filter((task) => task.taskStatus && task.taskStatus !== 'success')
+  const queueTasks = Array.isArray(drawQueueState.tasks) ? drawQueueState.tasks : []
+  const actionableTasks = queueTasks.filter((task) => task.taskStatus && task.taskStatus !== 'success')
   const activeTaskCount = actionableTasks.filter((task) => task.taskStatus === 'pending' || task.taskStatus === 'running' || task.taskStatus === 'receiving' || task.taskStatus === 'retrying').length
   const failedTasks = actionableTasks.filter((task) => task.taskStatus === 'failed')
 
@@ -100,7 +101,7 @@ export function DrawCardPanel(props: DrawCardPanelProps) {
                   <div key={task.id} className="draw-summary-card">
                     <span className="flex items-center justify-between gap-3">
                       <strong>{task.title}</strong>
-                      <small>{task.taskStatus}{task.retryCount ? ` · 重试 ${task.retryCount}` : ''}</small>
+                      <small>{task.taskStatus}{task.retryCount ? ` · 重试 ${task.retryCount}` : ''}{task.taskStatus === 'failed' ? task.retryable === false ? ' · 不可重试' : ' · 可重试' : ''}</small>
                     </span>
                     <span>{task.meta}</span>
                     {task.error && <span>失败原因：{task.error}</span>}
@@ -109,7 +110,7 @@ export function DrawCardPanel(props: DrawCardPanelProps) {
                         <button type="button" onClick={() => drawQueueActions.cancelTask(task.id)} className="shortcut-chip">取消该任务</button>
                       )}
                       {task.taskStatus === 'failed' && (
-                        <button type="button" onClick={() => drawQueueActions.retryTask(task.id)} disabled={drawQueueState.isGenerating} className="shortcut-chip">重试失败项</button>
+                        <button type="button" onClick={() => drawQueueActions.retryTask(task.id)} disabled={drawQueueState.isGenerating || task.retryable === false} className="shortcut-chip">{task.retryable === false ? '不可重试' : '重试失败项'}</button>
                       )}
                     </span>
                   </div>

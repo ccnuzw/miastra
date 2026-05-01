@@ -11,6 +11,7 @@ export type GalleryImage = {
   drawIndex?: number
   taskStatus?: DrawTaskStatus
   error?: string
+  retryable?: boolean
   retryCount?: number
   createdAt?: number
   mode?: GenerationMode

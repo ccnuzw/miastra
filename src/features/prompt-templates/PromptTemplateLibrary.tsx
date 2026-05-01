@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, BookOpen, Check, Loader2, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertTriangle, BookOpen, Check, ClipboardCopy, Loader2, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react'
 
 export type PromptTemplateListItem = {
   id: string
@@ -62,9 +62,13 @@ export function PromptTemplateLibrary({
   onClose,
 }: PromptTemplateLibraryProps) {
   const [searchQuery, setSearchQuery] = useState('')
+  const [copiedTemplateId, setCopiedTemplateId] = useState('')
 
   useEffect(() => {
-    if (!open) setSearchQuery('')
+    if (!open) {
+      setSearchQuery('')
+      setCopiedTemplateId('')
+    }
   }, [open])
 
   if (!open) return null
@@ -75,6 +79,17 @@ export function PromptTemplateLibrary({
   const filteredTemplates = isSearching
     ? templates.filter((template) => getTemplateSearchText(template).includes(normalizedSearchQuery))
     : templates
+
+  async function handleCopyTemplate(template: PromptTemplateListItem) {
+    try {
+      await navigator.clipboard.writeText(template.content)
+      setCopiedTemplateId(template.id)
+      window.setTimeout(() => setCopiedTemplateId(''), 1400)
+    } catch {
+      setCopiedTemplateId(template.id)
+      window.setTimeout(() => setCopiedTemplateId(''), 1400)
+    }
+  }
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Prompt 模板库">
@@ -196,6 +211,10 @@ export function PromptTemplateLibrary({
                   <button type="button" className="settings-button" onClick={() => onApply(template)}>
                     <Search className="h-4 w-4" />
                     应用
+                  </button>
+                  <button type="button" className="settings-button" onClick={() => handleCopyTemplate(template)} aria-label={`复制模板 ${getTemplateTitle(template)}`}>
+                    {copiedTemplateId === template.id ? <Check className="h-4 w-4" /> : <ClipboardCopy className="h-4 w-4" />}
+                    {copiedTemplateId === template.id ? '已复制' : '复制'}
                   </button>
                   <button type="button" className="tile-action tile-action-danger" onClick={() => onDelete(template.id)} aria-label={`删除模板 ${getTemplateTitle(template)}`}>
                     <Trash2 className="h-4 w-4" />

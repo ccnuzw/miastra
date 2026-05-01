@@ -55,12 +55,13 @@ export function useDrawCardSettings() {
       id: task.id,
       title: task.title,
       src: undefined,
-      meta: drawStatusMeta(task.status, task.error),
+      meta: drawStatusMeta(task.status, task.error, task.retryable),
       variation: task.variation,
       batchId: task.batchId,
       drawIndex: task.index,
       taskStatus: task.status,
       error: task.error,
+      retryable: task.retryable,
       retryCount: task.retryCount,
     })), [drawTasks])
 

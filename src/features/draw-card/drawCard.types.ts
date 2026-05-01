@@ -26,6 +26,7 @@ export type DrawTask = {
   status: DrawTaskStatus
   image?: GalleryImage
   error?: string
+  retryable?: boolean
   retryCount: number
   startedAt?: number
   finishedAt?: number

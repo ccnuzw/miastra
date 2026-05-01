@@ -35,3 +35,11 @@ export const variationStrengthText: Record<VariationStrength, string> = {
   medium: '变化幅度适中，保持同一主题和人物设定，但允许姿态、光线和镜头距离有自然差异。',
   high: '变化幅度更明显，但仍然保持同一提示词主题、人物设定和画面质感。',
 }
+
+export function drawStatusMeta(status: DrawTaskStatus, error?: string, retryable = true) {
+  if (status === 'failed') {
+    const retryHint = retryable ? '可重试' : '不可重试'
+    return error ? `失败，${retryHint}：${error}` : `失败，${retryHint}`
+  }
+  return drawTaskStatusText[status]
+}

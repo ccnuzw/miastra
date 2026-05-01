@@ -1,6 +1,6 @@
-import { Check, Download, ImagePlus, Search, Star, Tag, Trash2, X } from 'lucide-react'
+import { Check, Download, ImagePlus, RefreshCw, Search, Star, Tag, Trash2, X } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import type { GalleryImage } from './works.types'
+import type { GalleryImage } from '@/features/works/works.types'
 
 type ImageWallModalProps = {
   open: boolean
@@ -25,7 +25,10 @@ type ImageWallModalProps = {
   onRemoveTag: (id: string, tag: string) => void
   onAddSelectedTag?: (tag: string) => void
   onRemoveSelectedTag?: (tag: string) => void
+  onClearSelection: () => void
+  onRemoveSelected: () => void
   onRemove: (id: string) => void
+  onRetry?: (item: GalleryImage) => void
   onSearchChange: (query: string) => void
   onTagChange: (tag: string) => void
   onFavoritesOnlyChange: (value: boolean) => void
@@ -55,7 +58,10 @@ export function ImageWallModal({
   onRemoveTag,
   onAddSelectedTag,
   onRemoveSelectedTag,
+  onClearSelection,
+  onRemoveSelected,
   onRemove,
+  onRetry,
   onSearchChange,
   onTagChange,
   onFavoritesOnlyChange,
@@ -121,6 +127,8 @@ export function ImageWallModal({
                   </button>
                 ))}
                 <button type="button" onClick={onDownloadSelected} className="bulk-ghost">下载 ZIP</button>
+                <button type="button" onClick={onClearSelection} className="bulk-ghost"><X className="h-3.5 w-3.5" />取消</button>
+                <button type="button" onClick={onRemoveSelected} className="bulk-danger"><Trash2 className="h-3.5 w-3.5" />删除</button>
                 <label className="bulk-metadata-toggle" onClick={(event) => event.stopPropagation()}>
                   <input
                     type="checkbox"
@@ -142,13 +150,14 @@ export function ImageWallModal({
             <input
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="搜索标题、meta、Prompt、模型、尺寸、质量、标签"
+              placeholder="搜索标题、meta、Prompt、模型、尺寸、质量、标签、批次、状态、错误"
               className="w-full min-w-0 bg-transparent text-sm font-semibold text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
             />
           </label>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => onFavoritesOnlyChange(!favoritesOnly)} className={`batch-chip ${favoritesOnly ? 'batch-chip-active' : ''}`}>
-              <Star className={`h-3.5 w-3.5 ${favoritesOnly ? 'fill-current' : ''}`} />收藏
+            <button type="button" onClick={() => onFavoritesOnlyChange(!favoritesOnly)} className={`batch-chip batch-chip-inline ${favoritesOnly ? 'batch-chip-active' : ''}`}>
+              <Star className={`h-3.5 w-3.5 ${favoritesOnly ? 'fill-current' : ''}`} />
+              收藏
             </button>
             <button type="button" onClick={() => onTagChange('all')} className={`batch-chip ${activeTag === 'all' ? 'batch-chip-active' : ''}`}>全部标签</button>
             {availableTags.map((tag) => (
@@ -163,6 +172,7 @@ export function ImageWallModal({
               const selected = selectedIds.includes(item.id)
               const isFavorite = Boolean(item.isFavorite ?? item.favorite)
               const tags = item.tags ?? []
+              const canRetry = item.taskStatus === 'failed' && item.retryable !== false && onRetry
               return (
                 <div
                   key={item.id}
@@ -188,12 +198,14 @@ export function ImageWallModal({
                       <div className="flex flex-wrap items-center gap-2">
                         {item.variation && <span className="variation-badge">{item.drawIndex ? `#${item.drawIndex}` : '变体'}</span>}
                         {isFavorite && <span className="variation-badge text-signal-amber"><Star className="h-3 w-3 fill-current" /> 收藏</span>}
+                        {item.taskStatus && <span className="variation-badge text-signal-cyan">{item.taskStatus}</span>}
                       </div>
                       <p className="mt-2 text-sm font-semibold text-porcelain-50">{item.title}</p>
                       <p className="mt-1 line-clamp-2 text-xs text-porcelain-100/55">{item.meta}</p>
                       {(item.size || item.quality || item.providerModel) && (
                         <p className="mt-1 text-[11px] font-semibold text-signal-cyan/80">{[item.providerModel, item.size, item.quality].filter(Boolean).join(' · ')}</p>
                       )}
+                      {item.error && <p className="mt-1 text-[11px] font-semibold text-signal-amber/85">失败原因：{item.error}</p>}
                       <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
                         {tags.map((tag) => (
                           <button
@@ -206,24 +218,43 @@ export function ImageWallModal({
                             #{tag}<X className="h-3 w-3" />
                           </button>
                         ))}
-                        <form onSubmit={(event) => handleAddTag(event, item.id)} className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1">
-                          <Tag className="h-3 w-3 text-porcelain-100/35" />
-                          <input
-                            value={tagDrafts[item.id] ?? ''}
-                            onChange={(event) => setTagDrafts((items) => ({ ...items, [item.id]: event.target.value }))}
-                            onClick={(event) => event.stopPropagation()}
-                            placeholder="加标签"
-                            className="w-16 bg-transparent text-[10px] font-bold text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
-                          />
-                        </form>
+                        {canRetry && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-full border border-signal-amber/20 bg-signal-amber/10 px-2 py-1 text-[10px] font-bold text-signal-amber transition hover:border-signal-cyan/40 hover:text-signal-cyan"
+                            onClick={(event) => { event.stopPropagation(); onRetry?.(item) }}
+                            aria-label="重试失败项"
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            重试
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1 text-[10px] font-bold text-porcelain-50 transition hover:border-signal-cyan/35 hover:text-signal-cyan"
+                          onClick={(event) => { event.stopPropagation(); onPushReference(item) }}
+                          aria-label="推送到输入框"
+                        >
+                          <ImagePlus className="h-3 w-3" />
+                          参考图
+                        </button>
+                        {onAddTag && (
+                          <form onSubmit={(event) => handleAddTag(event, item.id)} className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1">
+                            <Tag className="h-3 w-3 text-porcelain-100/35" />
+                            <input
+                              value={tagDrafts[item.id] ?? ''}
+                              onChange={(event) => setTagDrafts((items) => ({ ...items, [item.id]: event.target.value }))}
+                              onClick={(event) => event.stopPropagation()}
+                              placeholder="加标签"
+                              className="w-16 bg-transparent text-[10px] font-bold text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
+                            />
+                          </form>
+                        )}
                       </div>
                     </div>
                     <div className="flex shrink-0 gap-1">
                       <button type="button" className={`tile-action ${isFavorite ? 'tile-action-success text-signal-amber' : ''}`} onClick={(event) => { event.stopPropagation(); onToggleFavorite(item.id) }} aria-label={isFavorite ? '取消收藏作品' : '收藏作品'}>
                         <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-current' : ''}`} />
-                      </button>
-                      <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onPushReference(item) }} aria-label="推送到输入框">
-                        <ImagePlus className="h-3.5 w-3.5" />
                       </button>
                       <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onDownload(item) }} aria-label="下载图片">
                         <Download className="h-3.5 w-3.5" />

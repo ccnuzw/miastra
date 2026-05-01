@@ -25,6 +25,24 @@ export type GenerationDrawSnapshot = {
   variation: string
 }
 
+export type GenerationErrorCode =
+  | 'abort'
+  | 'invalid-input'
+  | 'network'
+  | 'timeout'
+  | 'gateway-timeout'
+  | 'provider-unsupported'
+  | 'invalid-response'
+  | 'http-error'
+  | 'unknown'
+
+export type GenerationError = {
+  code: GenerationErrorCode
+  message: string
+  retryable: boolean
+  cause?: unknown
+}
+
 export type GenerationRequestOptions = {
   promptText: string
   workspacePrompt?: string

@@ -26,6 +26,7 @@ type WorksRailProps = {
   onDownload: (item: GalleryImage) => void
   onPushReference: (item: GalleryImage) => void
   onRemove: (id: string) => void
+  onRetry?: (item: GalleryImage) => void
   onToggleSelect: (id: string) => void
   onToggleFavorite: (id: string) => void
   onAddTag: (id: string, tag: string) => void
@@ -60,6 +61,7 @@ export function WorksRail({
   onDownload,
   onPushReference,
   onRemove,
+  onRetry,
   onToggleSelect,
   onToggleFavorite,
   onAddTag,
@@ -148,12 +150,12 @@ export function WorksRail({
           <input
             value={searchQuery}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="搜索标题、Prompt、模型、尺寸、质量、标签"
+            placeholder="搜索标题、Prompt、模型、尺寸、质量、标签、批次、状态、错误"
             className="w-full min-w-0 bg-transparent text-sm font-semibold text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
           />
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => onFavoritesOnlyChange(!favoritesOnly)} className={`batch-chip ${favoritesOnly ? 'batch-chip-active' : ''}`}>
+          <button type="button" onClick={() => onFavoritesOnlyChange(!favoritesOnly)} className={`batch-chip batch-chip-inline ${favoritesOnly ? 'batch-chip-active' : ''}`}>
             <Star className={`h-3.5 w-3.5 ${favoritesOnly ? 'fill-current' : ''}`} />
             收藏
           </button>
@@ -189,6 +191,7 @@ export function WorksRail({
             onDownload={onDownload}
             onPushReference={onPushReference}
             onRemove={onRemove}
+            onRetry={onRetry}
           />
         ))}
       </div>

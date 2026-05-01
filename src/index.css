@@ -461,7 +461,7 @@
   }
 
   .sample-tile {
-    @apply relative overflow-hidden rounded-[1.75rem] border border-porcelain-50/10 bg-ink-900/[0.62] p-4 shadow-card transition duration-300;
+    @apply relative flex h-full flex-col overflow-hidden rounded-[1.75rem] border border-porcelain-50/10 bg-ink-900/[0.62] shadow-card transition duration-300;
   }
 
   .rail-tile {
@@ -472,16 +472,57 @@
     @apply cursor-pointer hover:-translate-y-0.5 hover:border-signal-cyan/45 focus:outline-none focus:ring-2 focus:ring-signal-cyan/45;
   }
 
-  .tile-image {
-    @apply absolute inset-0 h-full w-full object-contain opacity-100;
+  .tile-image-zone {
+    @apply relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-gradient-to-b from-ink-950/45 via-ink-950/15 to-ink-950/65 px-3 pt-3;
   }
 
-  .tile-caption {
-    @apply rounded-2xl border border-ink-950/20 bg-ink-950/55 p-3 shadow-card backdrop-blur-md;
+  .tile-image {
+    @apply h-full w-full object-contain opacity-100;
+  }
+
+  .tile-image-overlay {
+    @apply absolute left-4 top-4 z-10 flex items-center gap-2;
+  }
+
+  .tile-toolbar {
+    @apply flex flex-col gap-2 border-t border-porcelain-50/10 bg-gradient-to-b from-ink-950/[0.68] to-ink-950/[0.88] px-3 py-2 backdrop-blur-md;
+  }
+
+  .tile-toolbar-main {
+    @apply flex items-center gap-2;
+  }
+
+  .tile-toolbar-status {
+    @apply text-[10px] font-bold tracking-[0.18em] text-porcelain-100/45;
+  }
+
+  .tile-toolbar-status-success {
+    @apply text-signal-cyan;
+  }
+
+  .tile-toolbar-status-error {
+    @apply text-signal-coral;
   }
 
   .tile-actions {
-    @apply flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/70 p-1 opacity-100 shadow-card backdrop-blur-md;
+    @apply flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-full border border-porcelain-50/10 bg-ink-950/70 p-1 opacity-100 shadow-card backdrop-blur-md;
+    scrollbar-width: none;
+  }
+
+  .tile-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tile-tag-form {
+    @apply ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/70 px-2 py-1;
+  }
+
+  .tile-tag-input {
+    @apply w-14 bg-transparent text-[10px] font-bold text-porcelain-50 outline-none placeholder:text-porcelain-100/30;
+  }
+
+  .tile-tag-submit {
+    @apply rounded-full bg-signal-cyan/15 px-2 py-0.5 text-[10px] font-black text-signal-cyan transition hover:bg-signal-cyan/25;
   }
 
   .tile-action {
@@ -544,7 +585,7 @@
 
 
   .image-viewer-backdrop {
-    @apply z-[90];
+    @apply z-[120];
   }
 
   .image-viewer-card {
@@ -978,12 +1019,16 @@
     @apply mt-1 font-semibold text-porcelain-100/[0.38];
   }
 
-  .batch-chip-active {
-    @apply border-signal-cyan/65 bg-signal-cyan/15 text-signal-cyan;
+  .batch-chip-inline {
+    @apply flex-row items-center gap-2;
   }
 
-  .bulk-action-bar {
-    @apply inline-flex items-center gap-2 rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.08] px-3 py-1.5 text-xs font-black text-signal-cyan;
+  .batch-chip-inline small {
+    @apply mt-0;
+  }
+
+  .batch-chip-active {
+    @apply border-signal-cyan/65 bg-signal-cyan/15 text-signal-cyan;
   }
 
   .wall-bulk-action-bar {
@@ -1011,30 +1056,26 @@
     @apply text-porcelain-100/55 hover:bg-porcelain-50/10 hover:text-porcelain-50;
   }
 
+  .wall-preview-hitbox {
+    @apply absolute inset-0 z-0 cursor-pointer;
+  }
+
+  .wall-preview-hitbox img {
+    @apply h-full w-full object-cover;
+  }
+
+  .wall-tile-overlay {
+    @apply absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 bg-gradient-to-t from-ink-950/90 via-ink-950/45 to-transparent p-4 opacity-95;
+  }
+
+  .wall-select {
+    @apply left-3 right-auto z-20;
+  }
+
   .tile-select {
     @apply absolute right-3 top-3 z-20 grid h-7 w-7 place-items-center rounded-full border border-porcelain-50/15 bg-ink-950/70 text-signal-cyan shadow-card backdrop-blur-md transition hover:border-signal-cyan/60;
   }
 
-  .tile-select-bottom {
-    @apply bottom-3 left-3 right-auto top-auto;
-  }
-
-  .tile-select-active {
-    @apply border-signal-cyan/70 bg-signal-cyan text-ink-950;
-  }
-
-  .sample-tile-selected,
-  .wall-tile-selected {
-    @apply border-signal-cyan/70 ring-2 ring-signal-cyan/25;
-  }
-
-  .wall-select {
-    @apply left-3 right-auto;
-  }
-
-  .wall-selected-count {
-    @apply rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.08] px-3 py-2 text-xs font-black text-signal-cyan;
-  }
 }
 
 

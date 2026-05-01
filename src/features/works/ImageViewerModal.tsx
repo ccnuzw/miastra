@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { Download, ImagePlus, RefreshCw, SlidersHorizontal, X } from 'lucide-react'
 import type { GenerationDrawSnapshot, GenerationMode, GenerationReferenceSnapshot } from '@/features/generation/generation.types'
 import type { GalleryImage } from './works.types'
@@ -92,7 +93,7 @@ export function ImageViewerModal({
   onReuseParameters,
   onRegenerateFromParameters,
 }: ImageViewerModalProps) {
-  if (!image?.src) return null
+  if (!image?.src || typeof document === 'undefined') return null
 
   const snapshot = image.generationSnapshot
   const mode = snapshot?.mode ?? image.mode
@@ -118,7 +119,7 @@ export function ImageViewerModal({
   const hasReusableParameters = Boolean(promptText || snapshot || image.providerModel || image.size || image.quality || image.mode)
   const hasReferenceHint = Boolean(references?.count || mode?.includes('image2image'))
 
-  return (
+  return createPortal(
     <div className="modal-backdrop image-viewer-backdrop" role="dialog" aria-modal="true" aria-label="图片放大预览" onClick={onClose}>
       <div className="image-viewer-card" onClick={(event) => event.stopPropagation()}>
         <div className="image-viewer-header">
@@ -210,6 +211,7 @@ export function ImageViewerModal({
           </aside>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

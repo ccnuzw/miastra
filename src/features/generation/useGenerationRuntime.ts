@@ -58,9 +58,13 @@ export function useGenerationRuntime() {
       drawQueuePausedRef.current = false
       setDrawQueuePaused(false)
       abortRef.current?.abort()
-      taskControllersRef.current.forEach((controller) => controller.abort())
+      for (const controller of taskControllersRef.current.values()) {
+        controller.abort()
+      }
       taskControllersRef.current.clear()
-      pauseResolversRef.current.splice(0).forEach((resolve) => resolve())
+      for (const resolve of pauseResolversRef.current.splice(0)) {
+        resolve()
+      }
       if (debounceTimerRef.current) window.clearTimeout(debounceTimerRef.current)
     }
   }, [])

@@ -169,7 +169,9 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
     const formData = new FormData()
     formData.append('model', context.config.model)
     formData.append('prompt', options.promptText)
-    imageFiles.forEach((imageFile) => formData.append('image', imageFile))
+    for (const imageFile of imageFiles) {
+      formData.append('image', imageFile)
+    }
     formData.append('size', context.size)
     formData.append('quality', options.qualityValue ?? context.quality)
     formData.append('n', '1')

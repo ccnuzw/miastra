@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { editEndpoint, generationEndpoint } from '@/features/generation/generation.constants'
-import { providerPresets, providerStorageKey } from '@/features/provider/provider.constants'
-import { readStoredConfig } from '@/features/provider/provider.storage'
+import { defaultConfig, providerPresets } from '@/features/provider/provider.constants'
+import { readStoredConfig, writeStoredConfig } from '@/features/provider/provider.storage'
 import type { ProviderConfig } from '@/features/provider/provider.types'
 import { resolveImageApiUrl } from '@/shared/utils/url'
 
@@ -10,13 +10,32 @@ type UseProviderConfigOptions = {
 }
 
 export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
-  const [config, setConfig] = useState<ProviderConfig>(() => readStoredConfig())
-  const [draftConfig, setDraftConfig] = useState<ProviderConfig>(() => readStoredConfig())
+  const [config, setConfig] = useState<ProviderConfig>(defaultConfig)
+  const [draftConfig, setDraftConfig] = useState<ProviderConfig>(defaultConfig)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const requestUrl = useMemo(() => resolveImageApiUrl(config.apiUrl, generationEndpoint), [config.apiUrl])
   const editRequestUrl = useMemo(() => resolveImageApiUrl(config.apiUrl, editEndpoint), [config.apiUrl])
   const activePreset = providerPresets.find((provider) => provider.id === config.providerId) ?? providerPresets[0]
+
+  useEffect(() => {
+    let cancelled = false
+    void readStoredConfig()
+      .then((stored) => {
+        if (cancelled) return
+        setConfig(stored)
+        setDraftConfig(stored)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setConfig(defaultConfig)
+        setDraftConfig(defaultConfig)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!settingsOpen) setDraftConfig(config)
@@ -32,29 +51,30 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
     })
   }
 
-  function saveProviderConfig() {
+  async function saveProviderConfig() {
     const normalized = {
       ...draftConfig,
       apiUrl: draftConfig.apiUrl.trim(),
       model: draftConfig.model.trim(),
       apiKey: draftConfig.apiKey.trim(),
     }
-    setConfig(normalized)
-    window.localStorage.setItem(providerStorageKey, JSON.stringify(normalized))
+    const saved = await writeStoredConfig(normalized)
+    setConfig(saved)
+    setDraftConfig(saved)
     setSettingsOpen(false)
     onSaved?.()
   }
 
-  function applyProviderSnapshot(snapshot: Partial<Pick<ProviderConfig, 'providerId' | 'apiUrl' | 'model'>>) {
+  async function applyProviderSnapshot(snapshot: Partial<Pick<ProviderConfig, 'providerId' | 'apiUrl' | 'model'>>) {
     const normalized = {
       ...config,
       providerId: snapshot.providerId?.trim() || config.providerId,
       apiUrl: snapshot.apiUrl?.trim() ?? config.apiUrl,
       model: snapshot.model?.trim() || config.model,
     }
-    setConfig(normalized)
-    setDraftConfig(normalized)
-    window.localStorage.setItem(providerStorageKey, JSON.stringify(normalized))
+    const saved = await writeStoredConfig(normalized)
+    setConfig(saved)
+    setDraftConfig(saved)
   }
 
   return {

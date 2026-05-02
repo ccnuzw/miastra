@@ -83,7 +83,7 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
             <p className="eyebrow">Provider Settings</p>
             <h2 className="mt-2 font-display text-4xl leading-none">配置生图服务</h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-porcelain-100/[0.6]">
-              Provider 是辅助设置，只负责连接后端。配置会保存到浏览器 `localStorage`，下次打开自动恢复。
+              Provider 配置会保存到当前登录账号的服务端配置中心，不会再落到浏览器本地存储。
             </p>
           </div>
           <button type="button" onClick={onClose} className="icon-button" aria-label="关闭设置">
@@ -147,7 +147,7 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
                 测试连接
               </div>
               <p className="mt-2 text-xs leading-5 text-porcelain-100/[0.55]">
-                使用当前弹窗草稿配置发起一次最小生图请求；不会保存配置，也不会写入作品区、预览区或正式生成状态。
+                使用当前弹窗草稿配置发起一次最小生图请求；不会影响作品区、预览区或正式生成状态。
               </p>
             </div>
             <button
@@ -191,10 +191,10 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
         <div className="mt-6 rounded-[1.75rem] border border-signal-cyan/20 bg-signal-cyan/[0.055] p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-signal-cyan">
             <Lock className="h-4 w-4" />
-            本地持久化说明
+            配置存储说明
           </div>
           <p className="mt-2 text-xs leading-5 text-porcelain-100/[0.55]">
-            配置会保存到当前浏览器的 localStorage。若部署给多人使用，建议改为后端代理保存，不要把长期密钥写死在前端代码里。
+            配置会保存到后端的当前账号配置中心。若部署给多人使用，建议继续把 Provider API Key 放在服务端，不要回退到前端长期存储。
           </p>
         </div>
 

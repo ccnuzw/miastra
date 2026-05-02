@@ -1,5 +1,5 @@
 import { Check, Download, ImagePlus, RefreshCw, Search, Star, Tag, Trash2, X } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { memo, useMemo, useState, type FormEvent } from 'react'
 import type { GalleryImage } from '@/features/works/works.types'
 
 type ImageWallModalProps = {
@@ -35,6 +35,139 @@ type ImageWallModalProps = {
   onClearFilters: () => void
 }
 
+type ImageWallTileProps = {
+  item: GalleryImage
+  selected: boolean
+  onPreview: (item: GalleryImage) => void
+  onDownload: (item: GalleryImage) => void
+  onPushReference: (item: GalleryImage) => void
+  onToggleSelect: (id: string) => void
+  onToggleFavorite: (id: string) => void
+  onAddTag: (id: string, tag: string) => void
+  onRemoveTag: (id: string, tag: string) => void
+  onRemove: (id: string) => void
+  onRetry?: (item: GalleryImage) => void
+}
+
+const ImageWallTile = memo(function ImageWallTile({
+  item,
+  selected,
+  onPreview,
+  onDownload,
+  onPushReference,
+  onToggleSelect,
+  onToggleFavorite,
+  onAddTag,
+  onRemoveTag,
+  onRemove,
+  onRetry,
+}: ImageWallTileProps) {
+  const [tagDraft, setTagDraft] = useState('')
+  const isFavorite = Boolean(item.isFavorite ?? item.favorite)
+  const tags = item.tags ?? []
+  const canRetry = item.taskStatus === 'failed' && item.retryable !== false && onRetry
+
+  function handleAddTag(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    const nextTag = tagDraft.trim()
+    if (!nextTag) return
+    onAddTag(item.id, nextTag)
+    setTagDraft('')
+  }
+
+  return (
+    <div
+      className={`wall-tile ${selected ? 'wall-tile-selected' : ''}`}
+      onClick={() => onPreview(item)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') onPreview(item)
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      {item.src && <img src={item.src} alt={item.title} />}
+      <button
+        type="button"
+        className={`tile-select wall-select ${selected ? 'tile-select-active' : ''}`}
+        onClick={(event) => { event.stopPropagation(); onToggleSelect(item.id) }}
+        aria-label={selected ? '取消选择作品' : '选择作品'}
+      >
+        {selected ? <Check className="h-3.5 w-3.5" /> : null}
+      </button>
+      <div className="wall-tile-overlay">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            {item.variation && <span className="variation-badge">{item.drawIndex ? `#${item.drawIndex}` : '变体'}</span>}
+            {isFavorite && <span className="variation-badge text-signal-amber"><Star className="h-3 w-3 fill-current" /> 收藏</span>}
+            {item.taskStatus && <span className="variation-badge text-signal-cyan">{item.taskStatus}</span>}
+          </div>
+          <p className="mt-2 text-sm font-semibold text-porcelain-50">{item.title}</p>
+          <p className="mt-1 line-clamp-2 text-xs text-porcelain-100/55">{item.meta}</p>
+          {(item.size || item.quality || item.providerModel) && (
+            <p className="mt-1 text-[11px] font-semibold text-signal-cyan/80">{[item.providerModel, item.size, item.quality].filter(Boolean).join(' · ')}</p>
+          )}
+          {item.error && <p className="mt-1 text-[11px] font-semibold text-signal-amber/85">失败原因：{item.error}</p>}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+            {tags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className="inline-flex items-center gap-1 rounded-full border border-signal-cyan/20 bg-signal-cyan/10 px-2 py-1 text-[10px] font-bold text-signal-cyan transition hover:border-signal-coral/45 hover:text-signal-coral"
+                onClick={(event) => { event.stopPropagation(); onRemoveTag(item.id, tag) }}
+                aria-label={`删除标签 ${tag}`}
+              >
+                #{tag}<X className="h-3 w-3" />
+              </button>
+            ))}
+            {canRetry && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-full border border-signal-amber/20 bg-signal-amber/10 px-2 py-1 text-[10px] font-bold text-signal-amber transition hover:border-signal-cyan/40 hover:text-signal-cyan"
+                onClick={(event) => { event.stopPropagation(); onRetry?.(item) }}
+                aria-label="重试失败项"
+              >
+                <RefreshCw className="h-3 w-3" />
+                重试
+              </button>
+            )}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1 text-[10px] font-bold text-porcelain-50 transition hover:border-signal-cyan/35 hover:text-signal-cyan"
+              onClick={(event) => { event.stopPropagation(); onPushReference(item) }}
+              aria-label="推送到输入框"
+            >
+              <ImagePlus className="h-3 w-3" />
+              参考图
+            </button>
+            <form onSubmit={handleAddTag} className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1">
+              <Tag className="h-3 w-3 text-porcelain-100/35" />
+              <input
+                value={tagDraft}
+                onChange={(event) => setTagDraft(event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                placeholder="加标签"
+                className="w-16 bg-transparent text-[10px] font-bold text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
+              />
+            </form>
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <button type="button" className={`tile-action ${isFavorite ? 'tile-action-success text-signal-amber' : ''}`} onClick={(event) => { event.stopPropagation(); onToggleFavorite(item.id) }} aria-label={isFavorite ? '取消收藏作品' : '收藏作品'}>
+            <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-current' : ''}`} />
+          </button>
+          <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onDownload(item) }} aria-label="下载图片">
+            <Download className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" className="tile-action tile-action-danger" onClick={(event) => { event.stopPropagation(); onRemove(item.id) }} aria-label="删除图片">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+})
+
 export function ImageWallModal({
   open,
   gallery,
@@ -67,20 +200,11 @@ export function ImageWallModal({
   onFavoritesOnlyChange,
   onClearFilters,
 }: ImageWallModalProps) {
-  const [tagDrafts, setTagDrafts] = useState<Record<string, string>>({})
   const [selectedTagDraft, setSelectedTagDraft] = useState('')
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
   if (!open) return null
 
   const hasFilters = Boolean(searchQuery.trim() || activeTag !== 'all' || favoritesOnly)
-
-  function handleAddTag(event: FormEvent<HTMLFormElement>, id: string) {
-    event.preventDefault()
-    event.stopPropagation()
-    const nextTag = (tagDrafts[id] ?? '').trim()
-    if (!nextTag) return
-    onAddTag(id, nextTag)
-    setTagDrafts((items) => ({ ...items, [id]: '' }))
-  }
 
   function handleAddSelectedTag(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -168,105 +292,22 @@ export function ImageWallModal({
         </div>
         {gallery.length ? (
           <div className="image-wall-grid">
-            {gallery.map((item) => {
-              const selected = selectedIds.includes(item.id)
-              const isFavorite = Boolean(item.isFavorite ?? item.favorite)
-              const tags = item.tags ?? []
-              const canRetry = item.taskStatus === 'failed' && item.retryable !== false && onRetry
-              return (
-                <div
-                  key={item.id}
-                  className={`wall-tile ${selected ? 'wall-tile-selected' : ''}`}
-                  onClick={() => onPreview(item)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') onPreview(item)
-                  }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  {item.src && <img src={item.src} alt={item.title} />}
-                  <button
-                    type="button"
-                    className={`tile-select wall-select ${selected ? 'tile-select-active' : ''}`}
-                    onClick={(event) => { event.stopPropagation(); onToggleSelect(item.id) }}
-                    aria-label={selected ? '取消选择作品' : '选择作品'}
-                  >
-                    {selected ? <Check className="h-3.5 w-3.5" /> : null}
-                  </button>
-                  <div className="wall-tile-overlay">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {item.variation && <span className="variation-badge">{item.drawIndex ? `#${item.drawIndex}` : '变体'}</span>}
-                        {isFavorite && <span className="variation-badge text-signal-amber"><Star className="h-3 w-3 fill-current" /> 收藏</span>}
-                        {item.taskStatus && <span className="variation-badge text-signal-cyan">{item.taskStatus}</span>}
-                      </div>
-                      <p className="mt-2 text-sm font-semibold text-porcelain-50">{item.title}</p>
-                      <p className="mt-1 line-clamp-2 text-xs text-porcelain-100/55">{item.meta}</p>
-                      {(item.size || item.quality || item.providerModel) && (
-                        <p className="mt-1 text-[11px] font-semibold text-signal-cyan/80">{[item.providerModel, item.size, item.quality].filter(Boolean).join(' · ')}</p>
-                      )}
-                      {item.error && <p className="mt-1 text-[11px] font-semibold text-signal-amber/85">失败原因：{item.error}</p>}
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
-                        {tags.map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            className="inline-flex items-center gap-1 rounded-full border border-signal-cyan/20 bg-signal-cyan/10 px-2 py-1 text-[10px] font-bold text-signal-cyan transition hover:border-signal-coral/45 hover:text-signal-coral"
-                            onClick={(event) => { event.stopPropagation(); onRemoveTag(item.id, tag) }}
-                            aria-label={`删除标签 ${tag}`}
-                          >
-                            #{tag}<X className="h-3 w-3" />
-                          </button>
-                        ))}
-                        {canRetry && (
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 rounded-full border border-signal-amber/20 bg-signal-amber/10 px-2 py-1 text-[10px] font-bold text-signal-amber transition hover:border-signal-cyan/40 hover:text-signal-cyan"
-                            onClick={(event) => { event.stopPropagation(); onRetry?.(item) }}
-                            aria-label="重试失败项"
-                          >
-                            <RefreshCw className="h-3 w-3" />
-                            重试
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1 text-[10px] font-bold text-porcelain-50 transition hover:border-signal-cyan/35 hover:text-signal-cyan"
-                          onClick={(event) => { event.stopPropagation(); onPushReference(item) }}
-                          aria-label="推送到输入框"
-                        >
-                          <ImagePlus className="h-3 w-3" />
-                          参考图
-                        </button>
-                        {onAddTag && (
-                          <form onSubmit={(event) => handleAddTag(event, item.id)} className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1">
-                            <Tag className="h-3 w-3 text-porcelain-100/35" />
-                            <input
-                              value={tagDrafts[item.id] ?? ''}
-                              onChange={(event) => setTagDrafts((items) => ({ ...items, [item.id]: event.target.value }))}
-                              onClick={(event) => event.stopPropagation()}
-                              placeholder="加标签"
-                              className="w-16 bg-transparent text-[10px] font-bold text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
-                            />
-                          </form>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <button type="button" className={`tile-action ${isFavorite ? 'tile-action-success text-signal-amber' : ''}`} onClick={(event) => { event.stopPropagation(); onToggleFavorite(item.id) }} aria-label={isFavorite ? '取消收藏作品' : '收藏作品'}>
-                        <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-current' : ''}`} />
-                      </button>
-                      <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onDownload(item) }} aria-label="下载图片">
-                        <Download className="h-3.5 w-3.5" />
-                      </button>
-                      <button type="button" className="tile-action tile-action-danger" onClick={(event) => { event.stopPropagation(); onRemove(item.id) }} aria-label="删除图片">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
+            {gallery.map((item) => (
+              <ImageWallTile
+                key={item.id}
+                item={item}
+                selected={selectedIdSet.has(item.id)}
+                onPreview={onPreview}
+                onDownload={onDownload}
+                onPushReference={onPushReference}
+                onToggleSelect={onToggleSelect}
+                onToggleFavorite={onToggleFavorite}
+                onAddTag={onAddTag}
+                onRemoveTag={onRemoveTag}
+                onRemove={onRemove}
+                onRetry={onRetry}
+              />
+            ))}
           </div>
         ) : (
           <div className="image-wall-empty">{hasFilters ? '没有符合当前搜索和筛选条件的作品。' : '生成图片后，这里会自动形成图片墙。'}</div>

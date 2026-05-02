@@ -1,4 +1,4 @@
-import { ChangeEvent, RefObject } from 'react'
+import type { ChangeEvent, RefObject } from 'react'
 import { BookmarkPlus, ImagePlus, Library, Wand2, X } from 'lucide-react'
 import type { ReferenceImage } from '@/features/references/reference.types'
 

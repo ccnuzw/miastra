@@ -1,7 +1,13 @@
-import { readBrowserValue, writeBrowserValue } from '@/shared/storage/browserDatabase'
+import { apiRequest } from '@/shared/http/client'
+import { deleteBrowserValue, readBrowserValue } from '@/shared/storage/browserDatabase'
 import type { GalleryImage } from './works.types'
 
 export const worksGalleryStorageKey = 'new-pic:works-gallery:v1'
+
+type ImportLocalWorksResult = {
+  imported: number
+  total: number
+}
 
 function normalizeTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return []
@@ -24,11 +30,28 @@ export function normalizeGallery(gallery: GalleryImage[]): GalleryImage[] {
   return gallery.map(normalizeGalleryImage)
 }
 
+export async function importLegacyWorks() {
+  const legacyWorks = normalizeGallery(await readBrowserValue<GalleryImage[]>(worksGalleryStorageKey, []))
+  if (!legacyWorks.length) return { imported: 0, total: 0 }
+
+  const result = await apiRequest<ImportLocalWorksResult>('/api/migrations/import-local-works', {
+    method: 'POST',
+    body: { works: legacyWorks },
+  })
+
+  await deleteBrowserValue(worksGalleryStorageKey)
+  return result
+}
+
 export async function readStoredGallery() {
-  const gallery = await readBrowserValue<GalleryImage[]>(worksGalleryStorageKey, [])
+  await importLegacyWorks()
+  const gallery = await apiRequest<GalleryImage[]>('/api/works')
   return normalizeGallery(gallery)
 }
 
 export function writeStoredGallery(gallery: GalleryImage[]) {
-  return writeBrowserValue(worksGalleryStorageKey, normalizeGallery(gallery))
+  return apiRequest<{ success: true, count: number }>('/api/works/replace', {
+    method: 'PUT',
+    body: { works: normalizeGallery(gallery) },
+  })
 }

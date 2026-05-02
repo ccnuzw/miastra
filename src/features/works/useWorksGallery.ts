@@ -13,6 +13,8 @@ export type WorksGalleryFilters = {
   favoritesOnly?: boolean
 }
 
+const galleryPersistDebounceMs = 400
+
 function normalizeTag(tag: string) {
   return tag.trim()
 }
@@ -44,7 +46,7 @@ export function filterWorksGallery(items: GalleryImage[], filters: WorksGalleryF
 
   return items.filter((item) => {
     if (batchId && item.batchId !== batchId) return false
-    if (favoritesOnly && !Boolean(item.isFavorite ?? item.favorite)) return false
+    if (favoritesOnly && !(item.isFavorite ?? item.favorite)) return false
     if (tag && !(item.tags ?? []).includes(tag)) return false
     if (queryTerms.length) {
       const text = getSearchText(item)
@@ -57,6 +59,7 @@ export function filterWorksGallery(items: GalleryImage[], filters: WorksGalleryF
 export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) {
   const [gallery, setGalleryState] = useState<GalleryImage[]>([])
   const galleryHydratedRef = useRef(false)
+  const persistTimerRef = useRef<number | null>(null)
   const [wallOpen, setWallOpen] = useState(false)
   const [viewerImage, setViewerImage] = useState<GalleryImage | null>(null)
   const [selectedWorkIds, setSelectedWorkIds] = useState<string[]>([])
@@ -84,7 +87,20 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
 
   useEffect(() => {
     if (!galleryHydratedRef.current) return
-    void writeStoredGallery(gallery)
+    if (persistTimerRef.current !== null) {
+      window.clearTimeout(persistTimerRef.current)
+    }
+    persistTimerRef.current = window.setTimeout(() => {
+      void writeStoredGallery(gallery)
+      persistTimerRef.current = null
+    }, galleryPersistDebounceMs)
+
+    return () => {
+      if (persistTimerRef.current !== null) {
+        window.clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+      }
+    }
   }, [gallery])
 
   const availableTags = useMemo(() => Array.from(new Set(gallery.flatMap((item) => item.tags ?? []))).sort((a, b) => a.localeCompare(b, 'zh-CN')), [gallery])
@@ -136,13 +152,13 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
 
   function removeSelectedWorks() {
     selectedWorkIds.forEach((id) => onRemoveImage?.(id))
-    setGallery((items) => items.filter((item) => !selectedWorkIds.includes(item.id)))
-    setViewerImage((current) => current && selectedWorkIds.includes(current.id) ? null : current)
+    setGallery((items) => items.filter((item) => !selectedWorkSet.has(item.id)))
+    setViewerImage((current) => current && selectedWorkSet.has(current.id) ? null : current)
     setSelectedWorkIds([])
   }
 
   function toggleWorkFavorite(id: string) {
-    updateWork(id, (item) => ({ ...item, isFavorite: !Boolean(item.isFavorite ?? item.favorite) }))
+    updateWork(id, (item) => ({ ...item, isFavorite: !(item.isFavorite ?? item.favorite) }))
   }
 
   function addWorkTag(id: string, tag: string) {
@@ -200,6 +216,8 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
     setFavoritesOnly,
     clearWorkFilters,
     selectedWorkIds,
+    selectedWorkSet,
+    selectedWorks,
     selectedCount: selectedWorkIds.length,
     selectedWorkTags,
     toggleWorkSelection,

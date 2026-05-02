@@ -1,5 +1,5 @@
 import { Images, Search, Star, Trash2, X } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import type { DrawBatch } from '@/features/draw-card/drawCard.types'
 import { WorkTile } from './WorkTile'
 import type { GalleryImage } from './works.types'
@@ -78,6 +78,7 @@ export function WorksRail({
   const [selectedTagDraft, setSelectedTagDraft] = useState('')
   const taskCount = items.filter((item) => item.taskStatus).length
   const selectedCount = selectedIds.length
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
   const hasFilters = Boolean(searchQuery.trim() || activeTag !== 'all' || favoritesOnly)
 
   function handleAddSelectedTag(event: FormEvent<HTMLFormElement>) {
@@ -182,7 +183,7 @@ export function WorksRail({
           <WorkTile
             key={item.id}
             item={item}
-            selected={selectedIds.includes(item.id)}
+            selected={selectedIdSet.has(item.id)}
             onToggleSelect={onToggleSelect}
             onToggleFavorite={onToggleFavorite}
             onAddTag={onAddTag}

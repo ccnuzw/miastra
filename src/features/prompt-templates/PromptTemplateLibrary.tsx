@@ -99,7 +99,7 @@ export function PromptTemplateLibrary({
             <p className="eyebrow">Prompt Library</p>
             <h2 className="mt-2 font-display text-4xl leading-none">模板库</h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-porcelain-100/[0.6]">
-              只保存当前 Prompt 文本，不会保存尺寸、风格、负面提示词或抽卡参数。模板会持久化在浏览器本地 IndexedDB。
+              只保存当前 Prompt 文本，不会保存尺寸、风格、负面提示词或抽卡参数。模板会保存到当前登录账号的服务端模板库。
             </p>
           </div>
           <button type="button" onClick={onClose} className="icon-button" aria-label="关闭模板库">

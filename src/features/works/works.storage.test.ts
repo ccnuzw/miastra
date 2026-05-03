@@ -20,6 +20,10 @@ describe('works.storage', () => {
         },
       },
     })
+    Object.defineProperty(window, 'indexedDB', {
+      configurable: true,
+      value: undefined,
+    })
   })
 
   afterEach(() => {
@@ -62,21 +66,16 @@ describe('works.storage', () => {
     expect(window.localStorage.getItem(worksGalleryStorageKey)).toBeNull()
   })
 
-  it('reads works from api after migration', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: { imported: 0, total: 0 } }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [{ id: 'work-1', title: '作品', meta: 'from-api', createdAt: 1 }] }),
-      } as Response)
+  it('reads works from api when no legacy cache exists', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ id: 'work-1', title: '作品', meta: 'from-api', createdAt: 1 }] }),
+    } as Response)
 
     await expect(readStoredGallery()).resolves.toEqual([
       { id: 'work-1', title: '作品', meta: 'from-api', createdAt: 1, isFavorite: false, tags: [] },
     ])
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/works', expect.objectContaining({ credentials: 'include' }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/works', expect.objectContaining({ credentials: 'include' }))
   })
 
   it('writes works through replace api', async () => {

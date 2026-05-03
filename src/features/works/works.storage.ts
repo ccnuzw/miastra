@@ -44,7 +44,6 @@ export async function importLegacyWorks() {
 }
 
 export async function readStoredGallery() {
-  await importLegacyWorks()
   const gallery = await apiRequest<GalleryImage[]>('/api/works')
   return normalizeGallery(gallery)
 }

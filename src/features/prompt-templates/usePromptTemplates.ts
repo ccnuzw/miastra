@@ -18,9 +18,11 @@ type ImportLocalTemplatesResult = {
 
 export function normalizeTemplate(template: PromptTemplateListItem): PromptTemplateListItem {
   const now = Date.now()
+  const title = template.title?.trim() || template.name?.trim() || '未命名模板'
   return {
     id: template.id || crypto.randomUUID(),
-    title: template.title?.trim() || template.name?.trim() || '未命名模板',
+    title,
+    name: title,
     content: template.content ?? '',
     createdAt: template.createdAt ?? now,
     updatedAt: template.updatedAt ?? template.createdAt ?? now,
@@ -71,7 +73,6 @@ export function usePromptTemplates() {
     setLoading(true)
     setError(null)
     try {
-      await importLegacyPromptTemplates()
       const normalized = await listPromptTemplates()
       setTemplates(normalized)
       return normalized
@@ -83,9 +84,14 @@ export function usePromptTemplates() {
     }
   }, [])
 
-  useEffect(() => {
-    void refresh().catch(() => undefined)
+  const hydrate = useCallback(async () => {
+    await importLegacyPromptTemplates()
+    return await refresh()
   }, [refresh])
+
+  useEffect(() => {
+    void hydrate().catch(() => undefined)
+  }, [hydrate])
 
   const saveTemplate = useCallback(async ({ id, title, content }: SavePromptTemplateInput) => {
     if (!content.trim()) throw new Error('Prompt 模板内容不能为空')

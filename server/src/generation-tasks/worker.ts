@@ -19,6 +19,5 @@ type WorkerLogger = {
   error?: (payload: unknown, message?: string) => void
 }
 
-
-export function startGenerationTaskWorker() {}
-export function cancelGenerationTaskProcessing() { return Promise.resolve() }
+export function startGenerationTaskWorker(_logger?: WorkerLogger) {}
+export function cancelGenerationTaskProcessing(_taskId?: string) { return Promise.resolve() }

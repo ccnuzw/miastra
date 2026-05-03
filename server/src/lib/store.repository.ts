@@ -193,6 +193,9 @@ const postgresSchemaSql = `
     count INTEGER NOT NULL,
     success_count INTEGER NOT NULL,
     failed_count INTEGER NOT NULL,
+    cancelled_count INTEGER NOT NULL DEFAULT 0,
+    interrupted_count INTEGER NOT NULL DEFAULT 0,
+    timeout_count INTEGER NOT NULL DEFAULT 0,
     snapshot_id TEXT NOT NULL
   );
 
@@ -252,6 +255,10 @@ async function ensurePostgresSchema(pool: Pool) {
 async function writeCoreTables(pool: Pool, store: DataStore) {
   await pool.query('BEGIN')
   try {
+    await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS cancelled_count INTEGER NOT NULL DEFAULT 0`)
+    await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS interrupted_count INTEGER NOT NULL DEFAULT 0`)
+    await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS timeout_count INTEGER NOT NULL DEFAULT 0`)
+
     await pool.query('DELETE FROM billing_invoices')
     await pool.query('DELETE FROM quota_profiles')
     await pool.query('DELETE FROM audit_logs')
@@ -319,7 +326,7 @@ export function createPostgresStoreRepository(options: PostgresStoreRepositoryOp
 
   async function readPostgresStore() {
     await ensurePostgresSchema(pool)
-    const [users, sessions, providerConfigs, generationTasks, promptTemplates, works, drawBatches, auditLogs, quotaProfiles] = await Promise.all([
+    const [users, sessions, providerConfigs, generationTasks, promptTemplates, works, drawBatches, auditLogs, quotaProfiles, billingInvoices] = await Promise.all([
       authRepository.listUsers(),
       authRepository.listSessions(),
       authRepository.listProviderConfigs(),
@@ -329,6 +336,7 @@ export function createPostgresStoreRepository(options: PostgresStoreRepositoryOp
       contentRepository.listDrawBatches(),
       auditRepository.listAuditLogs(),
       authRepository.listQuotaProfiles(),
+      authRepository.listBillingInvoices(),
     ])
 
     return normalizeStore({
@@ -341,7 +349,7 @@ export function createPostgresStoreRepository(options: PostgresStoreRepositoryOp
       drawBatches,
       auditLogs,
       quotaProfiles,
-      billingInvoices: [],
+      billingInvoices,
     })
   }
 

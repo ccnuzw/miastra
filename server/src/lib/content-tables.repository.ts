@@ -67,6 +67,9 @@ function mapDrawBatchRow(row: Record<string, unknown>): StoredDrawBatch {
     count: Number(row.count),
     successCount: Number(row.success_count),
     failedCount: Number(row.failed_count),
+    cancelledCount: Number(row.cancelled_count ?? 0),
+    interruptedCount: Number(row.interrupted_count ?? 0),
+    timeoutCount: Number(row.timeout_count ?? 0),
     snapshotId: String(row.snapshot_id),
   }
 }
@@ -113,7 +116,21 @@ function workValues(work: StoredWork) {
 }
 
 function drawBatchValues(batch: StoredDrawBatch) {
-  return [batch.id, batch.userId, batch.title, batch.createdAt, batch.strategy, batch.concurrency, batch.count, batch.successCount, batch.failedCount, batch.snapshotId]
+  return [
+    batch.id,
+    batch.userId,
+    batch.title,
+    batch.createdAt,
+    batch.strategy,
+    batch.concurrency,
+    batch.count,
+    batch.successCount,
+    batch.failedCount,
+    batch.cancelledCount,
+    batch.interruptedCount,
+    batch.timeoutCount,
+    batch.snapshotId,
+  ]
 }
 
 export function createPostgresContentTablesRepository(pool: Pool): ContentTablesRepository {
@@ -136,7 +153,7 @@ export function createPostgresContentTablesRepository(pool: Pool): ContentTables
     },
     async listDrawBatches() {
       const result = await pool.query(`
-        SELECT id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, snapshot_id
+        SELECT id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, cancelled_count, interrupted_count, timeout_count, snapshot_id
         FROM draw_batches
         ORDER BY created_at DESC
       `)
@@ -202,7 +219,7 @@ export function createPostgresContentTablesRepository(pool: Pool): ContentTables
     },
     async listDrawBatchesByUserId(userId) {
       const result = await pool.query(`
-        SELECT id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, snapshot_id
+        SELECT id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, cancelled_count, interrupted_count, timeout_count, snapshot_id
         FROM draw_batches
         WHERE user_id = $1
         ORDER BY created_at DESC
@@ -216,8 +233,8 @@ export function createPostgresContentTablesRepository(pool: Pool): ContentTables
         await client.query(`DELETE FROM draw_batches WHERE user_id = $1`, [userId])
         for (const batch of batches) {
           await client.query(`
-            INSERT INTO draw_batches (id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, snapshot_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO draw_batches (id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, cancelled_count, interrupted_count, timeout_count, snapshot_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
           `, drawBatchValues(batch))
         }
         await client.query('COMMIT')

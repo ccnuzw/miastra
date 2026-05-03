@@ -1,5 +1,5 @@
 import type { DrawTaskStatus } from '../draw-card/drawCard.types'
-import type { GenerationMode, GenerationSnapshot } from '../generation/generation.types'
+import type { GenerationErrorCode, GenerationMode, GenerationSnapshot } from '../generation/generation.types'
 
 export type GalleryImage = {
   id: string
@@ -11,6 +11,7 @@ export type GalleryImage = {
   drawIndex?: number
   taskStatus?: DrawTaskStatus
   error?: string
+  errorCode?: GenerationErrorCode | string
   retryable?: boolean
   retryCount?: number
   createdAt?: number
@@ -19,6 +20,7 @@ export type GalleryImage = {
   size?: string
   quality?: string
   snapshotId?: string
+  generationTaskId?: string
   generationSnapshot?: GenerationSnapshot
   promptSnippet?: string
   promptText?: string

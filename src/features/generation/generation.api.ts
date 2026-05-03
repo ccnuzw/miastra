@@ -2,10 +2,12 @@ import { apiRequest } from '@/shared/http/client'
 import { editEndpoint, generationEndpoint } from './generation.constants'
 import { extractGenerationError, extractImageSrc, readGenerationResponse, responseDebugHeaders } from './generation.parser'
 
+export type GenerationTaskStatus = 'pending' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timeout'
+
 export type GenerationTaskRecord = {
   id: string
   userId: string
-  status: 'pending' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timeout'
+  status: GenerationTaskStatus
   progress?: number
   createdAt: string
   updatedAt: string
@@ -23,6 +25,26 @@ export type GenerationTaskRecord = {
     model: string
     providerId: string
     stream: boolean
+    referenceImages?: Array<{
+      source: 'upload' | 'work'
+      name: string
+      src: string
+    }>
+    draw?: {
+      count: number
+      strategy: 'linear' | 'smart' | 'turbo'
+      concurrency: number
+      delayMs: number
+      retries: number
+      timeoutSec: number
+      safeMode: boolean
+      variationStrength: 'low' | 'medium' | 'high'
+      dimensions: string[]
+      batchId: string
+      batchSnapshotId?: string
+      drawIndex: number
+      variation: string
+    }
   }
   result?: {
     imageUrl?: string
@@ -40,6 +62,15 @@ export type GenerationTaskRecord = {
     variation?: string
     generationSnapshot?: unknown
   }
+}
+
+export type CreateGenerationTaskInput = GenerationTaskRecord['payload']
+
+export type UpdateGenerationTaskInput = {
+  status: GenerationTaskStatus
+  progress?: number
+  result?: GenerationTaskRecord['result']
+  errorMessage?: string
 }
 
 type GenerationRequestBody = {
@@ -64,6 +95,7 @@ export async function postJsonImageGeneration(params: {
   signal: AbortSignal
   body: GenerationRequestBody
   onImage?: (src: string) => void
+  chargeQuota?: boolean
 }): Promise<GenerationFormResult> {
   const response = await fetch(params.requestUrl || generationEndpoint, {
     method: 'POST',
@@ -71,6 +103,7 @@ export async function postJsonImageGeneration(params: {
     headers: {
       Authorization: `Bearer ${params.apiKey}`,
       'Content-Type': 'application/json',
+      'x-miastra-charge-quota': params.chargeQuota === false ? '0' : '1',
     },
     body: JSON.stringify(params.body),
   })
@@ -90,12 +123,14 @@ export async function postFormImageGeneration(params: {
   signal: AbortSignal
   formData: FormData
   onImage?: (src: string) => void
+  chargeQuota?: boolean
 }): Promise<GenerationFormResult> {
   const response = await fetch(params.requestUrl || editEndpoint, {
     method: 'POST',
     signal: params.signal,
     headers: {
       Authorization: `Bearer ${params.apiKey}`,
+      'x-miastra-charge-quota': params.chargeQuota === false ? '0' : '1',
     },
     body: params.formData,
   })
@@ -113,6 +148,20 @@ export { extractGenerationError, extractImageSrc, readGenerationResponse, respon
 
 export async function listGenerationTasks() {
   return apiRequest<GenerationTaskRecord[]>('/api/generation-tasks')
+}
+
+export async function createGenerationTask(payload: CreateGenerationTaskInput) {
+  return apiRequest<{ id: string; status: 'queued' }>('/api/generation-tasks', {
+    method: 'POST',
+    body: payload,
+  })
+}
+
+export async function updateGenerationTask(id: string, payload: UpdateGenerationTaskInput) {
+  return apiRequest<GenerationTaskRecord>(`/api/generation-tasks/${id}`, {
+    method: 'POST',
+    body: payload,
+  })
 }
 
 export async function cancelGenerationTask(id: string) {

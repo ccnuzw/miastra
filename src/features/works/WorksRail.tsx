@@ -173,7 +173,7 @@ export function WorksRail({
           {batches.slice(0, 5).map((batch) => (
             <button key={batch.id} type="button" onClick={() => onBatchChange(batch.id)} className={`batch-chip ${activeBatchId === batch.id ? 'batch-chip-active' : ''}`}>
               <span>{batch.title}</span>
-              <small>{batch.successCount}/{batch.count} · 并发 {batch.concurrency}</small>
+              <small>{batch.successCount}/{batch.count} · 失败 {batch.failedCount} · 超时 {batch.timeoutCount} · 中断 {batch.interruptedCount}</small>
             </button>
           ))}
         </div>

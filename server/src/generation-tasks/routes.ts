@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { requireAuthenticatedUser } from '../auth/routes'
 import { fail, ok } from '../lib/http'
 import { getAuthDomainStore, getGenerationTaskDomainStore } from '../lib/domain-store'
+import { createId, storeRepository } from '../lib/store'
 import { cancelGenerationTaskProcessing } from './worker'
 import type { StoredGenerationTask } from '../auth/types'
 
@@ -129,7 +130,6 @@ export async function registerGenerationTaskRoutes(app: FastifyInstance) {
       updatedAt: now,
       payload: parsed.data as StoredGenerationTask['payload'],
     })
-    await storeRepository.write(store)
 
     return ok({ id: taskId, status: 'queued' as const })
   })

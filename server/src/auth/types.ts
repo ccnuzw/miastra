@@ -1,5 +1,5 @@
 export type GenerationMode = 'text2image' | 'image2image' | 'draw-text2image' | 'draw-image2image'
-export type DrawTaskStatus = 'pending' | 'running' | 'receiving' | 'success' | 'failed' | 'retrying' | 'cancelled'
+export type DrawTaskStatus = 'pending' | 'running' | 'receiving' | 'success' | 'failed' | 'retrying' | 'cancelled' | 'timeout' | 'interrupted'
 export type GenerationTaskStatus = 'pending' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timeout'
 export type DrawStrategy = 'linear' | 'smart' | 'turbo'
 
@@ -59,6 +59,9 @@ export type StoredDrawBatch = {
   count: number
   successCount: number
   failedCount: number
+  cancelledCount: number
+  interruptedCount: number
+  timeoutCount: number
   snapshotId: string
 }
 
@@ -124,6 +127,7 @@ export type StoredGenerationTask = {
 
 export type StoredQuotaProfile = {
   userId: string
+  planId?: string
   planName: string
   quotaTotal: number
   quotaUsed: number

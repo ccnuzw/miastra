@@ -46,9 +46,9 @@ export function TemplatesPage() {
       <section className="panel-shell w-full">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="eyebrow">Templates</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">模板</h1>
-            <p className="mt-2 text-sm text-porcelain-100/60">新增、编辑、删除模板。</p>
+            <p className="eyebrow">Assets</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight">模板资产</h1>
+            <p className="mt-2 text-sm text-porcelain-100/60">统一新增、编辑、删除与当前 Prompt 保存体验。</p>
           </div>
           <button className="rounded-full border border-porcelain-50/10 bg-ink-950/[0.65] px-4 py-2 text-sm font-semibold text-porcelain-50 transition hover:border-signal-cyan/50 hover:text-signal-cyan" type="button" onClick={() => void refresh()}>刷新</button>
         </div>

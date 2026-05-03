@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { GalleryImage } from '@/features/works/works.types'
-import { normalizeGallery, normalizeGalleryImage, readStoredGallery, writeStoredGallery } from './works.storage'
+import { importLegacyWorks, normalizeGallery, normalizeGalleryImage, readStoredGallery, writeStoredGallery } from './works.storage'
 
 type UseWorksGalleryOptions = {
   onRemoveImage?: (id: string) => void
+  batchId?: string
 }
 
 export type WorksGalleryFilters = {
@@ -56,8 +57,10 @@ export function filterWorksGallery(items: GalleryImage[], filters: WorksGalleryF
   })
 }
 
-export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) {
+export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptions = {}) {
   const [gallery, setGalleryState] = useState<GalleryImage[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const galleryHydratedRef = useRef(false)
   const persistTimerRef = useRef<number | null>(null)
   const [wallOpen, setWallOpen] = useState(false)
@@ -73,17 +76,33 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
       : value))
   }
 
+  const loadGallery = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const items = await readStoredGallery()
+      const next = batchId && batchId !== 'all' ? items.filter((item) => item.batchId === batchId) : items
+      setGalleryState(next)
+      galleryHydratedRef.current = true
+      return next
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      return []
+    } finally {
+      setLoading(false)
+    }
+  }, [batchId])
+
   useEffect(() => {
     let cancelled = false
-    readStoredGallery().then((items) => {
+    void importLegacyWorks().then(() => {
       if (cancelled) return
-      setGalleryState((current) => (current.length ? current : items))
-      galleryHydratedRef.current = true
+      void loadGallery()
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadGallery])
 
   useEffect(() => {
     if (!galleryHydratedRef.current) return
@@ -107,12 +126,12 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
   const selectedWorkSet = useMemo(() => new Set(selectedWorkIds), [selectedWorkIds])
   const selectedWorks = useMemo(() => gallery.filter((item) => selectedWorkSet.has(item.id)), [gallery, selectedWorkSet])
   const selectedWorkTags = useMemo(() => Array.from(new Set(selectedWorks.flatMap((item) => item.tags ?? []))).sort((a, b) => a.localeCompare(b, 'zh-CN')), [selectedWorks])
-
   const filteredGallery = useMemo(() => filterWorksGallery(gallery, {
+    batchId,
     searchQuery: workSearchQuery,
     tag: activeTagFilter,
     favoritesOnly,
-  }), [activeTagFilter, favoritesOnly, gallery, workSearchQuery])
+  }), [activeTagFilter, batchId, favoritesOnly, gallery, workSearchQuery])
 
   useEffect(() => {
     if (activeTagFilter === 'all') return
@@ -208,6 +227,9 @@ export function useWorksGallery({ onRemoveImage }: UseWorksGalleryOptions = {}) 
     favoritesOnly,
     wallOpen,
     viewerImage,
+    loading,
+    error,
+    refresh: loadGallery,
     setGallery,
     setWallOpen,
     setViewerImage,

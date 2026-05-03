@@ -14,6 +14,9 @@ const drawBatchSchema = z.object({
   count: z.number(),
   successCount: z.number(),
   failedCount: z.number(),
+  cancelledCount: z.number().optional(),
+  interruptedCount: z.number().optional(),
+  timeoutCount: z.number().optional(),
   snapshotId: z.string(),
 })
 
@@ -50,6 +53,9 @@ export async function registerDrawBatchRoutes(app: FastifyInstance) {
       count: batch.count,
       successCount: batch.successCount,
       failedCount: batch.failedCount,
+      cancelledCount: batch.cancelledCount ?? 0,
+      interruptedCount: batch.interruptedCount ?? 0,
+      timeoutCount: batch.timeoutCount ?? 0,
       snapshotId: batch.snapshotId,
     }))
 

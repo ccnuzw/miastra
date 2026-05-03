@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { editEndpoint, generationEndpoint } from '@/features/generation/generation.constants'
 import { defaultConfig, providerPresets } from '@/features/provider/provider.constants'
 import { readStoredConfig, writeStoredConfig } from '@/features/provider/provider.storage'
 import type { ProviderConfig } from '@/features/provider/provider.types'
-import { resolveImageApiUrl } from '@/shared/utils/url'
 
 type UseProviderConfigOptions = {
   onSaved?: () => void
@@ -14,8 +12,8 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
   const [draftConfig, setDraftConfig] = useState<ProviderConfig>(defaultConfig)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  const requestUrl = useMemo(() => resolveImageApiUrl(config.apiUrl, generationEndpoint), [config.apiUrl])
-  const editRequestUrl = useMemo(() => resolveImageApiUrl(config.apiUrl, editEndpoint), [config.apiUrl])
+  const requestUrl = useMemo(() => '/api/provider-proxy/v1/images/generations', [config.providerId])
+  const editRequestUrl = useMemo(() => '/api/provider-proxy/v1/images/edits', [config.providerId])
   const activePreset = providerPresets.find((provider) => provider.id === config.providerId) ?? providerPresets[0]
 
   useEffect(() => {

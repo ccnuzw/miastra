@@ -1,4 +1,3 @@
-import { generationEndpoint } from '@/features/generation/generation.constants'
 import { postJsonImageGeneration } from '@/features/generation/generation.api'
 import { extractGenerationError, extractImageSrc, isGatewayTimeoutPayload } from '@/features/generation/generation.parser'
 import { resolveImageApiUrl } from '@/shared/utils/url'
@@ -17,10 +16,11 @@ function assertProviderTestConfig(config: ProviderConfig) {
   const apiKey = config.apiKey.trim()
   const model = config.model.trim()
   const apiUrl = config.apiUrl.trim()
-  const requestUrl = resolveImageApiUrl(apiUrl, generationEndpoint)
+  const requestUrl = resolveImageApiUrl(apiUrl, '/v1/images/generations')
 
   if (!model) throw new Error('本地配置缺少 Model，请填写模型名称后再测试连接')
   if (!apiKey) throw new Error('本地配置缺少 API Key，请填写密钥后再测试连接')
+
   const isSameOriginPath = apiUrl.startsWith('/') && !apiUrl.startsWith('//')
   if (apiUrl && !/^https?:\/\//i.test(apiUrl) && !isSameOriginPath) {
     throw new Error('本地配置中的 API URL 缺少协议：请填写 https://...，或使用以 / 开头的同源代理路径')
@@ -78,6 +78,7 @@ export async function testProviderConnection(config: ProviderConfig): Promise<Pr
         n: 1,
         stream: false,
       },
+      chargeQuota: false,
     })
 
     if (isGatewayTimeoutPayload(response.status, text)) {

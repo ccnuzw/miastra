@@ -1,14 +1,60 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DrawBatch, DrawStrategy, DrawTask, DrawTaskStatus, VariationStrength } from '@/features/draw-card/drawCard.types'
 import { drawStrategyOptions, variationDimensions } from '@/features/draw-card/drawCard.constants'
+import { updateGenerationTask } from '@/features/generation/generation.api'
 import { clampDrawConcurrency, drawStatusMeta } from '@/features/draw-card/drawCard.utils'
 import type { GalleryImage } from '@/features/works/works.types'
-import { readStoredDrawBatches, writeStoredDrawBatches } from './drawCard.storage'
+import { readStoredDrawBatches, readStoredDrawTasks, writeStoredDrawBatches, writeStoredDrawTasks } from './drawCard.storage'
 
 type DrawShortcut = 'safe3' | 'balanced5' | 'fast8' | 'turbo10'
 
 type DrawShortcutResult = {
   quality: string
+}
+
+const activeStatuses = new Set<DrawTaskStatus>(['pending', 'running', 'receiving', 'retrying'])
+
+function normalizeBatch(batch: DrawBatch): DrawBatch {
+  return {
+    ...batch,
+    cancelledCount: batch.cancelledCount ?? 0,
+    interruptedCount: batch.interruptedCount ?? 0,
+    timeoutCount: batch.timeoutCount ?? 0,
+  }
+}
+
+function reconcileInterruptedTasks(tasks: DrawTask[]) {
+  const now = Date.now()
+  const interruptedTaskIds: string[] = []
+  const nextTasks = tasks.map((task) => {
+    if (!activeStatuses.has(task.status)) return task
+    interruptedTaskIds.push(task.id)
+    return {
+      ...task,
+      status: 'interrupted' as const,
+      error: '工作台页面已刷新或会话中断，任务状态已转为中断，可手动重试',
+      errorCode: 'interrupted',
+      retryable: true,
+      finishedAt: task.finishedAt ?? now,
+      updatedAt: now,
+    }
+  })
+  return { nextTasks, interruptedTaskIds }
+}
+
+function applyBatchCounts(batches: DrawBatch[], tasks: DrawTask[]) {
+  if (!batches.length) return batches.map(normalizeBatch)
+  return batches.map((batch) => {
+    const relatedTasks = tasks.filter((task) => task.batchId === batch.id)
+    return {
+      ...normalizeBatch(batch),
+      successCount: relatedTasks.filter((task) => task.status === 'success').length,
+      failedCount: relatedTasks.filter((task) => task.status === 'failed').length,
+      cancelledCount: relatedTasks.filter((task) => task.status === 'cancelled').length,
+      interruptedCount: relatedTasks.filter((task) => task.status === 'interrupted').length,
+      timeoutCount: relatedTasks.filter((task) => task.status === 'timeout').length,
+    }
+  })
 }
 
 export function useDrawCardSettings() {
@@ -18,16 +64,34 @@ export function useDrawCardSettings() {
   const [drawTasks, setDrawTasks] = useState<DrawTask[]>([])
   const [drawBatches, setDrawBatches] = useState<DrawBatch[]>([])
   const batchesHydratedRef = useRef(false)
+  const tasksHydratedRef = useRef(false)
   const [activeBatchId, setActiveBatchId] = useState<string>('all')
-
 
   useEffect(() => {
     let cancelled = false
-    readStoredDrawBatches().then((items) => {
+
+    void Promise.all([readStoredDrawBatches(), readStoredDrawTasks()]).then(([batches, tasks]) => {
       if (cancelled) return
-      setDrawBatches((current) => (current.length ? current : items))
+      const normalizedBatches = batches.map(normalizeBatch)
+      const { nextTasks, interruptedTaskIds } = reconcileInterruptedTasks(tasks)
+      const nextBatches = applyBatchCounts(normalizedBatches, nextTasks)
+      setDrawTasks((current) => (current.length ? current : nextTasks))
+      setDrawBatches((current) => (current.length ? current : nextBatches))
       batchesHydratedRef.current = true
+      tasksHydratedRef.current = true
+
+      if (interruptedTaskIds.length) {
+        nextTasks
+          .filter((task) => interruptedTaskIds.includes(task.id) && task.generationTaskId)
+          .forEach((task) => {
+            void updateGenerationTask(task.generationTaskId!, {
+              status: 'failed',
+              errorMessage: '工作台页面已刷新或会话中断，任务已标记为中断，可手动重试',
+            }).catch(() => undefined)
+          })
+      }
     })
+
     return () => {
       cancelled = true
     }
@@ -37,6 +101,12 @@ export function useDrawCardSettings() {
     if (!batchesHydratedRef.current) return
     void writeStoredDrawBatches(drawBatches)
   }, [drawBatches])
+
+  useEffect(() => {
+    if (!tasksHydratedRef.current) return
+    void writeStoredDrawTasks(drawTasks)
+  }, [drawTasks])
+
   const [variationStrength, setVariationStrength] = useState<VariationStrength>('medium')
   const [enabledVariationDimensions, setEnabledVariationDimensions] = useState<string[]>(variationDimensions.map((item) => item.id))
   const [drawDelayMs, setDrawDelayMs] = useState(1200)
@@ -61,8 +131,10 @@ export function useDrawCardSettings() {
       drawIndex: task.index,
       taskStatus: task.status,
       error: task.error,
+      errorCode: task.errorCode,
       retryable: task.retryable,
       retryCount: task.retryCount,
+      generationTaskId: task.generationTaskId,
     })), [drawTasks])
 
   function toggleVariationDimension(id: string) {

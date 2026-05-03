@@ -2,9 +2,10 @@ import { z } from 'zod'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
-import { createId } from '../lib/store'
+import { createId, storeRepository } from '../lib/store'
 import { getAuthDomainStore } from '../lib/domain-store'
 import { fail, ok } from '../lib/http'
+import { createDefaultQuotaProfile } from '../billing/plans'
 import type { AuthRecord } from './types'
 import { signAuthToken, verifyAuthToken } from './token'
 
@@ -78,6 +79,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 
     store.users.push(user)
     store.sessions.push(session)
+    store.quotaProfiles.push(createDefaultQuotaProfile(user.id, now))
     await storeRepository.write(store)
 
     await setAuthCookie(reply, user.id, session.id)
@@ -127,8 +129,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       try {
         const payload = await verifyAuthToken(token)
         const sessionId = String(payload.sessionId)
-        const store = await storeRepository.read()
-        await auth.revokeSession(sessionId, new Date().toISOString())
+        await getAuthDomainStore().revokeSession(sessionId, new Date().toISOString())
       } catch {
       }
     }
@@ -154,8 +155,14 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     if (!context) return
 
     const store = await storeRepository.read()
-    const profile = store.quotaProfiles.find((item) => item.userId === context.user.id)
-    return ok(profile ?? null)
+    const profile = store.quotaProfiles.find((item) => item.userId === context.user.id) ?? null
+    if (!profile) {
+      const nextProfile = createDefaultQuotaProfile(context.user.id)
+      store.quotaProfiles.push(nextProfile)
+      await storeRepository.write(store)
+      return ok(nextProfile)
+    }
+    return ok(profile)
   })
 
   app.post('/api/auth/profile', async (request, reply) => {
@@ -335,7 +342,8 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       return fail('INVALID_OPERATION', '当前会话请直接使用退出登录')
     }
 
-    const targetSession = (await getAuthDomainStore().listSessionsByUserId(context.user.id)).find((session) => session.id === id.data)
+    const store = await storeRepository.read()
+    const targetSession = store.sessions.find((session) => session.userId === context.user.id && session.id === id.data)
     if (!targetSession) {
       reply.code(404)
       return fail('SESSION_NOT_FOUND', '会话不存在')

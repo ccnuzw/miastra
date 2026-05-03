@@ -129,6 +129,7 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
         if ((options.previewMode ?? 'live') === 'live') context.setLiveImageSrc(src)
         context.setStage('receiving')
       },
+      chargeQuota: true,
     })
     context.setStage('finalizing')
     context.setResponseText([`HTTP ${response.status} ${response.statusText}`, debugHeaders, text.slice(0, 1800)].filter(Boolean).join('\n\n'))
@@ -187,6 +188,7 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
         if ((options.previewMode ?? 'live') === 'live') context.setLiveImageSrc(src)
         context.setStage('receiving')
       },
+      chargeQuota: true,
     })
     context.setStage('finalizing')
     context.setResponseText([`HTTP ${response.status} ${response.statusText}`, `当前请求地址：${context.editRequestUrl}`, debugHeaders, text.slice(0, 1800)].filter(Boolean).join('\n\n'))

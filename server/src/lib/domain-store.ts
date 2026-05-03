@@ -152,6 +152,9 @@ function mapDrawBatch(row: Record<string, unknown>): StoredDrawBatch {
     count: Number(row.count),
     successCount: Number(row.success_count),
     failedCount: Number(row.failed_count),
+    cancelledCount: Number(row.cancelled_count ?? 0),
+    interruptedCount: Number(row.interrupted_count ?? 0),
+    timeoutCount: Number(row.timeout_count ?? 0),
     snapshotId: String(row.snapshot_id),
   }
 }
@@ -212,7 +215,21 @@ function promptTemplateValues(template: StoredPromptTemplate) {
 }
 
 function drawBatchValues(batch: StoredDrawBatch) {
-  return [batch.id, batch.userId, batch.title, batch.createdAt, batch.strategy, batch.concurrency, batch.count, batch.successCount, batch.failedCount, batch.snapshotId]
+  return [
+    batch.id,
+    batch.userId,
+    batch.title,
+    batch.createdAt,
+    batch.strategy,
+    batch.concurrency,
+    batch.count,
+    batch.successCount,
+    batch.failedCount,
+    batch.cancelledCount,
+    batch.interruptedCount,
+    batch.timeoutCount,
+    batch.snapshotId,
+  ]
 }
 
 function getJsonStore() {

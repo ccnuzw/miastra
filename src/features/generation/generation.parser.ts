@@ -36,6 +36,7 @@ export function normalizeGenerationError(error: unknown): GenerationError {
 
   if (error instanceof Error) {
     const message = error.message || '未知错误'
+    if (/额度不足|QUOTA_EXCEEDED/i.test(message)) return buildGenerationError('invalid-input', message, false, error)
     if (/请先上传|请先在右上角设置里补全/i.test(message)) return buildGenerationError('invalid-input', message, false, error)
     if (/504 Gateway Time-out|openresty/i.test(message)) return buildGenerationError('gateway-timeout', '远端网关超时 504', true, error)
     if (/超过 .*s|timeout/i.test(message)) return buildGenerationError('timeout', message, true, error)

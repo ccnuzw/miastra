@@ -34,6 +34,7 @@ export type GenerationErrorCode =
   | 'provider-unsupported'
   | 'invalid-response'
   | 'http-error'
+  | 'interrupted'
   | 'unknown'
 
 export type GenerationError = {

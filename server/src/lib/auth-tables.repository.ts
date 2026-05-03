@@ -1,5 +1,5 @@
 import type { Pool } from 'pg'
-import type { AuthRecord, SessionRecord, StoredProviderConfig, StoredQuotaProfile } from '../auth/types'
+import type { AuthRecord, SessionRecord, StoredBillingInvoice, StoredProviderConfig, StoredQuotaProfile } from '../auth/types'
 
 export type AuthContextRecord = {
   user: AuthRecord
@@ -28,6 +28,7 @@ export type AuthTablesRepository = {
   findQuotaProfileByUserId: (userId: string) => Promise<StoredQuotaProfile | null>
   upsertQuotaProfile: (profile: StoredQuotaProfile) => Promise<void>
   listQuotaProfiles: () => Promise<StoredQuotaProfile[]>
+  listBillingInvoices: () => Promise<StoredBillingInvoice[]>
 }
 
 function toIsoString(value: string | Date | null | undefined) {
@@ -79,6 +80,21 @@ function mapQuotaProfileRow(row: Record<string, unknown>): StoredQuotaProfile {
     quotaUsed: Number(row.quota_used),
     quotaRemaining: Number(row.quota_remaining),
     renewsAt: toIsoString(row.renews_at as string | Date | null | undefined),
+    updatedAt: new Date(row.updated_at as string | Date).toISOString(),
+  }
+}
+
+function mapBillingInvoiceRow(row: Record<string, unknown>): StoredBillingInvoice {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    planName: String(row.plan_name),
+    amountCents: Number(row.amount_cents),
+    currency: String(row.currency),
+    status: row.status as StoredBillingInvoice['status'],
+    provider: row.provider as StoredBillingInvoice['provider'],
+    providerRef: row.provider_ref ? String(row.provider_ref) : undefined,
+    createdAt: new Date(row.created_at as string | Date).toISOString(),
     updatedAt: new Date(row.updated_at as string | Date).toISOString(),
   }
 }
@@ -305,6 +321,14 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
         ORDER BY updated_at DESC
       `)
       return result.rows.map(mapQuotaProfileRow)
+    },
+    async listBillingInvoices() {
+      const result = await pool.query(`
+        SELECT id, user_id, plan_name, amount_cents, currency, status, provider, provider_ref, created_at, updated_at
+        FROM billing_invoices
+        ORDER BY created_at DESC
+      `)
+      return result.rows.map(mapBillingInvoiceRow)
     },
   }
 }

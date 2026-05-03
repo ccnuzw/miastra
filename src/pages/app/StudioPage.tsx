@@ -22,11 +22,9 @@ export function StudioPage() {
   const reference = useReferenceImages()
   const runtime = useGenerationRuntime()
   const draw = useDrawCardSettings()
-  const works = useWorksGallery()
+  const works = useWorksGallery({ batchId: draw.activeBatchId })
   const templates = usePromptTemplates()
   const [includeMetadata, setIncludeMetadata] = useState(true)
-
-
 
   const templateActions = usePromptTemplateActions({
     prompt: studio.prompt,

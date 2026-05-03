@@ -14,6 +14,8 @@ export const drawTaskStatusText: Record<DrawTaskStatus, string> = {
   failed: '失败',
   retrying: '重试中',
   cancelled: '已取消',
+  timeout: '已超时',
+  interrupted: '已中断',
 }
 
 export const variationDimensions = [
@@ -37,9 +39,9 @@ export const variationStrengthText: Record<VariationStrength, string> = {
 }
 
 export function drawStatusMeta(status: DrawTaskStatus, error?: string, retryable = true) {
-  if (status === 'failed') {
+  if (status === 'failed' || status === 'timeout' || status === 'interrupted') {
     const retryHint = retryable ? '可重试' : '不可重试'
-    return error ? `失败，${retryHint}：${error}` : `失败，${retryHint}`
+    return error ? `${drawTaskStatusText[status]}，${retryHint}：${error}` : `${drawTaskStatusText[status]}，${retryHint}`
   }
   return drawTaskStatusText[status]
 }

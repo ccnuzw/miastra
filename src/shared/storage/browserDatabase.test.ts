@@ -19,6 +19,10 @@ beforeEach(() => {
       },
     },
   })
+  Object.defineProperty(window, 'indexedDB', {
+    configurable: true,
+    value: undefined,
+  })
 })
 
 describe('browserDatabase', () => {

@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import type { FastifyInstance } from 'fastify'
-import { requireRole } from '../auth/routes'
+import { requireRole, resolveAuthenticatedContext } from '../auth/routes'
 import { fail, ok } from '../lib/http'
 import { storeRepository } from '../lib/store'
 import { cancelGenerationTaskProcessing } from '../generation-tasks/worker'
+import { appendAuditLogToStore } from '../lib/audit'
 import type { AuditLogRecord, AuthRecord, StoredGenerationTask, StoredWork } from '../auth/types'
 
 const adminRoleSchema = z.enum(['operator', 'admin'])
@@ -23,33 +24,6 @@ const tasksQuerySchema = paginationSchema.extend({
 const updateUserRoleSchema = z.object({
   role: roleSchema,
 })
-
-async function appendAuditLog(input: {
-  actorUserId: string
-  actorRole: 'user' | 'operator' | 'admin'
-  action: string
-  targetType: string
-  targetId: string
-  payload?: unknown
-  ip?: string
-}) {
-  const store = await storeRepository.read()
-  store.auditLogs = [
-    ...(store.auditLogs ?? []),
-    {
-      id: storeRepository.createId(),
-      actorUserId: input.actorUserId,
-      actorRole: input.actorRole,
-      action: input.action,
-      targetType: input.targetType,
-      targetId: input.targetId,
-      payload: input.payload ?? {},
-      ip: input.ip,
-      createdAt: new Date().toISOString(),
-    },
-  ]
-  await storeRepository.write(store)
-}
 
 export async function registerAdminRoutes(app: FastifyInstance) {
   app.get('/api/admin/dashboard', async (request, reply) => {
@@ -72,7 +46,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const users = [...store.users]
       .sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
       .slice(0, 6)
-      .map((item) => toAdminUser(item, store))
+      .map((item) => toAdminUser(item, store, user))
 
     const recentWorks = [...store.works]
       .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
@@ -87,6 +61,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const logs = [...((store as typeof store & { auditLogs?: AuditLogRecord[] }).auditLogs ?? [])]
       .sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
       .slice(0, 10)
+      .map((item) => attachAuditActor(item, userMap))
 
     return ok({
       overview: {
@@ -137,7 +112,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         return item.nickname.toLowerCase().includes(keyword) || item.email.toLowerCase().includes(keyword)
       })
       .sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
-      .map((item) => toAdminUser(item, store))
+      .map((item) => toAdminUser(item, store, actor))
 
     return ok(paginate(filtered, parsed.data.page, parsed.data.limit))
   })
@@ -159,7 +134,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return fail('USER_NOT_FOUND', '用户不存在')
     }
 
-    return ok(toAdminUser(target, store))
+    return ok(toAdminUser(target, store, actor))
   })
 
   app.post('/api/admin/users/:id/role', async (request, reply) => {
@@ -180,35 +155,30 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return fail('USER_NOT_FOUND', '用户不存在')
     }
 
+    const management = getAdminUserManagement(actor, target)
     if (target.role === parsed.data.role) {
-      return ok(toAdminUser(target, store))
+      return ok(toAdminUser(target, store, actor))
     }
 
-    if (actor.role !== 'admin') {
-      if (target.role === 'admin' || parsed.data.role === 'admin') {
-        reply.code(403)
-        return fail('FORBIDDEN', '只有 admin 可以管理 admin 角色')
-      }
+    if (!management.canChangeRole || !management.assignableRoles.includes(parsed.data.role)) {
+      reply.code(management.isSelf ? 409 : 403)
+      return fail(management.isSelf ? 'INVALID_OPERATION' : 'FORBIDDEN', management.reason ?? '当前账号没有修改该用户角色的权限')
     }
 
-    if (actor.id === target.id && parsed.data.role !== 'admin') {
-      reply.code(409)
-      return fail('INVALID_OPERATION', '不能移除自己当前的后台权限')
-    }
-
+    const previousRole = target.role
     target.role = parsed.data.role
     target.updatedAt = new Date().toISOString()
-    await storeRepository.write(store)
-    await appendAuditLog({
+    appendAuditLogToStore(store, {
       actorUserId: actor.id,
       actorRole: actor.role,
       action: 'user.role.updated',
       targetType: 'user',
       targetId: target.id,
-      payload: { role: parsed.data.role },
+      payload: { fromRole: previousRole, toRole: parsed.data.role },
       ip: request.ip,
     })
-    return ok(toAdminUser(target, store))
+    await storeRepository.write(store)
+    return ok(toAdminUser(target, store, actor))
   })
 
   app.post('/api/admin/users/:id/revoke-sessions', async (request, reply) => {
@@ -228,30 +198,37 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return fail('USER_NOT_FOUND', '用户不存在')
     }
 
-    if (actor.role !== 'admin' && target.role === 'admin') {
-      reply.code(403)
-      return fail('FORBIDDEN', '只有 admin 可以管理 admin 账号')
+    const management = getAdminUserManagement(actor, target)
+    if (!management.canRevokeSessions) {
+      reply.code(management.isSelf ? 409 : 403)
+      return fail(management.isSelf ? 'INVALID_OPERATION' : 'FORBIDDEN', management.reason ?? '当前账号没有撤销该用户会话的权限')
     }
 
+    const context = await resolveAuthenticatedContext(request)
+    const currentSessionId = management.isSelf ? context?.session.id : undefined
+    const revokedAt = new Date().toISOString()
     let revoked = 0
     store.sessions.forEach((session) => {
-      if (session.userId === target.id && !session.revokedAt) {
-        session.revokedAt = new Date().toISOString()
+      if (session.userId === target.id && !session.revokedAt && session.id !== currentSessionId) {
+        session.revokedAt = revokedAt
         revoked += 1
       }
     })
-    if (revoked > 0) {
-      await storeRepository.write(store)
-      await appendAuditLog({
-        actorUserId: actor.id,
-        actorRole: actor.role,
-        action: 'session.revoked.bulk',
-        targetType: 'user',
-        targetId: target.id,
-        payload: { revoked },
-        ip: request.ip,
-      })
-    }
+    appendAuditLogToStore(store, {
+      actorUserId: actor.id,
+      actorRole: actor.role,
+      action: 'session.revoked.bulk',
+      targetType: 'user',
+      targetId: target.id,
+      payload: {
+        revoked,
+        scope: management.isSelf ? 'other-sessions' : 'all-sessions',
+        preservedSessionId: currentSessionId,
+      },
+      ip: request.ip,
+      createdAt: revokedAt,
+    })
+    await storeRepository.write(store)
     return ok({ success: true, revoked })
   })
 
@@ -320,8 +297,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       reply.code(404)
       return fail('WORK_NOT_FOUND', '作品不存在')
     }
-    await storeRepository.write(store)
-    await appendAuditLog({
+    appendAuditLogToStore(store, {
       actorUserId: actor.id,
       actorRole: actor.role,
       action: 'work.deleted',
@@ -330,6 +306,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       payload: { scope: 'admin' },
       ip: request.ip,
     })
+    await storeRepository.write(store)
     return ok({ success: true })
   })
 
@@ -412,7 +389,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
 
     const userMap = new Map<string, AuthRecord>(latestStore.users.map((item) => [item.id, item]))
-    await appendAuditLog({
+    appendAuditLogToStore(latestStore, {
       actorUserId: actor.id,
       actorRole: actor.role,
       action: 'task.cancelled',
@@ -421,6 +398,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       payload: { status: latestTask.status },
       ip: request.ip,
     })
+    await storeRepository.write(latestStore)
     return ok(attachTaskOwner(latestTask, userMap))
   })
 
@@ -429,7 +407,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!actor) return
 
     const roles: Array<'user' | 'operator' | 'admin'> = actor.role === 'admin' ? ['user', 'operator', 'admin'] : ['user', 'operator']
-    return ok({ roles })
+    return ok({
+      actorRole: actor.role,
+      roles: roles.map((role) => ({
+        id: role,
+        label: toRoleLabel(role),
+      })),
+    })
   })
 
   app.get('/api/admin/policies', async (request, reply) => {
@@ -437,8 +421,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!actor) return
 
     return ok({
+      actorRole: actor.role,
       canAssignAdmin: actor.role === adminOnlyRoleSchema.enum.admin,
       canManageAdmins: actor.role === adminOnlyRoleSchema.enum.admin,
+      operatorScope: actor.role === adminOnlyRoleSchema.enum.admin ? 'all-backend-users' : 'users-only',
+      selfProtection: {
+        keepCurrentAdminAccess: true,
+        keepCurrentSessionOnBulkRevoke: true,
+      },
     })
   })
 }
@@ -457,10 +447,11 @@ function paginate<T>(items: T[], page: number, limit: number) {
   }
 }
 
-function toAdminUser(user: AuthRecord, store: Awaited<ReturnType<typeof storeRepository.read>>) {
+function toAdminUser(user: AuthRecord, store: Awaited<ReturnType<typeof storeRepository.read>>, actor: AuthRecord) {
   const activeSessionCount = store.sessions.filter((session) => session.userId === user.id && !session.revokedAt).length
   const workCount = store.works.filter((work) => work.userId === user.id).length
   const taskCount = store.generationTasks.filter((task) => task.userId === user.id).length
+  const management = getAdminUserManagement(actor, user)
 
   return {
     id: user.id,
@@ -472,6 +463,7 @@ function toAdminUser(user: AuthRecord, store: Awaited<ReturnType<typeof storeRep
     activeSessionCount,
     workCount,
     taskCount,
+    management,
   }
 }
 
@@ -499,5 +491,65 @@ function attachTaskOwner(task: StoredGenerationTask, userMap: Map<string, AuthRe
     ...sanitizeTask(task),
     userEmail: owner?.email,
     userNickname: owner?.nickname,
+  }
+}
+
+function attachAuditActor(log: AuditLogRecord, userMap: Map<string, AuthRecord>) {
+  const actor = userMap.get(log.actorUserId)
+  return {
+    ...log,
+    actorEmail: actor?.email,
+    actorNickname: actor?.nickname,
+  }
+}
+
+function getAdminUserManagement(actor: AuthRecord, target: AuthRecord) {
+  if (actor.id === target.id) {
+    return {
+      isSelf: true,
+      canChangeRole: false,
+      canRevokeSessions: true,
+      assignableRoles: [actor.role] as AuthRecord['role'][],
+      reason: '不能移除自己当前的后台权限',
+    }
+  }
+
+  if (actor.role === 'admin') {
+    return {
+      isSelf: false,
+      canChangeRole: true,
+      canRevokeSessions: true,
+      assignableRoles: ['user', 'operator', 'admin'] as AuthRecord['role'][],
+      reason: undefined,
+    }
+  }
+
+  if (target.role === 'user') {
+    return {
+      isSelf: false,
+      canChangeRole: true,
+      canRevokeSessions: true,
+      assignableRoles: ['user', 'operator'] as AuthRecord['role'][],
+      reason: undefined,
+    }
+  }
+
+  return {
+    isSelf: false,
+    canChangeRole: false,
+    canRevokeSessions: false,
+    assignableRoles: [] as AuthRecord['role'][],
+    reason: 'operator 只能管理普通用户，不能操作其他后台账号',
+  }
+}
+
+function toRoleLabel(role: AuthRecord['role']) {
+  switch (role) {
+    case 'admin':
+      return '管理员'
+    case 'operator':
+      return '运营'
+    default:
+      return '普通用户'
   }
 }

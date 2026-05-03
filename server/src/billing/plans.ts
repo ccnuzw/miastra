@@ -90,7 +90,7 @@ export function createBillingInvoice(userId: string, plan: BillingPlan, mode: Bi
   return {
     id: randomUUID(),
     userId,
-    planName: `${plan.name} ${mode === 'renew' ? '续费' : '升级'}`,
+    planName: `${plan.name} ${mode === 'renew' ? '模拟续费' : '模拟升级'}`,
     amountCents: plan.amountCents,
     currency: plan.currency,
     status: 'paid',

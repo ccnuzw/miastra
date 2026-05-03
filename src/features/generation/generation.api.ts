@@ -8,6 +8,13 @@ export type GenerationTaskRecord = {
   id: string
   userId: string
   status: GenerationTaskStatus
+  batchId?: string
+  drawIndex?: number
+  variation?: string
+  retryAttempt: number
+  rootTaskId: string
+  parentTaskId?: string
+  retryable: boolean
   progress?: number
   createdAt: string
   updatedAt: string
@@ -29,6 +36,8 @@ export type GenerationTaskRecord = {
       source: 'upload' | 'work'
       name: string
       src: string
+      assetId?: string
+      assetRemoteKey?: string
     }>
     draw?: {
       count: number
@@ -47,6 +56,7 @@ export type GenerationTaskRecord = {
     }
   }
   result?: {
+    workId?: string
     imageUrl?: string
     meta?: string
     title?: string
@@ -64,6 +74,28 @@ export type GenerationTaskRecord = {
   }
 }
 
+export type GenerationBatchRecord = {
+  id: string
+  title: string
+  createdAt: number
+  strategy: 'linear' | 'smart' | 'turbo'
+  concurrency: number
+  count: number
+  successCount: number
+  failedCount: number
+  cancelledCount: number
+  interruptedCount: number
+  timeoutCount: number
+  snapshotId: string
+}
+
+export type GenerationBatchRerunResult = {
+  batch: GenerationBatchRecord
+  sourceBatchId: string
+  queuedTaskIds: string[]
+  slotCount: number
+}
+
 export type CreateGenerationTaskInput = GenerationTaskRecord['payload']
 
 export type UpdateGenerationTaskInput = {
@@ -76,7 +108,7 @@ export type UpdateGenerationTaskInput = {
 type GenerationRequestBody = {
   model: string
   prompt: string
-  size: string
+  size?: string
   quality?: string
   n?: number
   stream?: boolean
@@ -150,6 +182,10 @@ export async function listGenerationTasks() {
   return apiRequest<GenerationTaskRecord[]>('/api/generation-tasks')
 }
 
+export async function listDrawBatches() {
+  return apiRequest<GenerationBatchRecord[]>('/api/draw-batches')
+}
+
 export async function createGenerationTask(payload: CreateGenerationTaskInput) {
   return apiRequest<{ id: string; status: 'queued' }>('/api/generation-tasks', {
     method: 'POST',
@@ -166,4 +202,12 @@ export async function updateGenerationTask(id: string, payload: UpdateGeneration
 
 export async function cancelGenerationTask(id: string) {
   return apiRequest<GenerationTaskRecord>(`/api/generation-tasks/${id}/cancel`, { method: 'POST' })
+}
+
+export async function retryGenerationTask(id: string) {
+  return apiRequest<GenerationTaskRecord>(`/api/generation-tasks/${id}/retry`, { method: 'POST' })
+}
+
+export async function rerunDrawBatch(id: string) {
+  return apiRequest<GenerationBatchRerunResult>(`/api/draw-batches/${id}/rerun`, { method: 'POST' })
 }

@@ -1,9 +1,11 @@
 import { Readable } from 'node:stream'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { requireAuthenticatedUser } from '../auth/routes'
-import { fail } from '../lib/http'
 import { consumeQuota } from '../billing/ledger'
+import { getQuotaExceededMessage } from '../runtime-config'
 import { storeRepository } from '../lib/store'
+import { fail } from '../lib/http'
+import { detectProviderCapabilities, mapProviderJsonBody, normalizeProviderConfigInput, resolveProviderRequestTarget } from '../provider-config/provider.utils'
 
 function toFetchHeaders(request: FastifyRequest) {
   const headers = new Headers()
@@ -19,23 +21,161 @@ function toFetchHeaders(request: FastifyRequest) {
   return headers
 }
 
-function resolveProviderBaseUrl(apiUrl: string) {
-  if (/^https?:\/\//i.test(apiUrl.trim())) return apiUrl.trim().replace(/\/$/, '')
-  return (process.env.PROVIDER_UPSTREAM_ORIGIN?.trim() || 'http://127.0.0.1:18080').replace(/\/$/, '')
+function responseTextSnippet(text: string) {
+  return text.trim().replace(/\s+/g, ' ').slice(0, 240)
 }
 
-async function resolveProviderRequestTarget(userId: string, request: FastifyRequest) {
+function extractProviderErrorMessage(text: string) {
+  const raw = text.trim()
+  if (!raw) return ''
+  try {
+    const json = JSON.parse(raw)
+    const message = json?.error?.message || json?.message
+    return typeof message === 'string' ? message.trim() : raw
+  } catch {
+    return raw
+  }
+}
+
+function providerErrorResponse(reply: FastifyReply, statusCode: number, code: string, message: string) {
+  reply.code(statusCode)
+  return fail(code, message)
+}
+
+function classifyUpstreamResponseError(params: {
+  status: number
+  statusText: string
+  text: string
+  targetPath: string
+}) {
+  const detail = extractProviderErrorMessage(params.text) || responseTextSnippet(params.text) || params.statusText
+  const normalizedDetail = detail.toLowerCase()
+  const isEditPath = /\/v1\/images\/edits(?:\?|$)/i.test(params.targetPath)
+
+  if (
+    params.status === 401
+    || params.status === 403
+    || /api[_\s-]?key|invalid[_\s-]?api[_\s-]?key|incorrect[_\s-]?api[_\s-]?key|unauthorized|authentication|token/.test(normalizedDetail)
+  ) {
+    return {
+      code: 'PROVIDER_API_KEY_INVALID',
+      message: 'Provider API Key 无效、已过期，或没有访问该服务的权限。',
+      statusCode: 409,
+    }
+  }
+
+  if (
+    /model|deployment|engine/.test(normalizedDetail)
+    && /not found|does not exist|unknown|invalid|unsupported|未找到|不存在|不可用/.test(normalizedDetail)
+  ) {
+    return {
+      code: 'PROVIDER_MODEL_INVALID',
+      message: '当前 Provider Model 不存在、不可用，或不属于这个服务商。',
+      statusCode: 409,
+    }
+  }
+
+  if (
+    params.status === 404
+    || params.status === 405
+    || /not found|no route|cannot post|unknown url/.test(normalizedDetail)
+  ) {
+    if (isEditPath) {
+      return {
+        code: 'PROVIDER_COMPATIBILITY_ERROR',
+        message: '当前 Provider 未开放标准 `/v1/images/edits` 图生图接口，请改用兼容代理或直连地址。',
+        statusCode: 409,
+      }
+    }
+    return {
+      code: 'PROVIDER_URL_INVALID',
+      message: 'Provider API URL、代理路径或 `/v1` 前缀不可用，请检查配置中的基础地址。',
+      statusCode: 409,
+    }
+  }
+
+  if (
+    params.status === 415
+    || params.status === 422
+    || /unsupported|not support|unknown parameter|invalid parameter|schema|multipart|content-type|兼容/.test(normalizedDetail)
+  ) {
+    return {
+      code: 'PROVIDER_COMPATIBILITY_ERROR',
+      message: '当前 Provider 与标准 OpenAI Images 接口或参数不兼容，请检查代理兼容层或改用兼容服务。',
+      statusCode: 409,
+    }
+  }
+
+  if (params.status === 429) {
+    return {
+      code: 'UPSTREAM_UNAVAILABLE',
+      message: 'Provider 当前限流或繁忙，请稍后重试。',
+      statusCode: 429,
+    }
+  }
+
+  if (params.status >= 500) {
+    return {
+      code: 'UPSTREAM_UNAVAILABLE',
+      message: 'Provider 服务暂时不可用，请稍后重试。',
+      statusCode: 502,
+    }
+  }
+
+  const snippet = responseTextSnippet(params.text)
+  return {
+    code: 'PROVIDER_RESPONSE_INVALID',
+    message: snippet ? `Provider 返回了无法直接处理的响应：${snippet}` : 'Provider 返回了无法直接处理的响应，请检查配置后重试。',
+    statusCode: 502,
+  }
+}
+
+function classifyFetchFailure(error: unknown, config: { apiUrl: string; providerId: string; model: string }) {
+  const message = error instanceof Error ? error.message : String(error)
+  const normalizedMessage = message.toLowerCase()
+  const capabilities = detectProviderCapabilities(config)
+
+  if (/failed to parse url|invalid url|only absolute urls/.test(normalizedMessage)) {
+    return {
+      code: 'PROVIDER_URL_INVALID',
+      message: 'Provider API URL 格式不可用，请检查地址是否包含正确协议、域名与路径。',
+      statusCode: 409,
+    }
+  }
+
+  if (/enotfound|econnrefused|ehostunreach|getaddrinfo|fetch failed/.test(normalizedMessage)) {
+    return {
+      code: 'PROVIDER_URL_INVALID',
+      message: capabilities.family === 'sub2api'
+        ? '无法连接到 `/sub2api` 上游，请检查 `PROVIDER_UPSTREAM_ORIGIN` 或代理服务是否已启动。'
+        : '无法连接到当前 Provider API URL，请检查地址、端口、反向代理和网络连通性。',
+      statusCode: 409,
+    }
+  }
+
+  return {
+    code: 'UPSTREAM_UNAVAILABLE',
+    message: 'Provider 服务暂时不可用，请稍后重试或检查上游状态。',
+    statusCode: 502,
+  }
+}
+
+async function resolveProviderRequestTargetForUser(userId: string, request: FastifyRequest) {
   const store = await storeRepository.read()
   const config = store.providerConfigs.find((item) => item.userId === userId) ?? null
-  const apiUrl = config?.apiUrl?.trim() ?? ''
-  const model = config?.model?.trim() ?? ''
-  const apiKey = config?.apiKey?.trim() ?? ''
+  if (!config) return null
 
-  if (!model || !apiKey) return null
+  const normalized = normalizeProviderConfigInput(config)
+  if (!normalized.model || !normalized.apiKey) return null
 
   const targetPath = request.url.replace(/^\/api\/provider-proxy/, '')
-  const baseUrl = resolveProviderBaseUrl(apiUrl)
-  return { apiKey, targetUrl: `${baseUrl}${targetPath}` }
+  const target = resolveProviderRequestTarget(normalized, targetPath)
+  return {
+    config: normalized,
+    apiKey: normalized.apiKey,
+    targetPath,
+    targetUrl: target.targetUrl,
+  }
 }
 
 async function ensureProfileSnapshot(userId: string) {
@@ -53,7 +193,12 @@ async function ensureProfileSnapshot(userId: string) {
   }
 }
 
-async function forwardProviderRequest(request: FastifyRequest, targetUrl: string, apiKey: string) {
+async function forwardProviderRequest(
+  request: FastifyRequest,
+  targetUrl: string,
+  apiKey: string,
+  config: { providerId: string; apiUrl: string; model: string },
+) {
   const headers = toFetchHeaders(request)
   headers.set('authorization', `Bearer ${apiKey}`)
 
@@ -66,8 +211,9 @@ async function forwardProviderRequest(request: FastifyRequest, targetUrl: string
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     const contentType = String(request.headers['content-type'] ?? '')
     if (contentType.includes('application/json') || contentType.includes('text/plain')) {
-      init.body = JSON.stringify(request.body ?? {})
-      headers.set('content-type', contentType || 'application/json')
+      const body = typeof request.body === 'object' && request.body ? request.body as Record<string, unknown> : {}
+      init.body = JSON.stringify(mapProviderJsonBody(body, config))
+      headers.set('content-type', 'application/json')
     } else {
       init.body = request.raw as unknown as BodyInit
       init.duplex = 'half'
@@ -81,7 +227,7 @@ async function handleProviderProxy(request: FastifyRequest, reply: FastifyReply)
   const user = await requireAuthenticatedUser(request, reply)
   if (!user) return
 
-  const provider = await resolveProviderRequestTarget(user.id, request)
+  const provider = await resolveProviderRequestTargetForUser(user.id, request)
   if (!provider) {
     reply.code(409)
     return fail('PROVIDER_CONFIG_REQUIRED', '请先在设置中保存 Provider API Key 与 Model 后再提交任务')
@@ -92,11 +238,22 @@ async function handleProviderProxy(request: FastifyRequest, reply: FastifyReply)
   const quota = shouldChargeQuota ? await consumeQuota(user.id, 1) : { ok: true as const, profile: profileSnapshot }
   if (shouldChargeQuota && !quota.ok) {
     reply.code(402)
-    return fail('QUOTA_EXCEEDED', '额度不足，请先到 Billing 续费或升级套餐')
+    return fail('QUOTA_EXCEEDED', getQuotaExceededMessage())
   }
 
   try {
-    const upstreamResponse = await forwardProviderRequest(request, provider.targetUrl, provider.apiKey)
+    const upstreamResponse = await forwardProviderRequest(request, provider.targetUrl, provider.apiKey, provider.config)
+    if (!upstreamResponse.ok) {
+      const text = await upstreamResponse.text()
+      const classified = classifyUpstreamResponseError({
+        status: upstreamResponse.status,
+        statusText: upstreamResponse.statusText,
+        text,
+        targetPath: provider.targetPath,
+      })
+      return providerErrorResponse(reply, classified.statusCode, classified.code, classified.message)
+    }
+
     const responseHeaders = new Headers(upstreamResponse.headers)
     responseHeaders.set('x-quota-remaining', String(quota.profile.quotaRemaining))
     responseHeaders.set('x-quota-used', String(quota.profile.quotaUsed))
@@ -113,8 +270,8 @@ async function handleProviderProxy(request: FastifyRequest, reply: FastifyReply)
 
     return reply.send(Readable.fromWeb(upstreamResponse.body))
   } catch (error) {
-    reply.code(502)
-    return fail('UPSTREAM_UNAVAILABLE', error instanceof Error ? error.message : '上游 Provider 不可用')
+    const classified = classifyFetchFailure(error, provider.config)
+    return providerErrorResponse(reply, classified.statusCode, classified.code, classified.message)
   }
 }
 

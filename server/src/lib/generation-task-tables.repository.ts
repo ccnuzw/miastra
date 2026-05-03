@@ -13,6 +13,40 @@ export type GenerationTaskTablesRepository = {
   completeGenerationTaskAndInsertWork: (taskId: string, taskPatch: Partial<StoredGenerationTask>, work: StoredWork) => Promise<void>
 }
 
+async function ensureWorkAssetColumns(pool: Pool) {
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_id TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_storage TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_sync_status TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_remote_key TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_remote_url TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_updated_at BIGINT`)
+}
+
+function normalizeWorkTags(tags: unknown) {
+  const values = Array.isArray(tags)
+    ? tags
+    : typeof tags === 'string'
+      ? tags.split(/[,，\n]/)
+      : []
+  return Array.from(new Set(values.map((tag) => typeof tag === 'string' ? tag.trim() : '').filter(Boolean)))
+}
+
+function mapGenerationTaskPayload(payload: unknown): StoredGenerationTask['payload'] {
+  if (!payload || typeof payload !== 'object') {
+    return payload as StoredGenerationTask['payload']
+  }
+
+  const record = payload as Record<string, unknown>
+  if ('tracking' in record) {
+    return record as StoredGenerationTask['payload']
+  }
+
+  return {
+    ...record,
+    tracking: undefined,
+  } as StoredGenerationTask['payload']
+}
+
 function mapGenerationTaskRow(row: Record<string, unknown>): StoredGenerationTask {
   return {
     id: String(row.id),
@@ -20,7 +54,7 @@ function mapGenerationTaskRow(row: Record<string, unknown>): StoredGenerationTas
     status: row.status as StoredGenerationTask['status'],
     progress: row.progress === null || row.progress === undefined ? undefined : Number(row.progress),
     errorMessage: row.error_message ? String(row.error_message) : undefined,
-    payload: row.payload_json as StoredGenerationTask['payload'],
+    payload: mapGenerationTaskPayload(row.payload_json),
     result: (row.result_json ?? undefined) as StoredGenerationTask['result'],
     createdAt: new Date(row.created_at as string | Date).toISOString(),
     updatedAt: new Date(row.updated_at as string | Date).toISOString(),
@@ -28,11 +62,18 @@ function mapGenerationTaskRow(row: Record<string, unknown>): StoredGenerationTas
 }
 
 function mapWorkValues(work: StoredWork) {
+  const tags = normalizeWorkTags(work.tags)
   return [
     work.id,
     work.userId,
     work.title,
     work.src ?? null,
+    work.assetId ?? null,
+    work.assetStorage ?? null,
+    work.assetSyncStatus ?? null,
+    work.assetRemoteKey ?? null,
+    work.assetRemoteUrl ?? null,
+    work.assetUpdatedAt ?? null,
     work.meta,
     work.variation ?? null,
     work.batchId ?? null,
@@ -52,7 +93,7 @@ function mapWorkValues(work: StoredWork) {
     work.promptText ?? null,
     work.isFavorite ?? null,
     work.favorite ?? null,
-    work.tags ? JSON.stringify(work.tags) : null,
+    tags.length ? JSON.stringify(tags) : null,
   ]
 }
 
@@ -156,6 +197,7 @@ export function createPostgresGenerationTaskTablesRepository(pool: Pool): Genera
       const client = await pool.connect()
       try {
         await client.query('BEGIN')
+        await ensureWorkAssetColumns(client as unknown as Pool)
         const currentResult = await client.query(`
           SELECT id, user_id, status, progress, error_message, payload_json, result_json, created_at, updated_at
           FROM generation_tasks
@@ -185,8 +227,8 @@ export function createPostgresGenerationTaskTablesRepository(pool: Pool): Genera
           WHERE id = $1
         `, [taskId, next.status, next.progress ?? null, next.errorMessage ?? null, JSON.stringify(next.payload), next.result ? JSON.stringify(next.result) : null, next.updatedAt])
         await client.query(`
-          INSERT INTO works (id, user_id, title, src, meta, variation, batch_id, draw_index, task_status, error, retryable, retry_count, created_at, mode, provider_model, size, quality, snapshot_id, generation_snapshot_json, prompt_snippet, prompt_text, is_favorite, favorite, tags_json)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $21, $22, $23, $24::jsonb)
+          INSERT INTO works (id, user_id, title, src, asset_id, asset_storage, asset_sync_status, asset_remote_key, asset_remote_url, asset_updated_at, meta, variation, batch_id, draw_index, task_status, error, retryable, retry_count, created_at, mode, provider_model, size, quality, snapshot_id, generation_snapshot_json, prompt_snippet, prompt_text, is_favorite, favorite, tags_json)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb, $26, $27, $28, $29, $30::jsonb)
           ON CONFLICT (id) DO NOTHING
         `, mapWorkValues(work))
         await client.query('COMMIT')

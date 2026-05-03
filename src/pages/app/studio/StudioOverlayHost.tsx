@@ -24,6 +24,7 @@ type StudioOverlayHostProps = {
     saveFeedback: string
     onSaveCurrent: () => void
     onApply: (template: PromptTemplateListItem) => void
+    onDuplicate: (template: PromptTemplateListItem) => void
     onDelete: (templateId: string) => void
     onRefresh: () => void
     onClose: () => void
@@ -91,6 +92,7 @@ export function StudioOverlayHost({ providerModal, templateLibrary, viewer, wall
         saveFeedback={templateLibrary.saveFeedback}
         onSaveCurrent={templateLibrary.onSaveCurrent}
         onApply={templateLibrary.onApply}
+        onDuplicate={templateLibrary.onDuplicate}
         onDelete={templateLibrary.onDelete}
         onRefresh={templateLibrary.onRefresh}
         onClose={templateLibrary.onClose}

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { apiRequest } from './client'
+import { isAppError } from '@/shared/errors/app-error'
 
 describe('apiRequest', () => {
   it('returns response data', async () => {
@@ -26,10 +27,30 @@ describe('apiRequest', () => {
     const api = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: false,
       status: 401,
-      json: async () => ({ error: { message: 'nope' } }),
+      json: async () => ({ error: { code: 'UNAUTHORIZED', message: 'nope' } }),
     } as Response)
 
-    await expect(apiRequest('/api/test')).rejects.toThrow('nope')
+    await expect(apiRequest('/api/test')).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      message: 'nope',
+      action: 'login',
+    })
+    api.mockRestore()
+  })
+
+  it('wraps transport failures into app errors', async () => {
+    const api = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    try {
+      await apiRequest('/api/test')
+    } catch (error) {
+      expect(isAppError(error)).toBe(true)
+      expect(error).toMatchObject({
+        code: 'NETWORK_ERROR',
+        retryable: true,
+      })
+    }
+
     api.mockRestore()
   })
 })

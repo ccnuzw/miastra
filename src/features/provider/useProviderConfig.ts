@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuthSession } from '@/features/auth/useAuthSession'
+import { normalizeProviderConfig } from '@/features/provider/provider.compat'
 import { defaultConfig, providerPresets } from '@/features/provider/provider.constants'
 import { readStoredConfig, writeStoredConfig } from '@/features/provider/provider.storage'
 import type { ProviderConfig } from '@/features/provider/provider.types'
@@ -65,12 +66,7 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
   }
 
   async function saveProviderConfig() {
-    const normalized = {
-      ...draftConfig,
-      apiUrl: draftConfig.apiUrl.trim(),
-      model: draftConfig.model.trim(),
-      apiKey: draftConfig.apiKey.trim(),
-    }
+    const normalized = normalizeProviderConfig(draftConfig)
     const saved = await writeStoredConfig(normalized)
     setConfig(saved)
     setDraftConfig(saved)
@@ -79,12 +75,13 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
   }
 
   async function applyProviderSnapshot(snapshot: Partial<Pick<ProviderConfig, 'providerId' | 'apiUrl' | 'model'>>) {
-    const normalized = {
+    const normalized = normalizeProviderConfig({
       ...config,
       providerId: snapshot.providerId?.trim() || config.providerId,
       apiUrl: snapshot.apiUrl?.trim() ?? config.apiUrl,
       model: snapshot.model?.trim() || config.model,
-    }
+      apiKey: config.apiKey,
+    })
     const saved = await writeStoredConfig(normalized)
     setConfig(saved)
     setDraftConfig(saved)

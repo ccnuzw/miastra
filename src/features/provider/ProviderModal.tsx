@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, KeyRound, Loader2, Lock, PlugZap, RadioTower, Save, X } from 'lucide-react'
+import { ErrorNotice } from '@/shared/errors/ErrorNotice'
+import { detectProviderCapabilities, normalizeProviderConfig } from './provider.compat'
 import type { ProviderConfig } from './provider.types'
 import { providerPresets } from './provider.constants'
 import { testProviderConnection } from './provider.testConnection'
@@ -11,7 +13,7 @@ type ProviderModalProps = {
   draftConfig: ProviderConfig
   onDraftConfigChange: (config: ProviderConfig) => void
   onProviderChange: (providerId: string) => void
-  onSave: () => void
+  onSave: () => Promise<void> | void
   onClose: () => void
 }
 
@@ -19,28 +21,42 @@ type ConnectionTestState = {
   status: 'idle' | 'loading' | 'success' | 'error'
   message: string
   requestUrl?: string
+  error?: unknown
+}
+
+type SaveState = {
+  status: 'idle' | 'loading' | 'success' | 'error'
+  error: unknown
+  message: string
 }
 
 const idleConnectionTestState: ConnectionTestState = { status: 'idle', message: '' }
+const idleSaveState: SaveState = { status: 'idle', error: null, message: '' }
 
 export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProviderChange, onSave, onClose }: ProviderModalProps) {
   const [connectionTest, setConnectionTest] = useState<ConnectionTestState>(idleConnectionTestState)
+  const [saveState, setSaveState] = useState<SaveState>(idleSaveState)
   const testRunRef = useRef(0)
   const connectionFingerprint = useMemo(
     () => [draftConfig.providerId, draftConfig.apiUrl, draftConfig.apiKey, draftConfig.model].join('\n'),
     [draftConfig.apiKey, draftConfig.apiUrl, draftConfig.model, draftConfig.providerId],
   )
+  const normalizedDraftConfig = useMemo(() => normalizeProviderConfig(draftConfig), [draftConfig])
+  const capabilities = useMemo(() => detectProviderCapabilities(normalizedDraftConfig), [normalizedDraftConfig])
   const isTestingConnection = connectionTest.status === 'loading'
+  const isSaving = saveState.status === 'loading'
 
   useEffect(() => {
     testRunRef.current += 1
     setConnectionTest(idleConnectionTestState)
+    setSaveState(idleSaveState)
   }, [connectionFingerprint])
 
   useEffect(() => {
     if (open) return
     testRunRef.current += 1
     setConnectionTest(idleConnectionTestState)
+    setSaveState(idleSaveState)
   }, [open])
 
   const updateDraftConfig = useCallback(
@@ -68,10 +84,19 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
       setConnectionTest({ status: 'success', message: result.message, requestUrl: result.requestUrl })
     } catch (error) {
       if (runId !== testRunRef.current) return
-      const message = error instanceof Error ? error.message : '测试连接失败：未知错误'
-      setConnectionTest({ status: 'error', message })
+      setConnectionTest({ status: 'error', message: '', error })
     }
   }, [draftConfig])
+
+  const handleSave = useCallback(async () => {
+    setSaveState({ status: 'loading', error: null, message: '正在保存 Provider 配置…' })
+    try {
+      await onSave()
+      setSaveState({ status: 'success', error: null, message: '配置已保存，后续生成和代理请求将使用这份配置。' })
+    } catch (error) {
+      setSaveState({ status: 'error', error, message: '' })
+    }
+  }, [onSave])
 
   if (!open) return null
 
@@ -154,7 +179,7 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
               type="button"
               onClick={handleTestConnection}
               className="settings-button min-w-[132px]"
-              disabled={isTestingConnection}
+              disabled={isTestingConnection || isSaving}
               aria-describedby={connectionTest.status === 'idle' ? undefined : 'provider-connection-test-result'}
             >
               {isTestingConnection ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
@@ -179,12 +204,32 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
                 {connectionTest.status === 'success' && <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
                 {connectionTest.status === 'error' && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
                 {connectionTest.status === 'loading' && <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />}
-                <span>{connectionTest.message}</span>
+                {connectionTest.status === 'error'
+                  ? <div className="min-w-0 flex-1"><ErrorNotice error={connectionTest.error ?? '测试连接失败。'} compact /></div>
+                  : <span>{connectionTest.message}</span>}
               </div>
               {connectionTest.requestUrl && (
                 <p className="mt-2 break-all font-mono text-[11px] leading-5 opacity-75">测试地址：{connectionTest.requestUrl}</p>
               )}
             </div>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-[1.75rem] border border-porcelain-50/10 bg-porcelain-50/[0.03] p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
+            <RadioTower className="h-4 w-4 text-signal-cyan" />
+            能力探测
+          </div>
+          <p className="mt-2 text-xs leading-5 text-porcelain-100/[0.65]">
+            {`${capabilities.familyLabel} · 文生图 ${capabilities.generationUrl} · 图生图 ${capabilities.supportsImageEdits ? `标准接口（${capabilities.editSupportConfidence} 置信）` : '兼容性较低'}`}
+          </p>
+          {capabilities.omittedJsonParams.length > 0 && (
+            <p className="mt-2 text-[11px] leading-5 text-porcelain-100/[0.5]">
+              自动省略参数：{capabilities.omittedJsonParams.join('、')}
+            </p>
+          )}
+          {capabilities.warnings.length > 0 && (
+            <p className="mt-2 text-[11px] leading-5 text-signal-coral/80">{capabilities.warnings.join(' ')}</p>
           )}
         </div>
 
@@ -200,13 +245,36 @@ export function ProviderModal({ open, draftConfig, onDraftConfigChange, onProvid
 
         <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <p className="truncate font-mono text-xs text-porcelain-100/[0.52]">
-            {`生成：${resolveImageApiUrl(draftConfig.apiUrl, generationEndpoint)} · 编辑：${resolveImageApiUrl(draftConfig.apiUrl, editEndpoint)}`}
+            {`生成：${resolveImageApiUrl(normalizedDraftConfig.apiUrl, generationEndpoint)} · 编辑：${resolveImageApiUrl(normalizedDraftConfig.apiUrl, editEndpoint)}`}
           </p>
-          <button type="button" onClick={onSave} className="generate-button">
-            <Save className="h-5 w-5" />
-            保存配置
+          <button type="button" onClick={() => void handleSave()} className="generate-button" disabled={isSaving || isTestingConnection}>
+            {isSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
+            {isSaving ? '保存中…' : '保存配置'}
           </button>
         </div>
+
+        {saveState.status !== 'idle' && (
+          <div
+            role={saveState.status === 'error' ? 'alert' : 'status'}
+            aria-live="polite"
+            className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+              saveState.status === 'success'
+                ? 'border-signal-cyan/35 bg-signal-cyan/15 text-signal-cyan'
+                : saveState.status === 'error'
+                  ? 'border-signal-coral/35 bg-signal-coral/15 text-signal-coral'
+                  : 'border-porcelain-50/10 bg-ink-950/45 text-porcelain-100/70'
+            }`}
+          >
+            <div className="flex items-start gap-2 font-semibold">
+              {saveState.status === 'success' && <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+              {saveState.status === 'error' && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+              {saveState.status === 'loading' && <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />}
+              {saveState.status === 'error'
+                ? <div className="min-w-0 flex-1"><ErrorNotice error={saveState.error ?? '保存配置失败。'} compact /></div>
+                : <span>{saveState.message}</span>}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

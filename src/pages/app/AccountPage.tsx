@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Header } from '@/components/Header'
 import { useAuthSession } from '@/features/auth/useAuthSession'
 import { apiRequest } from '@/shared/http/client'
+import { ErrorNotice } from '@/shared/errors/ErrorNotice'
 
 type SessionRecord = {
   id: string
@@ -29,7 +30,7 @@ type BillingInvoice = {
   amountCents: number
   currency: string
   status: 'pending' | 'paid' | 'failed' | 'refunded'
-  provider: 'mock'
+  provider: 'mock' | 'real'
   providerRef?: string
   createdAt: string
   updatedAt: string
@@ -174,7 +175,7 @@ export function AccountPage() {
           </div>
 
           {loading ? <p className="mt-6 text-sm text-porcelain-100/60">正在加载账户信息…</p> : null}
-          {error ? <p className="mt-6 rounded-2xl border border-signal-coral/30 bg-signal-coral/10 px-4 py-3 text-sm text-signal-coral">{error}</p> : null}
+          {error ? <ErrorNotice error={error} className="mt-6" /> : null}
           {message ? <p className="mt-6 rounded-2xl border border-signal-cyan/30 bg-signal-cyan/10 px-4 py-3 text-sm text-signal-cyan">{message}</p> : null}
 
           {me ? (
@@ -248,7 +249,7 @@ export function AccountPage() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p>{invoice.planName}</p>
-                      <p>金额：¥{(invoice.amountCents / 100).toFixed(2)} · 状态：{invoice.status}</p>
+                      <p>金额：¥{(invoice.amountCents / 100).toFixed(2)} · 状态：{invoice.status} · 渠道：{invoice.provider === 'mock' ? '演示账单' : '真实账单'}</p>
                     </div>
                     <p>{new Date(invoice.createdAt).toLocaleString()}</p>
                   </div>

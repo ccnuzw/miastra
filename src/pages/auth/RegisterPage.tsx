@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { AuthCard } from '@/features/auth/AuthCard'
 import { register } from '@/features/auth/auth.api'
 import { useAuthSession } from '@/features/auth/useAuthSession'
+import { ErrorNotice } from '@/shared/errors/ErrorNotice'
 
 type RedirectState = {
   from?: {
@@ -25,20 +26,20 @@ export function RegisterPage() {
   const [nickname, setNickname] = useState('New User')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [submitting, setSubmitting] = useState(false)
   const redirectTo = buildRedirectTo(location.state)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSubmitting(true)
-    setError('')
+    setError(null)
     try {
       await register({ nickname, email, password })
       await refresh()
       navigate(redirectTo, { replace: true })
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setError(nextError)
     } finally {
       setSubmitting(false)
     }
@@ -50,7 +51,7 @@ export function RegisterPage() {
         <label className="field-block"><span className="field-label">昵称</span><input className="input-shell" autoComplete="nickname" value={nickname} onChange={(e) => setNickname(e.target.value)} required /></label>
         <label className="field-block"><span className="field-label">邮箱</span><input className="input-shell" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
         <label className="field-block"><span className="field-label">密码</span><input className="input-shell" type="password" autoComplete="new-password" minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
-        {error ? <p className="text-sm text-signal-coral">{error}</p> : null}
+        {error ? <ErrorNotice error={error} compact /> : null}
         <button className="w-full rounded-2xl bg-signal-cyan px-4 py-3 text-sm font-bold text-ink-950 transition hover:opacity-90 disabled:opacity-60" type="submit" disabled={submitting}>{submitting ? '注册中…' : '注册'}</button>
       </form>
     </AuthCard>

@@ -18,7 +18,7 @@ type ImageWallModalProps = {
   onDownloadSelected: () => void
   includeMetadata: boolean
   onIncludeMetadataChange: (value: boolean) => void
-  onPushReference: (item: GalleryImage) => void
+  onPushReference?: (item: GalleryImage) => void
   onToggleSelect: (id: string) => void
   onToggleFavorite: (id: string) => void
   onAddTag: (id: string, tag: string) => void
@@ -40,7 +40,7 @@ type ImageWallTileProps = {
   selected: boolean
   onPreview: (item: GalleryImage) => void
   onDownload: (item: GalleryImage) => void
-  onPushReference: (item: GalleryImage) => void
+  onPushReference?: (item: GalleryImage) => void
   onToggleSelect: (id: string) => void
   onToggleFavorite: (id: string) => void
   onAddTag: (id: string, tag: string) => void
@@ -133,9 +133,10 @@ const ImageWallTile = memo(function ImageWallTile({
             )}
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1 text-[10px] font-bold text-porcelain-50 transition hover:border-signal-cyan/35 hover:text-signal-cyan"
-              onClick={(event) => { event.stopPropagation(); onPushReference(item) }}
+              className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/60 px-2 py-1 text-[10px] font-bold text-porcelain-50 transition hover:border-signal-cyan/35 hover:text-signal-cyan disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={(event) => { event.stopPropagation(); onPushReference?.(item) }}
               aria-label="推送到输入框"
+              disabled={!onPushReference}
             >
               <ImagePlus className="h-3 w-3" />
               参考图

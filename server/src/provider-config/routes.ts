@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { requireAuthenticatedUser } from '../auth/routes'
 import { fail, ok } from '../lib/http'
 import { getAuthDomainStore } from '../lib/domain-store'
+import { normalizeProviderConfigInput, validateProviderApiUrl } from './provider.utils'
 
 const providerConfigSchema = z.object({
   providerId: z.string().trim().min(1),
@@ -12,12 +13,12 @@ const providerConfigSchema = z.object({
 })
 
 function normalizeProviderConfig(config: z.infer<typeof providerConfigSchema>) {
-  return {
-    providerId: config.providerId.trim(),
-    apiUrl: config.apiUrl.trim(),
-    model: config.model.trim(),
-    apiKey: config.apiKey.trim(),
-  }
+  return normalizeProviderConfigInput({
+    providerId: config.providerId,
+    apiUrl: config.apiUrl,
+    model: config.model,
+    apiKey: config.apiKey,
+  })
 }
 
 export async function registerProviderConfigRoutes(app: FastifyInstance) {
@@ -56,6 +57,11 @@ export async function registerProviderConfigRoutes(app: FastifyInstance) {
       userId: user.id,
       ...normalizeProviderConfig(parsed.data),
       updatedAt: new Date().toISOString(),
+    }
+    const apiUrlError = validateProviderApiUrl(normalized.apiUrl)
+    if (apiUrlError) {
+      reply.code(400)
+      return fail(apiUrlError.code, apiUrlError.message)
     }
 
     await getAuthDomainStore().upsertProviderConfig(normalized)

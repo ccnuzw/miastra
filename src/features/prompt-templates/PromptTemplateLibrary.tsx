@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, BookOpen, Check, ClipboardCopy, Loader2, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { BookOpen, Check, ClipboardCopy, Clock3, Copy, Filter, Loader2, RefreshCw, Search, Sparkles, Tag, Trash2, X } from 'lucide-react'
+import { createDuplicatedPromptTemplateTitle, normalizePromptTemplateTags } from './promptTemplate.utils'
+import { ErrorNotice } from '@/shared/errors/ErrorNotice'
 
 export type PromptTemplateListItem = {
   id: string
   title?: string
   name?: string
   content: string
+  category?: string
+  tags?: string[]
   createdAt: string | number | Date
   updatedAt?: string | number | Date
+  lastUsedAt?: string | number | Date
 }
 
 type PromptTemplateLibraryProps = {
@@ -19,6 +24,7 @@ type PromptTemplateLibraryProps = {
   saveFeedback?: string
   onSaveCurrent: () => void | Promise<void>
   onApply: (template: PromptTemplateListItem) => void
+  onDuplicate: (template: PromptTemplateListItem) => void | Promise<void>
   onDelete: (templateId: string) => void | Promise<void>
   onRefresh?: () => void | Promise<void>
   onClose: () => void
@@ -45,7 +51,24 @@ function getTemplateTitle(template: PromptTemplateListItem) {
 }
 
 function getTemplateSearchText(template: PromptTemplateListItem) {
-  return `${template.title ?? ''} ${template.name ?? ''} ${template.content ?? ''}`.toLowerCase()
+  return `${template.title ?? ''} ${template.name ?? ''} ${template.content ?? ''} ${template.category ?? ''} ${template.tags?.join(' ') ?? ''}`.toLowerCase()
+}
+
+function getTemplateCategory(template: PromptTemplateListItem) {
+  return template.category?.trim() || '未分类'
+}
+
+function getTemplateTags(template: PromptTemplateListItem) {
+  return normalizePromptTemplateTags(template.tags)
+}
+
+function getTemplateSortTime(template: PromptTemplateListItem, sortMode: 'updated' | 'used') {
+  const value = sortMode === 'used' ? (template.lastUsedAt ?? template.updatedAt ?? template.createdAt) : (template.updatedAt ?? template.createdAt)
+  return Number(new Date(value))
+}
+
+function getTemplateSortDate(template: PromptTemplateListItem, sortMode: 'updated' | 'used') {
+  return sortMode === 'used' ? (template.lastUsedAt ?? template.updatedAt ?? template.createdAt) : (template.updatedAt ?? template.createdAt)
 }
 
 export function PromptTemplateLibrary({
@@ -57,16 +80,23 @@ export function PromptTemplateLibrary({
   saveFeedback,
   onSaveCurrent,
   onApply,
+  onDuplicate,
   onDelete,
   onRefresh,
   onClose,
 }: PromptTemplateLibraryProps) {
   const [searchQuery, setSearchQuery] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('全部分类')
+  const [tagFilter, setTagFilter] = useState('')
+  const [sortMode, setSortMode] = useState<'updated' | 'used'>('updated')
   const [copiedTemplateId, setCopiedTemplateId] = useState('')
 
   useEffect(() => {
     if (!open) {
       setSearchQuery('')
+      setCategoryFilter('全部分类')
+      setTagFilter('')
+      setSortMode('updated')
       setCopiedTemplateId('')
     }
   }, [open])
@@ -75,10 +105,17 @@ export function PromptTemplateLibrary({
 
   const canSaveCurrent = currentPrompt.trim().length > 0
   const normalizedSearchQuery = searchQuery.trim().toLowerCase()
-  const isSearching = normalizedSearchQuery.length > 0
-  const filteredTemplates = isSearching
-    ? templates.filter((template) => getTemplateSearchText(template).includes(normalizedSearchQuery))
-    : templates
+  const normalizedTagFilter = tagFilter.trim().toLowerCase()
+  const hasActiveFilters = normalizedSearchQuery.length > 0 || normalizedTagFilter.length > 0 || categoryFilter !== '全部分类'
+  const categories = Array.from(new Set(templates.map((template) => getTemplateCategory(template)))).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+  const filteredTemplates = templates
+    .filter((template) => {
+      if (categoryFilter !== '全部分类' && getTemplateCategory(template) !== categoryFilter) return false
+      if (normalizedTagFilter && !getTemplateTags(template).some((tag) => tag.toLowerCase().includes(normalizedTagFilter))) return false
+      if (normalizedSearchQuery && !getTemplateSearchText(template).includes(normalizedSearchQuery)) return false
+      return true
+    })
+    .sort((a, b) => getTemplateSortTime(b, sortMode) - getTemplateSortTime(a, sortMode))
 
   async function handleCopyTemplate(template: PromptTemplateListItem) {
     try {
@@ -133,7 +170,7 @@ export function PromptTemplateLibrary({
                   type="search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="按标题、名称或内容搜索"
+                  placeholder="按标题、名称、分类、标签或内容搜索"
                   className="prompt-template-search-input"
                 />
                 {searchQuery.length > 0 && (
@@ -142,6 +179,45 @@ export function PromptTemplateLibrary({
                   </button>
                 )}
               </div>
+            </div>
+
+            <div className="prompt-template-filter-grid">
+              <label className="field-block">
+                <span className="field-label">
+                  <Filter className="h-3.5 w-3.5" />
+                  分类
+                </span>
+                <select className="input-shell" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                  <option value="全部分类">全部分类</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>{category}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field-block">
+                <span className="field-label">
+                  <Tag className="h-3.5 w-3.5" />
+                  标签筛选
+                </span>
+                <input
+                  className="input-shell"
+                  value={tagFilter}
+                  onChange={(event) => setTagFilter(event.target.value)}
+                  placeholder="输入标签关键词"
+                />
+              </label>
+
+              <label className="field-block">
+                <span className="field-label">
+                  <Clock3 className="h-3.5 w-3.5" />
+                  排序
+                </span>
+                <select className="input-shell" value={sortMode} onChange={(event) => setSortMode(event.target.value as 'updated' | 'used')}>
+                  <option value="updated">按更新时间</option>
+                  <option value="used">按最近使用</option>
+                </select>
+              </label>
             </div>
           </div>
 
@@ -171,12 +247,7 @@ export function PromptTemplateLibrary({
           </div>
         )}
 
-        {error && (
-          <div className="prompt-template-error" role="alert">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
+        {error ? <ErrorNotice error={error} className="mt-4" compact /> : null}
 
         <div className="prompt-template-list" aria-busy={loading}>
           {loading && templates.length === 0 ? (
@@ -186,14 +257,14 @@ export function PromptTemplateLibrary({
             </div>
           ) : filteredTemplates.length === 0 ? (
             <div className="prompt-template-empty">
-              {isSearching ? <Search className="h-8 w-8 text-signal-cyan" /> : <BookOpen className="h-8 w-8 text-signal-cyan" />}
-              <p className="text-base font-bold text-porcelain-50">{isSearching ? '没有匹配的模板' : '还没有 Prompt 模板'}</p>
-              <span>{isSearching ? '换个关键词试试，或清空搜索恢复全部模板。' : '输入 Prompt 后点击“保存为模板”，它会出现在这里。'}</span>
-              {isSearching && (
-                <button type="button" className="settings-button" onClick={() => setSearchQuery('')}>
-                  清空关键词
-                </button>
-              )}
+              {hasActiveFilters ? <Search className="h-8 w-8 text-signal-cyan" /> : <BookOpen className="h-8 w-8 text-signal-cyan" />}
+              <p className="text-base font-bold text-porcelain-50">{hasActiveFilters ? '没有匹配的模板' : '还没有 Prompt 模板'}</p>
+              <span>{hasActiveFilters ? '换个关键词、分类或标签试试，或清空筛选恢复全部模板。' : '输入 Prompt 后点击“保存为模板”，它会出现在这里。'}</span>
+              {hasActiveFilters && (
+                  <button type="button" className="settings-button" onClick={() => { setSearchQuery(''); setCategoryFilter('全部分类'); setTagFilter('') }}>
+                    清空筛选
+                  </button>
+                )}
             </div>
           ) : (
             filteredTemplates.map((template) => (
@@ -202,8 +273,12 @@ export function PromptTemplateLibrary({
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="truncate text-base font-bold text-porcelain-50">{getTemplateTitle(template)}</h3>
                     <span className="rounded-full border border-porcelain-50/10 bg-ink-950/55 px-2.5 py-1 text-[10px] font-bold text-porcelain-100/45">
-                      {formatTemplateDate(template.updatedAt ?? template.createdAt)}
+                      {formatTemplateDate(getTemplateSortDate(template, sortMode))}
                     </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="prompt-template-chip">{getTemplateCategory(template)}</span>
+                    {getTemplateTags(template).map((tag) => <span key={tag} className="prompt-template-chip prompt-template-chip-tag">{tag}</span>)}
                   </div>
                   <p className="prompt-template-preview">{getPromptPreview(template.content)}</p>
                 </div>
@@ -212,9 +287,13 @@ export function PromptTemplateLibrary({
                     <Search className="h-4 w-4" />
                     应用
                   </button>
+                  <button type="button" className="settings-button" onClick={() => void onDuplicate(template)} aria-label={`复制为新模板 ${createDuplicatedPromptTemplateTitle(getTemplateTitle(template))}`}>
+                    <Copy className="h-4 w-4" />
+                    复制为新模板
+                  </button>
                   <button type="button" className="settings-button" onClick={() => handleCopyTemplate(template)} aria-label={`复制模板 ${getTemplateTitle(template)}`}>
                     {copiedTemplateId === template.id ? <Check className="h-4 w-4" /> : <ClipboardCopy className="h-4 w-4" />}
-                    {copiedTemplateId === template.id ? '已复制' : '复制'}
+                    {copiedTemplateId === template.id ? '已复制内容' : '复制内容'}
                   </button>
                   <button type="button" className="tile-action tile-action-danger" onClick={() => onDelete(template.id)} aria-label={`删除模板 ${getTemplateTitle(template)}`}>
                     <Trash2 className="h-4 w-4" />

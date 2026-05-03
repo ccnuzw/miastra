@@ -17,6 +17,7 @@ import { requestGenerationImage } from '@/features/generation/generation.request
 import { readStoredGenerationRuntimeTasks, writeStoredGenerationRuntimeTasks } from '@/features/generation/generationTask.storage'
 import type { LocalGenerationTaskRecord } from '@/features/generation/generationTask.types'
 import type { GenerationError, GenerationMode, GenerationRequestOptions, GenerationStage, GenerationStatus, GenerationSnapshot } from '@/features/generation/generation.types'
+import { getErrorDisplay } from '@/shared/errors/app-error'
 import { sleep } from '@/shared/utils/sleep'
 
 type UseGenerationFlowOptions = {
@@ -82,11 +83,14 @@ function toReferencePayload(referenceImages: ReferenceImage[]) {
     source: reference.source,
     name: reference.name,
     src: reference.src,
+    assetId: reference.assetId,
+    assetRemoteKey: reference.assetRemoteKey,
   }))
 }
 
 function buildTaskResult(image: GalleryImage): NonNullable<LocalGenerationTaskRecord['result']> {
   return {
+    workId: image.id,
     imageUrl: image.src,
     meta: image.meta,
     title: image.title,
@@ -409,9 +413,10 @@ export function useGenerationFlow({
       const generationError = isGenerationError(error) ? error : undefined
       const finishedAt = Date.now()
       const failureStatus = getServerFailureStatus(generationError)
+      const errorDisplay = getErrorDisplay(generationError ?? error)
       setStatus('error')
       setStage('error')
-      setStatusText(`生成失败：${generationError?.message ?? '未知错误'}`)
+      setStatusText(`生成失败：${errorDisplay.title}`)
       syncRemoteTask(createdTask?.id, { status: failureStatus, errorMessage: generationError?.message ?? '未知错误' })
       await patchRuntimeTask(runtimeTaskId, {
         status: toLocalTaskStatus(failureStatus),
@@ -768,7 +773,7 @@ export function useGenerationFlow({
       setStatus('error')
       setStage('error')
       const generationError = isGenerationError(error) ? error : undefined
-      setStatusText(`抽卡中断：${generationError?.message ?? '未知错误'}。已保留成功生成的 ${results.length} 张`)
+      setStatusText(`抽卡中断：${getErrorDisplay(generationError ?? error).title}。已保留成功生成的 ${results.length} 张`)
     } finally {
       startedAtRef.current = 0
       abortRef.current = null
@@ -863,7 +868,7 @@ export function useGenerationFlow({
       const generationError = isGenerationError(error) ? error : undefined
       setStatus('error')
       setStage('error')
-      setStatusText(`${task.title} 重试失败：${generationError?.message ?? '未知错误'}`)
+      setStatusText(`${task.title} 重试失败：${getErrorDisplay(generationError ?? error).title}`)
     } finally {
       startedAtRef.current = 0
       taskControllersRef.current.delete(taskId)

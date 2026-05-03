@@ -40,6 +40,12 @@ export type ExportedWorkMetadata = {
   title: string
   fileName?: string
   skippedReason?: DownloadWorksZipFailureReason
+  assetId?: string
+  assetStorage?: GalleryImage['assetStorage']
+  assetSyncStatus?: GalleryImage['assetSyncStatus']
+  assetRemoteKey?: string
+  assetRemoteUrl?: string
+  assetUpdatedAt?: number
   meta?: string
   variation?: string
   batchId?: string
@@ -87,6 +93,22 @@ export function removeUndefinedAndSensitiveFields<T>(value: T): T {
 export function sanitizeGenerationSnapshot(snapshot: GalleryImage['generationSnapshot']) {
   if (!snapshot) return undefined
 
+  const references = snapshot.references
+    ? {
+        ...snapshot.references,
+        sources: Array.isArray(snapshot.references.sources)
+          ? snapshot.references.sources.map((source) => removeUndefinedAndSensitiveFields({
+              source: source.source,
+              name: source.name,
+              assetId: source.assetId,
+              assetRemoteKey: source.assetRemoteKey,
+              workId: source.workId,
+              workTitle: source.workTitle,
+            }))
+          : undefined,
+      }
+    : undefined
+
   return removeUndefinedAndSensitiveFields({
     id: snapshot.id,
     createdAt: snapshot.createdAt,
@@ -99,7 +121,7 @@ export function sanitizeGenerationSnapshot(snapshot: GalleryImage['generationSna
     model: snapshot.model,
     providerId: snapshot.providerId,
     stream: snapshot.stream,
-    references: snapshot.references,
+    references,
     draw: snapshot.draw,
   })
 }

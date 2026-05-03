@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import type { PromptTemplateListItem } from './PromptTemplateLibrary'
-import { createPromptTemplateTitle } from './promptTemplate.utils'
+import { createDuplicatedPromptTemplateTitle, createPromptTemplateTitle } from './promptTemplate.utils'
+import { getErrorDisplay } from '@/shared/errors/app-error'
 
 export type SavePromptTemplateInput = {
   title: string
   content: string
+  category?: string
+  tags?: string[]
 }
 
 type UsePromptTemplateActionsOptions = {
@@ -15,6 +18,7 @@ type UsePromptTemplateActionsOptions = {
   saveTemplate: (template: SavePromptTemplateInput) => Promise<unknown> | unknown
   deleteTemplate: (templateId: string) => Promise<unknown> | unknown
   refreshPromptTemplates: () => Promise<unknown> | unknown
+  markTemplateUsed: (templateId: string) => Promise<unknown> | unknown
 }
 
 export function usePromptTemplateActions({
@@ -25,6 +29,7 @@ export function usePromptTemplateActions({
   saveTemplate,
   deleteTemplate,
   refreshPromptTemplates,
+  markTemplateUsed,
 }: UsePromptTemplateActionsOptions) {
   const [templateLibraryOpen, setTemplateLibraryOpen] = useState(false)
   const [templateFeedback, setTemplateFeedback] = useState('')
@@ -56,7 +61,7 @@ export function usePromptTemplateActions({
       setStatusText(message)
       void Promise.resolve(refreshPromptTemplates()).catch(() => undefined)
     } catch (error) {
-      const message = error instanceof Error ? error.message : '保存 Prompt 模板失败'
+      const message = getErrorDisplay(error).title
       setTemplateFeedback(message)
       setStatus('error')
       setStatusText(message)
@@ -69,7 +74,29 @@ export function usePromptTemplateActions({
     setTemplateFeedback('')
     setStatus('success')
     setStatusText(`已应用 Prompt 模板：${template.title || template.name || '未命名模板'}`)
+    void Promise.resolve(markTemplateUsed(template.id)).catch(() => undefined)
     window.setTimeout(() => document.getElementById('studio')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+  }
+
+  async function handleDuplicatePromptTemplate(template: PromptTemplateListItem) {
+    try {
+      await saveTemplate({
+        title: createDuplicatedPromptTemplateTitle(template.title || template.name || '未命名模板'),
+        content: template.content,
+        category: template.category?.trim() || undefined,
+        tags: template.tags,
+      })
+      const message = '已复制为新模板'
+      setTemplateFeedback(message)
+      setStatus('success')
+      setStatusText(message)
+      void Promise.resolve(refreshPromptTemplates()).catch(() => undefined)
+    } catch (error) {
+      const message = getErrorDisplay(error).title
+      setTemplateFeedback(message)
+      setStatus('error')
+      setStatusText(message)
+    }
   }
 
   async function handleDeletePromptTemplate(templateId: string) {
@@ -81,7 +108,7 @@ export function usePromptTemplateActions({
       setStatusText(message)
       void Promise.resolve(refreshPromptTemplates()).catch(() => undefined)
     } catch (error) {
-      const message = error instanceof Error ? error.message : '删除 Prompt 模板失败'
+      const message = getErrorDisplay(error).title
       setTemplateFeedback(message)
       setStatus('error')
       setStatusText(message)
@@ -95,6 +122,7 @@ export function usePromptTemplateActions({
     handleOpenTemplateLibrary,
     handleSaveCurrentPromptTemplate,
     handleApplyPromptTemplate,
+    handleDuplicatePromptTemplate,
     handleDeletePromptTemplate,
   }
 }

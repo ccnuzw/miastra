@@ -2,6 +2,8 @@ type AuditLogRecord = {
   id: string
   actorUserId: string
   actorRole: 'user' | 'operator' | 'admin'
+  actorEmail?: string
+  actorNickname?: string
   action: string
   targetType: string
   targetId: string
@@ -27,10 +29,21 @@ export function AdminLogsPanel({ logs, busyId, onRevokeOtherSessions }: AdminLog
         {logs.length ? logs.map((log) => (
           <div key={log.id} className="rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.45] p-3">
             <p>{log.action} · {log.targetType} / {log.targetId}</p>
-            <p className="mt-1 text-xs text-porcelain-100/45">{log.actorRole} · {new Date(log.createdAt).toLocaleString()}</p>
+            <p className="mt-1 text-xs text-porcelain-100/45">{log.actorNickname ?? log.actorEmail ?? log.actorUserId} · {log.actorRole} · {new Date(log.createdAt).toLocaleString()}</p>
+            <p className="mt-2 break-all text-xs text-porcelain-100/45">{formatAuditPayload(log.payload)}</p>
           </div>
         )) : <p className="text-sm text-porcelain-100/60">当前还没有审计日志。</p>}
       </div>
     </article>
   )
+}
+
+function formatAuditPayload(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return '无附加信息'
+
+  try {
+    return JSON.stringify(payload)
+  } catch {
+    return '附加信息解析失败'
+  }
 }

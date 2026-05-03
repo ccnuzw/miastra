@@ -9,8 +9,11 @@ export type StoredPromptTemplate = {
   title?: string
   name?: string
   content: string
+  category?: string
+  tags?: string[]
   createdAt: string | number
   updatedAt?: string | number
+  lastUsedAt?: string | number | null
 }
 
 export type StoredWork = {
@@ -18,6 +21,12 @@ export type StoredWork = {
   userId: string
   title: string
   src?: string
+  assetId?: string
+  assetStorage?: 'inline' | 'blob' | 'remote'
+  assetSyncStatus?: 'local-only' | 'pending-sync' | 'synced'
+  assetRemoteKey?: string
+  assetRemoteUrl?: string
+  assetUpdatedAt?: number
   meta: string
   variation?: string
   batchId?: string
@@ -90,7 +99,15 @@ export type StoredGenerationTask = {
       source: 'upload' | 'work'
       name: string
       src: string
+      assetId?: string
+      assetRemoteKey?: string
     }>
+    tracking?: {
+      rootTaskId: string
+      parentTaskId?: string
+      retryAttempt: number
+      recoverySource?: 'manual'
+    }
     draw?: {
       count: number
       strategy: DrawStrategy
@@ -108,6 +125,7 @@ export type StoredGenerationTask = {
     }
   }
   result?: {
+    workId?: string
     imageUrl?: string
     meta?: string
     title?: string
@@ -143,7 +161,7 @@ export type StoredBillingInvoice = {
   amountCents: number
   currency: string
   status: 'pending' | 'paid' | 'failed' | 'refunded'
-  provider: 'mock'
+  provider: 'mock' | 'real'
   providerRef?: string
   createdAt: string
   updatedAt: string

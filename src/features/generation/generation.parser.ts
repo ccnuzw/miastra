@@ -1,3 +1,4 @@
+import { parseApiErrorPayload, toAppError } from '@/shared/errors/app-error'
 import type { GenerationError } from './generation.types'
 
 export function extractImageSrc(payload: string) {
@@ -26,36 +27,57 @@ function parseHttpStatus(message: string) {
 }
 
 export function normalizeGenerationError(error: unknown): GenerationError {
-  if (error instanceof DOMException && error.name === 'AbortError') {
+  const appError = toAppError(error, '生成失败，请稍后重试。')
+  const message = appError.message || '未知错误'
+
+  if (appError.code === 'GENERATION_ABORTED') {
     return buildGenerationError('abort', '请求已取消', false, error)
   }
 
-  if (error instanceof TypeError && /failed to fetch/i.test(error.message)) {
-    return buildGenerationError('network', '浏览器无法访问远端 API，通常是 CORS 或网络不可达', true, error)
+  if (/504 Gateway Time-out|openresty|网关超时/i.test(message)) {
+    return buildGenerationError('gateway-timeout', '远端网关超时 504，请稍后重试。', true, error)
   }
 
-  if (error instanceof Error) {
-    const message = error.message || '未知错误'
-    if (/额度不足|QUOTA_EXCEEDED/i.test(message)) return buildGenerationError('invalid-input', message, false, error)
-    if (/请先上传|请先在右上角设置里补全/i.test(message)) return buildGenerationError('invalid-input', message, false, error)
-    if (/504 Gateway Time-out|openresty/i.test(message)) return buildGenerationError('gateway-timeout', '远端网关超时 504', true, error)
-    if (/超过 .*s|timeout/i.test(message)) return buildGenerationError('timeout', message, true, error)
-    if (/不支持标准 \/v1\/images\/edits/i.test(message)) return buildGenerationError('provider-unsupported', message, false, error)
-    if (/未解析到图片数据|响应格式/i.test(message)) return buildGenerationError('invalid-response', message, true, error)
-
-    const httpStatus = parseHttpStatus(message)
-    if (httpStatus) {
-      const retryable = httpStatus >= 500 || httpStatus === 408 || httpStatus === 425 || httpStatus === 429
-      return buildGenerationError('http-error', message, retryable, error)
-    }
-
-    return buildGenerationError('unknown', message, true, error)
+  if (appError.code === 'PROVIDER_TEST_TIMEOUT' || /超过 .*s|timeout/i.test(message)) {
+    return buildGenerationError('timeout', message, true, error)
   }
 
-  return buildGenerationError('unknown', '未知错误', true, error)
+  if (appError.code === 'PROVIDER_UNSUPPORTED' || appError.code === 'GENERATION_PROVIDER_UNSUPPORTED') {
+    return buildGenerationError('provider-unsupported', message, false, error)
+  }
+
+  if (appError.code === 'PROVIDER_RESPONSE_INVALID' || appError.code === 'GENERATION_PROVIDER_INVALID_RESPONSE') {
+    return buildGenerationError('invalid-response', message, true, error)
+  }
+
+  if (appError.code === 'NETWORK_ERROR' || appError.code === 'GENERATION_NETWORK_ERROR' || appError.code === 'UPSTREAM_UNAVAILABLE') {
+    return buildGenerationError('network', message, true, error)
+  }
+
+  if (
+    appError.code === 'INVALID_INPUT'
+    || appError.code === 'GENERATION_INVALID_INPUT'
+    || appError.code === 'PROVIDER_CONFIG_REQUIRED'
+    || appError.code === 'PROVIDER_MODEL_MISSING'
+    || appError.code === 'PROVIDER_API_KEY_MISSING'
+    || appError.code === 'PROVIDER_URL_INVALID'
+    || appError.code === 'QUOTA_EXCEEDED'
+    || appError.code === 'UNAUTHORIZED'
+    || appError.code === 'FORBIDDEN'
+  ) {
+    return buildGenerationError('invalid-input', message, false, error)
+  }
+
+  const httpStatus = parseHttpStatus(message)
+  if (httpStatus) {
+    const retryable = httpStatus >= 500 || httpStatus === 408 || httpStatus === 425 || httpStatus === 429
+    return buildGenerationError('http-error', message, retryable, error)
+  }
+
+  return buildGenerationError('unknown', message, appError.retryable, error)
 }
 
-export function extractGenerationError(payload: string) {
+export function extractGenerationErrorDetails(payload: string) {
   const candidates: string[] = []
   payload.split('\n').forEach((line) => {
     if (!line.startsWith('data:')) return
@@ -67,16 +89,32 @@ export function extractGenerationError(payload: string) {
     if (!candidate || candidate === '[DONE]') continue
     try {
       const json = JSON.parse(candidate)
+      const structured = parseApiErrorPayload(json)
+      if (typeof structured?.message === 'string' && structured.message.trim()) {
+        return {
+          code: typeof structured.code === 'string' ? structured.code : undefined,
+          message: structured.message.trim(),
+        }
+      }
       const error = json.error ?? json
       const message = error?.message || json.message
-      if (message) return String(message)
+      if (message) {
+        return {
+          code: typeof error?.code === 'string' ? error.code : undefined,
+          message: String(message),
+        }
+      }
     } catch {
-      if (/event:\s*error/i.test(payload)) return candidate
+      if (/event:\s*error/i.test(payload)) return { message: candidate }
     }
   }
 
-  if (/event:\s*error/i.test(payload)) return '远端流式响应返回 error 事件，但未提供可解析的错误信息'
-  return ''
+  if (/event:\s*error/i.test(payload)) return { message: '远端流式响应返回 error 事件，但未提供可解析的错误信息' }
+  return null
+}
+
+export function extractGenerationError(payload: string) {
+  return extractGenerationErrorDetails(payload)?.message ?? ''
 }
 
 export function imageSrcFromEventData(data: string) {

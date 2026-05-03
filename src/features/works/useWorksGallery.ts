@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useAuthSession } from '@/features/auth/useAuthSession'
 import type { GalleryImage } from '@/features/works/works.types'
-import { importLegacyWorks, normalizeGallery, normalizeGalleryImage, readStoredGallery, writeStoredGallery } from './works.storage'
+import {
+  addTagToStoredWorks,
+  deleteStoredWork,
+  deleteStoredWorks,
+  importLegacyWorks,
+  normalizeGallery,
+  normalizeGalleryImage,
+  readStoredGallery,
+  removeTagFromStoredWorks,
+  replaceStoredWorkTags,
+  updateStoredWorkFavorite,
+} from './works.storage'
 
 type UseWorksGalleryOptions = {
   onRemoveImage?: (id: string) => void
@@ -15,7 +26,7 @@ export type WorksGalleryFilters = {
   favoritesOnly?: boolean
 }
 
-const galleryPersistDebounceMs = 400
+type WorkMutationVersions = Map<string, number>
 
 function normalizeTag(tag: string) {
   return tag.trim()
@@ -62,10 +73,9 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
   const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [gallery, setGalleryState] = useState<GalleryImage[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const galleryHydratedRef = useRef(false)
-  const skipNextPersistRef = useRef(false)
-  const persistTimerRef = useRef<number | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const galleryRef = useRef<GalleryImage[]>([])
+  const mutationVersionRef = useRef<Record<string, number>>({})
   const [wallOpen, setWallOpen] = useState(false)
   const [viewerImage, setViewerImage] = useState<GalleryImage | null>(null)
   const [selectedWorkIds, setSelectedWorkIds] = useState<string[]>([])
@@ -79,32 +89,31 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
       : value))
   }
 
-  const loadGallery = useCallback(async () => {
+  const loadGallery = useCallback(async (options: { clearError?: boolean } = {}) => {
     if (!isAuthenticated) {
-      skipNextPersistRef.current = true
       setGalleryState([])
-      setError('')
+      setError(null)
       setLoading(false)
-      galleryHydratedRef.current = false
       return []
     }
 
     setLoading(true)
-    setError('')
+    if (options.clearError !== false) setError(null)
     try {
       const items = await readStoredGallery()
-      const next = batchId && batchId !== 'all' ? items.filter((item) => item.batchId === batchId) : items
-      skipNextPersistRef.current = true
-      setGalleryState(next)
-      galleryHydratedRef.current = true
-      return next
+      setGalleryState(items)
+      return items
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setError(nextError)
       return []
     } finally {
       setLoading(false)
     }
-  }, [batchId, isAuthenticated])
+  }, [isAuthenticated])
+
+  useEffect(() => {
+    galleryRef.current = gallery
+  }, [gallery])
 
   useEffect(() => {
     if (authLoading) return
@@ -112,10 +121,8 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
     let cancelled = false
 
     if (!isAuthenticated) {
-      galleryHydratedRef.current = false
-      skipNextPersistRef.current = true
       setGalleryState([])
-      setError('')
+      setError(null)
       setLoading(false)
       return () => {
         cancelled = true
@@ -127,7 +134,7 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
       void loadGallery()
     }).catch((nextError) => {
       if (cancelled) return
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setError(nextError)
       setLoading(false)
     })
 
@@ -137,28 +144,10 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
   }, [authLoading, isAuthenticated, loadGallery])
 
   useEffect(() => {
-    if (!isAuthenticated || !galleryHydratedRef.current) return
-    if (skipNextPersistRef.current) {
-      skipNextPersistRef.current = false
-      return
-    }
-    if (persistTimerRef.current !== null) {
-      window.clearTimeout(persistTimerRef.current)
-    }
-    persistTimerRef.current = window.setTimeout(() => {
-      void writeStoredGallery(gallery).catch((nextError) => {
-        setError(nextError instanceof Error ? nextError.message : String(nextError))
-      })
-      persistTimerRef.current = null
-    }, galleryPersistDebounceMs)
-
-    return () => {
-      if (persistTimerRef.current !== null) {
-        window.clearTimeout(persistTimerRef.current)
-        persistTimerRef.current = null
-      }
-    }
-  }, [gallery, isAuthenticated])
+    const existingIds = new Set(gallery.map((item) => item.id))
+    setSelectedWorkIds((items) => items.filter((id) => existingIds.has(id)))
+    setViewerImage((current) => current && existingIds.has(current.id) ? current : null)
+  }, [gallery])
 
   const availableTags = useMemo(() => Array.from(new Set(gallery.flatMap((item) => item.tags ?? []))).sort((a, b) => a.localeCompare(b, 'zh-CN')), [gallery])
   const selectedWorkSet = useMemo(() => new Set(selectedWorkIds), [selectedWorkIds])
@@ -177,6 +166,44 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
     setActiveTagFilter('all')
   }, [activeTagFilter, availableTags])
 
+  function beginMutation(ids: string[]): WorkMutationVersions {
+    setError(null)
+    const versions = new Map<string, number>()
+    for (const id of ids) {
+      const nextVersion = (mutationVersionRef.current[id] ?? 0) + 1
+      mutationVersionRef.current[id] = nextVersion
+      versions.set(id, nextVersion)
+    }
+    return versions
+  }
+
+  function hasCurrentMutation(versions: WorkMutationVersions) {
+    for (const [id, version] of versions) {
+      if (mutationVersionRef.current[id] === version) return true
+    }
+    return false
+  }
+
+  function applyServerWorks(works: GalleryImage[], versions: WorkMutationVersions) {
+    const nextWorks = new Map<string, GalleryImage>()
+    for (const work of works) {
+      const version = versions.get(work.id)
+      if (version === undefined || mutationVersionRef.current[work.id] !== version) continue
+      nextWorks.set(work.id, normalizeGalleryImage(work))
+    }
+
+    if (!nextWorks.size) return
+
+    setGallery((items) => items.map((item) => nextWorks.get(item.id) ?? item))
+    setViewerImage((current) => current ? (nextWorks.get(current.id) ?? current) : current)
+  }
+
+  function reportMutationError(nextError: unknown, versions: WorkMutationVersions) {
+    setError(nextError)
+    if (!hasCurrentMutation(versions)) return
+    void loadGallery({ clearError: false })
+  }
+
   function updateWorks(ids: string[], updater: (item: GalleryImage) => GalleryImage) {
     if (!ids.length) return
     const targetIds = new Set(ids)
@@ -192,11 +219,18 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
     setGallery((items) => [normalizeGalleryImage(image), ...items])
   }
 
-  function handleRemoveImage(id: string) {
+  async function handleRemoveImage(id: string) {
+    const versions = beginMutation([id])
     setGallery((items) => items.filter((item) => item.id !== id))
     setSelectedWorkIds((items) => items.filter((item) => item !== id))
     setViewerImage((current) => current?.id === id ? null : current)
     onRemoveImage?.(id)
+
+    try {
+      await deleteStoredWork(id)
+    } catch (nextError) {
+      reportMutationError(nextError, versions)
+    }
   }
 
   function toggleWorkSelection(id: string) {
@@ -207,47 +241,111 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
     setSelectedWorkIds([])
   }
 
-  function removeSelectedWorks() {
-    selectedWorkIds.forEach((id) => onRemoveImage?.(id))
-    setGallery((items) => items.filter((item) => !selectedWorkSet.has(item.id)))
-    setViewerImage((current) => current && selectedWorkSet.has(current.id) ? null : current)
+  async function removeSelectedWorks() {
+    const ids = [...selectedWorkIds]
+    if (!ids.length) return
+
+    const versions = beginMutation(ids)
+    const targetIds = new Set(ids)
+    ids.forEach((id) => onRemoveImage?.(id))
+    setGallery((items) => items.filter((item) => !targetIds.has(item.id)))
+    setViewerImage((current) => current && targetIds.has(current.id) ? null : current)
     setSelectedWorkIds([])
+
+    try {
+      await deleteStoredWorks(ids)
+    } catch (nextError) {
+      reportMutationError(nextError, versions)
+    }
   }
 
-  function toggleWorkFavorite(id: string) {
-    updateWork(id, (item) => ({ ...item, isFavorite: !(item.isFavorite ?? item.favorite) }))
+  async function toggleWorkFavorite(id: string) {
+    const currentWork = galleryRef.current.find((item) => item.id === id)
+    if (!currentWork) return
+
+    const nextFavorite = !(currentWork.isFavorite ?? currentWork.favorite)
+    const versions = beginMutation([id])
+    updateWork(id, (item) => ({ ...item, isFavorite: nextFavorite }))
+
+    try {
+      const work = await updateStoredWorkFavorite(id, nextFavorite)
+      applyServerWorks([work], versions)
+    } catch (nextError) {
+      reportMutationError(nextError, versions)
+    }
   }
 
-  function addWorkTag(id: string, tag: string) {
+  async function addWorkTag(id: string, tag: string) {
     const nextTag = normalizeTag(tag)
     if (!nextTag) return
-    updateWork(id, (item) => {
-      const tags = item.tags ?? []
-      if (tags.includes(nextTag)) return item
-      return { ...item, tags: [...tags, nextTag] }
-    })
+
+    const currentWork = galleryRef.current.find((item) => item.id === id)
+    if (!currentWork) return
+
+    const nextTags = Array.from(new Set([...(currentWork.tags ?? []), nextTag]))
+    const versions = beginMutation([id])
+    updateWork(id, (item) => ({ ...item, tags: nextTags }))
+
+    try {
+      const work = await replaceStoredWorkTags(id, nextTags)
+      applyServerWorks([work], versions)
+    } catch (nextError) {
+      reportMutationError(nextError, versions)
+    }
   }
 
-  function removeWorkTag(id: string, tag: string) {
+  async function removeWorkTag(id: string, tag: string) {
     const nextTag = normalizeTag(tag)
     if (!nextTag) return
-    updateWork(id, (item) => ({ ...item, tags: (item.tags ?? []).filter((currentTag) => currentTag !== nextTag) }))
+
+    const currentWork = galleryRef.current.find((item) => item.id === id)
+    if (!currentWork) return
+
+    const nextTags = (currentWork.tags ?? []).filter((currentTag) => currentTag !== nextTag)
+    const versions = beginMutation([id])
+    updateWork(id, (item) => ({ ...item, tags: nextTags }))
+
+    try {
+      const work = await replaceStoredWorkTags(id, nextTags)
+      applyServerWorks([work], versions)
+    } catch (nextError) {
+      reportMutationError(nextError, versions)
+    }
   }
 
-  function addTagToSelectedWorks(tag: string) {
+  async function addTagToSelectedWorks(tag: string) {
     const nextTag = normalizeTag(tag)
-    if (!nextTag || !selectedWorkIds.length) return
-    updateWorks(selectedWorkIds, (item) => {
+    const ids = [...selectedWorkIds]
+    if (!nextTag || !ids.length) return
+
+    const versions = beginMutation(ids)
+    updateWorks(ids, (item) => {
       const tags = item.tags ?? []
-      if (tags.includes(nextTag)) return item
-      return { ...item, tags: [...tags, nextTag] }
+      return tags.includes(nextTag) ? item : { ...item, tags: [...tags, nextTag] }
     })
+
+    try {
+      const result = await addTagToStoredWorks(ids, nextTag)
+      applyServerWorks(result.works, versions)
+    } catch (nextError) {
+      reportMutationError(nextError, versions)
+    }
   }
 
-  function removeTagFromSelectedWorks(tag: string) {
+  async function removeTagFromSelectedWorks(tag: string) {
     const nextTag = normalizeTag(tag)
-    if (!nextTag || !selectedWorkIds.length) return
-    updateWorks(selectedWorkIds, (item) => ({ ...item, tags: (item.tags ?? []).filter((currentTag) => currentTag !== nextTag) }))
+    const ids = [...selectedWorkIds]
+    if (!nextTag || !ids.length) return
+
+    const versions = beginMutation(ids)
+    updateWorks(ids, (item) => ({ ...item, tags: (item.tags ?? []).filter((currentTag) => currentTag !== nextTag) }))
+
+    try {
+      const result = await removeTagFromStoredWorks(ids, nextTag)
+      applyServerWorks(result.works, versions)
+    } catch (nextError) {
+      reportMutationError(nextError, versions)
+    }
   }
 
   function clearWorkFilters() {
@@ -267,7 +365,7 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
     viewerImage,
     loading: authLoading || loading,
     error,
-    refresh: loadGallery,
+    refresh: () => loadGallery(),
     setGallery,
     setWallOpen,
     setViewerImage,

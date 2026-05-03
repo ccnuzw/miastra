@@ -6,6 +6,12 @@ export type UpdateProfileInput = { nickname: string }
 export type ChangePasswordInput = { currentPassword: string; nextPassword: string }
 export type ForgotPasswordInput = { email: string }
 export type ResetPasswordInput = { email: string; token: string; nextPassword: string }
+export type PasswordResetRuntimeConfig = {
+  mode: 'disabled' | 'debug'
+  requestAvailable: boolean
+  debugTokenAvailable: boolean
+  notice: string
+}
 
 export type AuthUser = {
   id: string
@@ -51,6 +57,10 @@ export async function changePassword(input: ChangePasswordInput) {
 
 export async function forgotPassword(input: ForgotPasswordInput) {
   return apiRequest<{ success: true; debugResetToken?: string; resetTokenExpiresAt?: string }>('/api/auth/forgot-password', { method: 'POST', body: input })
+}
+
+export async function fetchPasswordResetConfig() {
+  return apiRequest<PasswordResetRuntimeConfig>('/api/auth/password-reset-config')
 }
 
 export async function resetPassword(input: ResetPasswordInput) {

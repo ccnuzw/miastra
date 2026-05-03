@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { useDrawCardSettings } from '@/features/draw-card/useDrawCardSettings'
 import { useGenerationFlow } from '@/features/generation/useGenerationFlow'
 import { useGenerationRuntime } from '@/features/generation/useGenerationRuntime'
@@ -7,9 +7,11 @@ import { usePromptTemplates } from '@/features/prompt-templates/usePromptTemplat
 import { useProviderConfig } from '@/features/provider/useProviderConfig'
 import { useReferenceImages } from '@/features/references/useReferenceImages'
 import { useStudioSettings } from '@/features/studio/useStudioSettings'
-import { downloadImage, downloadWorksZip } from '@/shared/utils/download'
+import { getErrorDisplay } from '@/shared/errors/app-error'
+import { createDownloadResultError, downloadImage, downloadWorksZip } from '@/shared/utils/download'
 import { useWorksGallery } from '@/features/works/useWorksGallery'
 import type { GalleryImage } from '@/features/works/works.types'
+import { buildReferenceImagesFromWork, consumeWorkReplayPayload } from '@/features/works/workReplay'
 import { StudioEditorColumn } from './studio/StudioEditorColumn'
 import { StudioGenerationColumn } from './studio/StudioGenerationColumn'
 import { StudioWorksColumn } from './studio/StudioWorksColumn'
@@ -34,6 +36,7 @@ export function StudioPage() {
     saveTemplate: templates.saveTemplate,
     deleteTemplate: templates.deleteTemplate,
     refreshPromptTemplates: templates.refresh,
+    markTemplateUsed: templates.markTemplateUsed,
   })
 
   const generation = useGenerationFlow({
@@ -86,6 +89,56 @@ export function StudioPage() {
   const activePreview = runtime.previewImage ?? runtime.livePreview
   const isGenerating = runtime.status === 'loading'
 
+  function applyWorkReplay(item: GalleryImage, autoGenerate = false) {
+    const snapshot = item.generationSnapshot
+    const workspacePrompt = snapshot?.workspacePrompt || snapshot?.prompt || item.promptText || item.promptSnippet || item.title
+    const requestPrompt = snapshot?.requestPrompt || snapshot?.prompt || item.promptText || item.promptSnippet || item.title
+    const referenceImages = buildReferenceImagesFromWork(item)
+    const expectedReferenceCount = snapshot?.references?.count ?? 0
+    const canRestoreAllReferences = expectedReferenceCount === 0 || referenceImages.length === expectedReferenceCount
+
+    studio.setPrompt(workspacePrompt)
+    if (snapshot?.size || item.size) studio.setSize(snapshot?.size ?? item.size ?? '')
+    if (snapshot?.quality || item.quality) studio.setQuality(snapshot?.quality ?? item.quality ?? '')
+    if (snapshot?.stream !== undefined) studio.setStream(snapshot.stream)
+    if (snapshot?.draw || (snapshot?.mode ?? item.mode)?.includes('draw')) {
+      studio.setStudioMode('draw')
+      if (snapshot?.draw) {
+        draw.setDrawCount(snapshot.draw.count)
+        draw.setDrawStrategy(snapshot.draw.strategy)
+        draw.setDrawConcurrency(snapshot.draw.concurrency)
+        draw.setDrawDelayMs(snapshot.draw.delayMs)
+        draw.setDrawRetries(snapshot.draw.retries)
+        draw.setDrawTimeoutSec(snapshot.draw.timeoutSec)
+        draw.setDrawSafeMode(snapshot.draw.safeMode)
+        draw.setVariationStrength(snapshot.draw.variationStrength)
+        draw.setEnabledVariationDimensions([...snapshot.draw.dimensions])
+      }
+    } else {
+      studio.setStudioMode('create')
+    }
+    reference.handleReplaceReferenceImages(referenceImages)
+
+    runtime.setStatus('success')
+    runtime.setStatusText(autoGenerate && canRestoreAllReferences
+      ? `已回填作品参数，正在复跑：${requestPrompt}`
+      : expectedReferenceCount > referenceImages.length
+        ? `已回填作品参数，但参考图未完整保存，请先补齐参考图后再复跑`
+        : `已回填作品参数，可以直接再次生成`)
+
+    return autoGenerate && canRestoreAllReferences
+  }
+
+  useEffect(() => {
+    const replay = consumeWorkReplayPayload()
+    if (!replay) return
+    const shouldAutoGenerate = applyWorkReplay(replay.work, replay.autoGenerate)
+    if (!shouldAutoGenerate) return
+    window.setTimeout(() => {
+      document.getElementById('studio-form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    }, 0)
+  }, [])
+
   function handleGenerateStrategy(value: typeof draw.drawStrategy) {
     const next = draw.applyDrawStrategy(value)
     if (next?.quality) studio.setQuality(next.quality)
@@ -97,22 +150,12 @@ export function StudioPage() {
   }
 
   function handleReuseParameters(item: GalleryImage) {
-    const snapshot = item.generationSnapshot
-    studio.setPrompt(snapshot?.workspacePrompt || snapshot?.prompt || item.promptText || item.promptSnippet || item.title)
-    if (item.quality) studio.setQuality(item.quality)
-    if (snapshot?.stream !== undefined) studio.setStream(snapshot.stream)
-    if ((item.mode ?? snapshot?.mode)?.includes('draw')) {
-      studio.setStudioMode('draw')
-    }
-    if (item.src) {
-      reference.handlePushReferenceImage(item)
-    }
-    runtime.setStatus('success')
-    runtime.setStatusText('已回填作品参数，可以直接再次生成')
+    applyWorkReplay(item, false)
   }
 
   function handleRegenerateFromParameters(item: GalleryImage) {
-    handleReuseParameters(item)
+    const canAutoGenerate = applyWorkReplay(item, true)
+    if (!canAutoGenerate) return
     window.setTimeout(() => {
       document.getElementById('studio-form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     }, 0)
@@ -121,10 +164,18 @@ export function StudioPage() {
   async function handleDownloadSelected() {
     if (!works.selectedWorks.length) return
     try {
-      await downloadWorksZip(works.selectedWorks, { includeMetadata })
+      const result = await downloadWorksZip(works.selectedWorks, { includeMetadata })
+      const exportError = createDownloadResultError(result)
+      if (exportError) {
+        runtime.setStatus('error')
+        runtime.setStatusText(exportError.message)
+        return
+      }
+      runtime.setStatus('success')
+      runtime.setStatusText(`批量导出完成，共导出 ${result.imageCount} 项`)
     } catch (error) {
       runtime.setStatus('error')
-      runtime.setStatusText(error instanceof Error ? error.message : '批量下载失败')
+      runtime.setStatusText(`批量导出失败：${getErrorDisplay(error).title}`)
     }
   }
 
@@ -304,6 +355,7 @@ export function StudioPage() {
             saveFeedback: templateActions.templateFeedback,
             onSaveCurrent: templateActions.handleSaveCurrentPromptTemplate,
             onApply: templateActions.handleApplyPromptTemplate,
+            onDuplicate: templateActions.handleDuplicatePromptTemplate,
             onDelete: templateActions.handleDeletePromptTemplate,
             onRefresh: () => void templates.refresh(),
             onClose: () => templateActions.setTemplateLibraryOpen(false),

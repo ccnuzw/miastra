@@ -60,6 +60,12 @@ export function buildMetadata(
         title: item.title,
         fileName: fileNameByIdAndIndex.get(key),
         skippedReason: failure?.reason,
+        assetId: item.assetId,
+        assetStorage: item.assetStorage,
+        assetSyncStatus: item.assetSyncStatus,
+        assetRemoteKey: item.assetRemoteKey,
+        assetRemoteUrl: sanitizeMetadataUrl(item.assetRemoteUrl),
+        assetUpdatedAt: item.assetUpdatedAt,
         meta: item.meta,
         variation: item.variation,
         batchId: item.batchId,
@@ -111,11 +117,21 @@ export function buildZipResult({
 }
 
 export function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Unknown download error.'
+  return error instanceof Error ? error.message : '导出失败，请稍后重试。'
 }
 
 export class EmptyBlobError extends Error {}
 
 function metadataKey(item: Pick<GalleryImage, 'id'>, index: number) {
   return `${item.id}::${index}`
+}
+
+function sanitizeMetadataUrl(value?: string) {
+  if (!value) return undefined
+  try {
+    const url = new URL(value)
+    return `${url.origin}${url.pathname}`
+  } catch {
+    return value
+  }
 }

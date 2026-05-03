@@ -20,10 +20,15 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "check": "biome check .",
+    "test:smoke": "npm run test:smoke:client && npm run test:smoke:server",
+    "test:smoke:client": "vitest run src/shared/http/client.test.ts src/shared/storage/browserDatabase.test.ts src/shared/utils/download.metadata.test.ts src/shared/utils/download.zip.test.ts src/features/works/works.storage.test.ts src/features/works/useWorksGallery.test.ts",
+    "test:smoke:server": "npm --prefix server run test:smoke",
     "test": "vitest run && npm --prefix server test",
     "test:watch": "vitest",
     "test:client": "vitest run",
-    "test:server": "npm --prefix server test"
+    "test:server": "npm --prefix server test",
+    "test:regression": "npm run test:client && npm run test:server",
+    "release:check": "npm run test:smoke && npm run test:regression && npm run build && npm run build:server"
   },
   "dependencies": {
     "jszip": "^3.10.1",

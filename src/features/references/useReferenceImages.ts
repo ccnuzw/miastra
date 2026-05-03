@@ -80,6 +80,10 @@ export function useReferenceImages({ onSuccess, onError }: UseReferenceImagesOpt
     })
   }
 
+  function handleReplaceReferenceImages(nextItems: ReferenceImage[]) {
+    setReferenceImages((items) => clampReferenceImages(nextItems, items))
+  }
+
   function handlePushReferenceImage(image: GalleryImage) {
     const src = image.src
     if (!src) return
@@ -93,6 +97,10 @@ export function useReferenceImages({ onSuccess, onError }: UseReferenceImagesOpt
       src,
       name: `${image.title || 'work'}-reference.png`,
       source: 'work',
+      assetId: image.assetId,
+      assetRemoteKey: image.assetRemoteKey,
+      workId: image.id,
+      workTitle: image.title,
     }
     setReferenceImages((items) => clampReferenceImages([nextReference, ...items], items))
     onSuccess?.('已推送到输入框参考图托盘，本次生成将自动使用图生图')
@@ -104,6 +112,7 @@ export function useReferenceImages({ onSuccess, onError }: UseReferenceImagesOpt
     referenceInputRef,
     handleReferenceUpload,
     handleRemoveReferenceImage,
+    handleReplaceReferenceImages,
     handlePushReferenceImage,
   }
 }

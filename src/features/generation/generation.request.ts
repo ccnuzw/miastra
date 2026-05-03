@@ -1,11 +1,13 @@
+import { createAppErrorFromApi } from '@/shared/errors/app-error'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
+import { buildEditImageFormData, mapGenerationJsonBody } from '@/features/provider/provider.compat'
 import type { ProviderConfig } from '@/features/provider/provider.types'
 import type { ReferenceImage } from '@/features/references/reference.types'
 import { referenceImageToFile } from '@/features/references/reference.utils'
 import type { GalleryImage } from '@/features/works/works.types'
 import type { GenerationMode, GenerationReferenceSnapshot, GenerationRequestOptions, GenerationSnapshot, GenerationStage } from '@/features/generation/generation.types'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
-import { extractGenerationError, extractImageSrc, isGatewayTimeoutPayload, normalizeGenerationError } from '@/features/generation/generation.parser'
+import { extractGenerationErrorDetails, extractImageSrc, isGatewayTimeoutPayload, normalizeGenerationError } from '@/features/generation/generation.parser'
 import { postFormImageGeneration, postJsonImageGeneration } from '@/features/generation/generation.api'
 
 type RequestContext = {
@@ -31,6 +33,11 @@ function createReferenceSnapshot(referenceImages: ReferenceImage[]): GenerationR
     sources: referenceImages.map((reference, index) => ({
       source: reference.source,
       name: reference.name || `${reference.source === 'work' ? '作品区参考图' : '上传参考图'} #${index + 1}`,
+      assetId: reference.assetId,
+      assetRemoteKey: reference.assetRemoteKey,
+      src: reference.src,
+      workId: reference.workId,
+      workTitle: reference.workTitle,
     })),
     note: '图生图参考图仅保存数量与来源提示，不保存图片二进制；复用参数时需重新提供参考图。',
   }
@@ -116,14 +123,14 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
       requestUrl: context.requestUrl,
       apiKey: context.config.apiKey,
       signal: controller.signal,
-      body: {
+      body: mapGenerationJsonBody({
         model: context.config.model,
         prompt: options.promptText,
         size: context.size,
         quality: options.qualityValue ?? context.quality,
         n: 1,
         stream: options.streamValue ?? context.stream,
-      },
+      }, context.config),
       onImage: (src) => {
         options.onReceiveImage?.(src)
         if ((options.previewMode ?? 'live') === 'live') context.setLiveImageSrc(src)
@@ -134,9 +141,9 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
     context.setStage('finalizing')
     context.setResponseText([`HTTP ${response.status} ${response.statusText}`, debugHeaders, text.slice(0, 1800)].filter(Boolean).join('\n\n'))
     if (isGatewayTimeoutPayload(response.status, text)) throw normalizeGenerationError(new Error('远端 openresty 网关超时 504'))
-    const responseError = extractGenerationError(text)
-    if (responseError) throw normalizeGenerationError(new Error(responseError))
-    if (!response.ok) throw normalizeGenerationError(new Error(`HTTP ${response.status}`))
+    const responseError = extractGenerationErrorDetails(text)
+    if (responseError) throw normalizeGenerationError(createAppErrorFromApi({ error: responseError }, response.status))
+    if (!response.ok) throw normalizeGenerationError(createAppErrorFromApi(null, response.status))
 
     const src = latestImageSrc || extractImageSrc(text)
     if (!src) throw normalizeGenerationError(new Error('接口已返回，但未解析到图片数据，请检查响应格式或关闭模型兼容层后重试'))
@@ -167,15 +174,14 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
 
   try {
     const imageFiles = await Promise.all(context.referenceImages.map((reference) => referenceImageToFile(reference)))
-    const formData = new FormData()
-    formData.append('model', context.config.model)
-    formData.append('prompt', options.promptText)
-    for (const imageFile of imageFiles) {
-      formData.append('image', imageFile)
-    }
-    formData.append('size', context.size)
-    formData.append('quality', options.qualityValue ?? context.quality)
-    formData.append('n', '1')
+    const formData = buildEditImageFormData({
+      model: context.config.model,
+      prompt: options.promptText,
+      images: imageFiles,
+      size: context.size,
+      quality: options.qualityValue ?? context.quality,
+      n: 1,
+    }, context.config)
 
     context.setStage('waiting')
     const { response, debugHeaders, text, latestImageSrc } = await postFormImageGeneration({
@@ -194,9 +200,9 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
     context.setResponseText([`HTTP ${response.status} ${response.statusText}`, `当前请求地址：${context.editRequestUrl}`, debugHeaders, text.slice(0, 1800)].filter(Boolean).join('\n\n'))
     if (response.status === 404 || response.status === 405) throw normalizeGenerationError(new Error('当前 Provider 不支持标准 /v1/images/edits 图生图接口，或代理未开放该路径'))
     if (isGatewayTimeoutPayload(response.status, text)) throw normalizeGenerationError(new Error('远端 openresty 网关超时 504'))
-    const responseError = extractGenerationError(text)
-    if (responseError) throw normalizeGenerationError(new Error(responseError))
-    if (!response.ok) throw normalizeGenerationError(new Error(`HTTP ${response.status}`))
+    const responseError = extractGenerationErrorDetails(text)
+    if (responseError) throw normalizeGenerationError(createAppErrorFromApi({ error: responseError }, response.status))
+    if (!response.ok) throw normalizeGenerationError(createAppErrorFromApi(null, response.status))
 
     const src = latestImageSrc || extractImageSrc(text)
     if (!src) throw normalizeGenerationError(new Error('接口已返回，但未解析到图片数据，请检查图生图响应格式或关闭模型兼容层后重试'))

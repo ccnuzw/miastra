@@ -1,5 +1,13 @@
 import { apiRequest } from '@/shared/http/client'
 
+export type AdminUserManagement = {
+  isSelf: boolean
+  canChangeRole: boolean
+  canRevokeSessions: boolean
+  assignableRoles: Array<'user' | 'operator' | 'admin'>
+  reason?: string
+}
+
 export type AdminUserRecord = {
   id: string
   email: string
@@ -10,6 +18,7 @@ export type AdminUserRecord = {
   activeSessionCount: number
   workCount: number
   taskCount: number
+  management: AdminUserManagement
 }
 
 export type AdminWorkRecord = {
@@ -91,6 +100,8 @@ export type AdminDashboardData = {
     id: string
     actorUserId: string
     actorRole: 'user' | 'operator' | 'admin'
+    actorEmail?: string
+    actorNickname?: string
     action: string
     targetType: string
     targetId: string
@@ -101,6 +112,17 @@ export type AdminDashboardData = {
   system: {
     status: 'ok'
     now: string
+  }
+}
+
+export type AdminPoliciesData = {
+  actorRole: 'operator' | 'admin'
+  canAssignAdmin: boolean
+  canManageAdmins: boolean
+  operatorScope: 'all-backend-users' | 'users-only'
+  selfProtection: {
+    keepCurrentAdminAccess: boolean
+    keepCurrentSessionOnBulkRevoke: boolean
   }
 }
 
@@ -118,4 +140,8 @@ export async function fetchAdminWorks() {
 
 export async function fetchAdminTasks() {
   return apiRequest<{ items: AdminGenerationTaskRecord[] }>('/api/admin/tasks')
+}
+
+export async function fetchAdminPolicies() {
+  return apiRequest<AdminPoliciesData>('/api/admin/policies')
 }

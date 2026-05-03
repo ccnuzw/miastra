@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { importLegacyPromptTemplates, normalizeTemplate, normalizeTemplates, promptTemplatesStorageKey } from './usePromptTemplates'
+import { importLegacyPromptTemplates, normalizeTemplate, normalizeTemplates, promptTemplatesStorageKey, sortPromptTemplates } from './usePromptTemplates'
 
 beforeEach(() => {
   const store = new Map<string, string>()
@@ -36,11 +36,15 @@ describe('usePromptTemplates storage helpers', () => {
       id: 'template-1',
       name: '  测试模板  ',
       content: 'prompt',
+      category: '  海报  ',
+      tags: ['  产品  ', '', '产品'],
       createdAt: 1,
     })
 
     expect(normalized.title).toBe('测试模板')
     expect(normalized.updatedAt).toBe(1)
+    expect(normalized.category).toBe('海报')
+    expect(normalized.tags).toEqual(['产品'])
   })
 
   it('sorts templates by updated time desc', () => {
@@ -50,6 +54,16 @@ describe('usePromptTemplates storage helpers', () => {
     ])
 
     expect(normalized.map((item) => item.id)).toEqual(['b', 'a'])
+  })
+
+  it('sorts templates by recent use desc when requested', () => {
+    const sorted = sortPromptTemplates([
+      { id: 'a', title: 'A', content: 'a', createdAt: 1, updatedAt: 10, lastUsedAt: 20 },
+      { id: 'b', title: 'B', content: 'b', createdAt: 2, updatedAt: 30, lastUsedAt: 5 },
+      { id: 'c', title: 'C', content: 'c', createdAt: 3, updatedAt: 15 },
+    ], 'used')
+
+    expect(sorted.map((item) => item.id)).toEqual(['a', 'c', 'b'])
   })
 
   it('imports legacy local templates through migration api and clears local cache', async () => {

@@ -24,20 +24,5 @@ jobs:
       - name: Install server dependencies
         run: npm --prefix server install
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Format check
-        run: npm run format:check
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Server type check
-        run: npm run typecheck:server
-
-      - name: Test
-        run: npm test
-
-      - name: Build
-        run: npm run build && npm run build:server
+      - name: Release Check
+        run: npm run release:check

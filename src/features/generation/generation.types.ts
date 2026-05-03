@@ -5,6 +5,11 @@ export type GenerationReferenceSnapshot = {
   sources: Array<{
     source: 'upload' | 'work'
     name: string
+    assetId?: string
+    assetRemoteKey?: string
+    src?: string
+    workId?: string
+    workTitle?: string
   }>
   note: string
 }

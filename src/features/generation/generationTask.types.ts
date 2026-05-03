@@ -26,6 +26,7 @@ export type LocalGenerationTaskRecord = {
   errorMessage?: string
   progress?: number
   result?: {
+    workId?: string
     imageUrl?: string
     meta?: string
     title?: string

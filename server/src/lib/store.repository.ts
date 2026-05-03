@@ -1,4 +1,4 @@
-import type { DataStore } from '../auth/types'
+import type { DataStore, StoredWork } from '../auth/types'
 import { randomUUID } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -24,6 +24,7 @@ export type PostgresStoreRepositoryOptions = {
 }
 
 const defaultDataFilePath = resolve(__dirname, '../../data/auth.json')
+let postgresSchemaReady: Promise<void> | null = null
 
 const emptyStore: DataStore = {
   users: [],
@@ -39,17 +40,60 @@ const emptyStore: DataStore = {
 }
 
 function normalizeStore(value: Partial<DataStore> | null | undefined): DataStore {
+  const works = Array.isArray(value?.works)
+    ? value.works.map((item) => normalizeStoredWork(item)).filter((item): item is StoredWork => Boolean(item))
+    : []
+
   return {
     users: Array.isArray(value?.users) ? value.users : [],
     sessions: Array.isArray(value?.sessions) ? value.sessions : [],
     promptTemplates: Array.isArray(value?.promptTemplates) ? value.promptTemplates : [],
-    works: Array.isArray(value?.works) ? value.works : [],
+    works,
     providerConfigs: Array.isArray(value?.providerConfigs) ? value.providerConfigs : [],
     drawBatches: Array.isArray(value?.drawBatches) ? value.drawBatches : [],
     generationTasks: Array.isArray(value?.generationTasks) ? value.generationTasks : [],
     auditLogs: Array.isArray(value?.auditLogs) ? value.auditLogs : [],
     quotaProfiles: Array.isArray(value?.quotaProfiles) ? value.quotaProfiles : [],
     billingInvoices: Array.isArray(value?.billingInvoices) ? value.billingInvoices : [],
+  }
+}
+
+function normalizeOptionalString(value: unknown) {
+  return typeof value === 'string' ? value.trim() || undefined : undefined
+}
+
+function normalizeWorkTags(tags: unknown) {
+  const values = Array.isArray(tags)
+    ? tags
+    : typeof tags === 'string'
+      ? tags.split(/[,，\n]/)
+      : []
+
+  return Array.from(new Set(values.map((tag) => typeof tag === 'string' ? tag.trim() : '').filter(Boolean)))
+}
+
+function normalizeStoredWork(work: unknown): StoredWork | null {
+  if (!work || typeof work !== 'object') return null
+  const record = work as Record<string, unknown>
+  const id = normalizeOptionalString(record.id)
+  const userId = normalizeOptionalString(record.userId)
+  if (!id || !userId) return null
+
+  const isFavorite = Boolean(record.isFavorite ?? record.favorite)
+
+  return {
+    ...(record as StoredWork),
+    id,
+    userId,
+    title: normalizeOptionalString(record.title) ?? '',
+    src: normalizeOptionalString(record.src),
+    assetId: normalizeOptionalString(record.assetId),
+    assetRemoteKey: normalizeOptionalString(record.assetRemoteKey),
+    assetRemoteUrl: normalizeOptionalString(record.assetRemoteUrl),
+    meta: normalizeOptionalString(record.meta) ?? '',
+    isFavorite,
+    favorite: isFavorite,
+    tags: normalizeWorkTags(record.tags),
   }
 }
 
@@ -145,12 +189,21 @@ const postgresSchemaSql = `
     title TEXT,
     name TEXT,
     content TEXT NOT NULL,
+    category TEXT,
+    tags_json JSONB,
     created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
+    updated_at TIMESTAMPTZ NOT NULL,
+    last_used_at TIMESTAMPTZ
   );
+
+  ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS category TEXT;
+  ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS tags_json JSONB;
+  ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
 
   CREATE INDEX IF NOT EXISTS prompt_templates_user_id_idx ON prompt_templates(user_id);
   CREATE INDEX IF NOT EXISTS prompt_templates_updated_at_idx ON prompt_templates(updated_at DESC);
+  CREATE INDEX IF NOT EXISTS prompt_templates_user_updated_at_idx ON prompt_templates(user_id, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS prompt_templates_user_last_used_at_idx ON prompt_templates(user_id, last_used_at DESC);
 
   CREATE TABLE IF NOT EXISTS works (
     id TEXT PRIMARY KEY,
@@ -249,10 +302,26 @@ const postgresSchemaSql = `
 `
 
 async function ensurePostgresSchema(pool: Pool) {
+  if (postgresSchemaReady) {
+    return postgresSchemaReady
+  }
+
+  postgresSchemaReady = (async () => {
   await pool.query(postgresSchemaSql)
   await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS cancelled_count INTEGER NOT NULL DEFAULT 0`)
   await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS interrupted_count INTEGER NOT NULL DEFAULT 0`)
   await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS timeout_count INTEGER NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS category TEXT`)
+  await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS tags_json JSONB`)
+  await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS prompt_templates_user_updated_at_idx ON prompt_templates(user_id, updated_at DESC)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS prompt_templates_user_last_used_at_idx ON prompt_templates(user_id, last_used_at DESC)`)
+  })().catch((error) => {
+    postgresSchemaReady = null
+    throw error
+  })
+
+  return postgresSchemaReady
 }
 
 async function writeCoreTables(pool: Pool, store: DataStore) {
@@ -286,7 +355,8 @@ async function writeCoreTables(pool: Pool, store: DataStore) {
     }
 
     for (const template of store.promptTemplates) {
-      await pool.query(`INSERT INTO prompt_templates (id, user_id, title, name, content, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [template.id, template.userId, template.title ?? null, template.name ?? null, template.content, typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt, template.updatedAt ? (typeof template.updatedAt === 'number' ? new Date(template.updatedAt).toISOString() : template.updatedAt) : (typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt)])
+      const tags = Array.isArray(template.tags) ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean))) : []
+      await pool.query(`INSERT INTO prompt_templates (id, user_id, title, name, content, category, tags_json, created_at, updated_at, last_used_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`, [template.id, template.userId, template.title ?? null, template.name ?? null, template.content, template.category ?? null, tags.length ? JSON.stringify(tags) : null, typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt, template.updatedAt ? (typeof template.updatedAt === 'number' ? new Date(template.updatedAt).toISOString() : template.updatedAt) : (typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt), template.lastUsedAt ? (typeof template.lastUsedAt === 'number' ? new Date(template.lastUsedAt).toISOString() : template.lastUsedAt) : null])
     }
 
     for (const work of store.works) {

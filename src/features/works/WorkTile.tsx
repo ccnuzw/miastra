@@ -8,7 +8,7 @@ type WorkTileProps = {
   mode?: 'rail' | 'grid'
   onPreview: (item: GalleryImage) => void
   onDownload: (item: GalleryImage) => void
-  onPushReference: (item: GalleryImage) => void
+  onPushReference?: (item: GalleryImage) => void
   onRemove: (id: string) => void
   onRetry?: (item: GalleryImage) => void
   selected?: boolean
@@ -36,6 +36,13 @@ export function WorkTile({
   const hasTask = Boolean(item.taskStatus)
   const promptText = item.promptText || item.promptSnippet || item.meta
   const isFavorite = Boolean(item.isFavorite ?? item.favorite)
+  const assetSyncText = item.assetSyncStatus === 'synced'
+    ? '已同步'
+    : item.assetSyncStatus === 'pending-sync'
+      ? '待同步'
+      : item.assetSyncStatus === 'local-only'
+        ? '仅本地'
+        : ''
   const [copyState, setCopyState] = useState<'idle' | 'success' | 'error'>('idle')
   const [tagDraft, setTagDraft] = useState('')
 
@@ -79,6 +86,7 @@ export function WorkTile({
             <div className="flex items-center gap-2">
               <Bolt className="h-5 w-5 text-signal-cyan" />
               {item.variation && <span className="variation-badge">{item.drawIndex ? `#${item.drawIndex}` : '变体'}</span>}
+              {assetSyncText && <span className="variation-badge text-signal-cyan">{item.assetRemoteKey ? `${assetSyncText} · ${item.assetRemoteKey}` : assetSyncText}</span>}
               {isFavorite && <span className="variation-badge text-signal-amber"><Star className="h-3 w-3 fill-current" /> 收藏</span>}
             </div>
           </div>
@@ -130,7 +138,7 @@ export function WorkTile({
               <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onDownload(item) }} aria-label="下载图片">
                 <Download className="h-3.5 w-3.5" />
               </button>
-              <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onPushReference(item) }} aria-label="推送到输入框">
+              <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onPushReference?.(item) }} aria-label="推送到输入框" disabled={!onPushReference}>
                 <ImagePlus className="h-3.5 w-3.5" />
               </button>
               <button type="button" className="tile-action tile-action-danger" onClick={(event) => { event.stopPropagation(); onRemove(item.id) }} aria-label="移除图片">

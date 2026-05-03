@@ -54,12 +54,13 @@ async function main() {
     )
 
     await pool.query(
-      `INSERT INTO prompt_templates (id, user_id, title, name, content, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7),
-              ($8, $2, $9, $10, $11, $6, $7)`,
+      `INSERT INTO prompt_templates (id, user_id, title, name, content, category, tags_json, created_at, updated_at, last_used_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10),
+              ($11, $2, $12, $13, $14, $15, $16::jsonb, $8, $9, $17)`,
       [
-        templateId1, userId, '产品海报模板', '产品海报模板', 'minimal luxury product poster, studio lighting, clean background', now, now,
-        templateId2, '角色设定模板', '角色设定模板', 'cinematic character portrait, dramatic rim light, ultra detailed',
+        templateId1, userId, '产品海报模板', '产品海报模板', 'minimal luxury product poster, studio lighting, clean background', '海报', JSON.stringify(['产品', '营销']),
+        now, now, now,
+        templateId2, '角色设定模板', '角色设定模板', 'cinematic character portrait, dramatic rim light, ultra detailed', '角色', JSON.stringify(['设定', '人物']), now, now, now,
       ],
     )
 

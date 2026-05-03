@@ -3,9 +3,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
 import { createId, storeRepository } from '../lib/store'
-import { getAuthDomainStore } from '../lib/domain-store'
 import { fail, ok } from '../lib/http'
+import { appendAuditLogToStore } from '../lib/audit'
 import { createDefaultQuotaProfile } from '../billing/plans'
+import { getPasswordResetConfig, getPasswordResetMode } from '../runtime-config'
 import type { AuthRecord } from './types'
 import { signAuthToken, verifyAuthToken } from './token'
 
@@ -42,6 +43,8 @@ const resetPasswordSchema = z.object({
 const isProduction = process.env.NODE_ENV === 'production'
 
 export async function registerAuthRoutes(app: FastifyInstance) {
+  app.get('/api/auth/password-reset-config', async () => ok(getPasswordResetConfig()))
+
   app.post('/api/auth/register', async (request, reply) => {
     const parsed = registerSchema.safeParse(request.body)
     if (!parsed.success) {
@@ -80,6 +83,16 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     store.users.push(user)
     store.sessions.push(session)
     store.quotaProfiles.push(createDefaultQuotaProfile(user.id, now))
+    appendAuditLogToStore(store, {
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'auth.registered',
+      targetType: 'user',
+      targetId: user.id,
+      payload: { email: user.email, sessionId: session.id },
+      ip: request.ip,
+      createdAt: now,
+    })
     await storeRepository.write(store)
 
     await setAuthCookie(reply, user.id, session.id)
@@ -117,6 +130,16 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     }
 
     store.sessions.push(session)
+    appendAuditLogToStore(store, {
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'auth.logged_in',
+      targetType: 'session',
+      targetId: session.id,
+      payload: { userId: user.id },
+      ip: request.ip,
+      createdAt: session.createdAt,
+    })
     await storeRepository.write(store)
 
     await setAuthCookie(reply, user.id, session.id)
@@ -129,7 +152,25 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       try {
         const payload = await verifyAuthToken(token)
         const sessionId = String(payload.sessionId)
-        await getAuthDomainStore().revokeSession(sessionId, new Date().toISOString())
+        const userId = String(payload.userId)
+        const revokedAt = new Date().toISOString()
+        await storeRepository.mutate((store) => {
+          const session = store.sessions.find((item) => item.id === sessionId && item.userId === userId)
+          if (!session || session.revokedAt) return
+          const user = store.users.find((item) => item.id === userId)
+          if (!user) return
+          session.revokedAt = revokedAt
+          appendAuditLogToStore(store, {
+            actorUserId: user.id,
+            actorRole: user.role,
+            action: 'auth.logged_out',
+            targetType: 'session',
+            targetId: session.id,
+            payload: { userId: user.id },
+            ip: request.ip,
+            createdAt: revokedAt,
+          })
+        })
       } catch {
       }
     }
@@ -183,6 +224,19 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       reply.code(404)
       return fail('USER_NOT_FOUND', '用户不存在')
     }
+    user.nickname = nextNickname
+    user.updatedAt = updatedAt
+    appendAuditLogToStore(store, {
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'auth.profile.updated',
+      targetType: 'user',
+      targetId: user.id,
+      payload: { nickname: nextNickname },
+      ip: request.ip,
+      createdAt: updatedAt,
+    })
+    await storeRepository.write(store)
     return ok(toPublicUser(user))
   })
 
@@ -220,10 +274,22 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     mutableUser.passwordResetToken = null
     mutableUser.passwordResetExpiresAt = null
     mutableUser.updatedAt = updatedAt
+    let revoked = 0
     store.sessions.forEach((session) => {
       if (session.userId === mutableUser.id && session.id !== context.session.id && !session.revokedAt) {
         session.revokedAt = updatedAt
+        revoked += 1
       }
+    })
+    appendAuditLogToStore(store, {
+      actorUserId: mutableUser.id,
+      actorRole: mutableUser.role,
+      action: 'auth.password.changed',
+      targetType: 'user',
+      targetId: mutableUser.id,
+      payload: { revokedSessions: revoked, preservedSessionId: context.session.id },
+      ip: request.ip,
+      createdAt: updatedAt,
     })
     await storeRepository.write(store)
     return ok({ success: true })
@@ -234,6 +300,12 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       reply.code(400)
       return fail('INVALID_INPUT', '请输入正确的邮箱地址')
+    }
+
+    const passwordResetConfig = getPasswordResetConfig()
+    if (!passwordResetConfig.requestAvailable) {
+      reply.code(503)
+      return fail('PASSWORD_RESET_UNAVAILABLE', passwordResetConfig.notice)
     }
 
     const email = parsed.data.email.trim().toLowerCase()
@@ -249,11 +321,19 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     user.passwordResetToken = token
     user.passwordResetExpiresAt = expiresAt
     user.updatedAt = updatedAt
+    appendAuditLogToStore(store, {
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'auth.password-reset.requested',
+      targetType: 'user',
+      targetId: user.id,
+      payload: { expiresAt },
+      ip: request.ip,
+      createdAt: updatedAt,
+    })
     await storeRepository.write(store)
 
-    if (isProduction) {
-      return ok({ success: true })
-    }
+    if (getPasswordResetMode() !== 'debug') return ok({ success: true })
 
     return ok({
       success: true,
@@ -307,10 +387,22 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     mutableUser.passwordResetToken = null
     mutableUser.passwordResetExpiresAt = null
     mutableUser.updatedAt = updatedAt
+    let revoked = 0
     store.sessions.forEach((session) => {
       if (session.userId === mutableUser.id && !session.revokedAt) {
         session.revokedAt = updatedAt
+        revoked += 1
       }
+    })
+    appendAuditLogToStore(store, {
+      actorUserId: mutableUser.id,
+      actorRole: mutableUser.role,
+      action: 'auth.password-reset.completed',
+      targetType: 'user',
+      targetId: mutableUser.id,
+      payload: { revokedSessions: revoked },
+      ip: request.ip,
+      createdAt: updatedAt,
     })
     await storeRepository.write(store)
     return ok({ success: true })
@@ -348,7 +440,20 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       reply.code(404)
       return fail('SESSION_NOT_FOUND', '会话不存在')
     }
-    targetSession.revokedAt = new Date().toISOString()
+    if (!targetSession.revokedAt) {
+      const revokedAt = new Date().toISOString()
+      targetSession.revokedAt = revokedAt
+      appendAuditLogToStore(store, {
+        actorUserId: context.user.id,
+        actorRole: context.user.role,
+        action: 'session.revoked.single',
+        targetType: 'session',
+        targetId: targetSession.id,
+        payload: { userId: context.user.id },
+        ip: request.ip,
+        createdAt: revokedAt,
+      })
+    }
     await storeRepository.write(store)
     return ok({ success: true })
   })
@@ -358,12 +463,23 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     if (!context) return
 
     const store = await storeRepository.read()
+    const revokedAt = new Date().toISOString()
     let revoked = 0
     store.sessions.forEach((session) => {
       if (session.userId === context.user.id && session.id !== context.session.id && !session.revokedAt) {
-        session.revokedAt = new Date().toISOString()
+        session.revokedAt = revokedAt
         revoked += 1
       }
+    })
+    appendAuditLogToStore(store, {
+      actorUserId: context.user.id,
+      actorRole: context.user.role,
+      action: 'session.revoked.others',
+      targetType: 'user',
+      targetId: context.user.id,
+      payload: { revoked, preservedSessionId: context.session.id },
+      ip: request.ip,
+      createdAt: revokedAt,
     })
     await storeRepository.write(store)
     return ok({ success: true, revoked })

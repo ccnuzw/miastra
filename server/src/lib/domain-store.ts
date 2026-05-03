@@ -1,4 +1,4 @@
-import { createId, getPostgresRepositories, isPostgresStoreBackend, storeRepository } from './store'
+import { getPostgresRepositories, isPostgresStoreBackend, storeRepository } from './store'
 import type {
   AuthRecord,
   SessionRecord,
@@ -30,10 +30,20 @@ export type AuthDomainStore = {
 export type ContentDomainStore = {
   listPromptTemplatesByUserId: (userId: string) => Promise<StoredPromptTemplate[]>
   upsertPromptTemplateForUser: (template: StoredPromptTemplate) => Promise<StoredPromptTemplate>
+  markPromptTemplateUsedForUser: (userId: string, id: string, usedAt: string) => Promise<StoredPromptTemplate | null>
   deletePromptTemplateForUser: (userId: string, id: string) => Promise<boolean>
   listWorksByUserId: (userId: string) => Promise<StoredWork[]>
   replaceWorksByUserId: (userId: string, works: StoredWork[]) => Promise<void>
+  upsertWorkForUser: (work: StoredWork) => Promise<StoredWork>
+  deleteWorkForUser: (userId: string, id: string) => Promise<boolean>
+  deleteWorksForUser: (userId: string, ids: string[]) => Promise<number>
+  updateWorkFavoriteForUser: (userId: string, id: string, isFavorite: boolean) => Promise<StoredWork | null>
+  replaceWorkTagsForUser: (userId: string, id: string, tags: string[]) => Promise<StoredWork | null>
+  addTagToWorksForUser: (userId: string, ids: string[], tag: string) => Promise<StoredWork[]>
+  removeTagFromWorksForUser: (userId: string, ids: string[], tag: string) => Promise<StoredWork[]>
   listDrawBatchesByUserId: (userId: string) => Promise<StoredDrawBatch[]>
+  findDrawBatchByIdForUser: (userId: string, id: string) => Promise<StoredDrawBatch | null>
+  upsertDrawBatchForUser: (batch: StoredDrawBatch) => Promise<StoredDrawBatch>
   replaceDrawBatchesByUserId: (userId: string, batches: StoredDrawBatch[]) => Promise<void>
 }
 
@@ -107,8 +117,11 @@ function mapPromptTemplate(row: Record<string, unknown>): StoredPromptTemplate {
     title: row.title ? String(row.title) : undefined,
     name: row.name ? String(row.name) : undefined,
     content: String(row.content ?? ''),
+    category: row.category ? String(row.category) : undefined,
+    tags: Array.isArray(row.tags_json) ? row.tags_json.map(String) : undefined,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+    lastUsedAt: row.last_used_at ? (row.last_used_at instanceof Date ? row.last_used_at.toISOString() : String(row.last_used_at)) : null,
   }
 }
 
@@ -118,6 +131,12 @@ function mapWork(row: Record<string, unknown>): StoredWork {
     userId: String(row.user_id),
     title: String(row.title ?? ''),
     src: row.src ? String(row.src) : undefined,
+    assetId: row.asset_id ? String(row.asset_id) : undefined,
+    assetStorage: row.asset_storage ? String(row.asset_storage) as StoredWork['assetStorage'] : undefined,
+    assetSyncStatus: row.asset_sync_status ? String(row.asset_sync_status) as StoredWork['assetSyncStatus'] : undefined,
+    assetRemoteKey: row.asset_remote_key ? String(row.asset_remote_key) : undefined,
+    assetRemoteUrl: row.asset_remote_url ? String(row.asset_remote_url) : undefined,
+    assetUpdatedAt: row.asset_updated_at === null || row.asset_updated_at === undefined ? undefined : Number(row.asset_updated_at),
     meta: String(row.meta ?? ''),
     variation: row.variation ? String(row.variation) : undefined,
     batchId: row.batch_id ? String(row.batch_id) : undefined,
@@ -160,13 +179,19 @@ function mapDrawBatch(row: Record<string, unknown>): StoredDrawBatch {
 }
 
 function mapGenerationTask(row: Record<string, unknown>): StoredGenerationTask {
+  const payload = row.payload_json && typeof row.payload_json === 'object'
+    ? ('tracking' in (row.payload_json as Record<string, unknown>)
+      ? row.payload_json
+      : { ...(row.payload_json as Record<string, unknown>), tracking: undefined })
+    : row.payload_json
+
   return {
     id: String(row.id),
     userId: String(row.user_id),
     status: row.status as StoredGenerationTask['status'],
     progress: row.progress === null || row.progress === undefined ? undefined : Number(row.progress),
     errorMessage: row.error_message ? String(row.error_message) : undefined,
-    payload: row.payload_json as StoredGenerationTask['payload'],
+    payload: payload as StoredGenerationTask['payload'],
     result: (row.result_json ?? undefined) as StoredGenerationTask['result'],
     createdAt: new Date(row.created_at as string | Date).toISOString(),
     updatedAt: new Date(row.updated_at as string | Date).toISOString(),
@@ -179,6 +204,12 @@ function workValues(work: StoredWork) {
     work.userId,
     work.title,
     work.src ?? null,
+    work.assetId ?? null,
+    work.assetStorage ?? null,
+    work.assetSyncStatus ?? null,
+    work.assetRemoteKey ?? null,
+    work.assetRemoteUrl ?? null,
+    work.assetUpdatedAt ?? null,
     work.meta,
     work.variation ?? null,
     work.batchId ?? null,
@@ -203,15 +234,31 @@ function workValues(work: StoredWork) {
 }
 
 function promptTemplateValues(template: StoredPromptTemplate) {
+  const tags = Array.isArray(template.tags) ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean))) : []
   return [
     template.id,
     template.userId,
     template.title ?? null,
     template.name ?? null,
     template.content,
+    template.category?.trim() || null,
+    tags.length ? JSON.stringify(tags) : null,
     typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt,
     template.updatedAt ? (typeof template.updatedAt === 'number' ? new Date(template.updatedAt).toISOString() : template.updatedAt) : (typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt),
+    template.lastUsedAt ? (typeof template.lastUsedAt === 'number' ? new Date(template.lastUsedAt).toISOString() : template.lastUsedAt) : null,
   ]
+}
+
+function normalizePromptTemplate(template: StoredPromptTemplate): StoredPromptTemplate {
+  const title = template.title?.trim() || template.name?.trim() || '未命名模板'
+  const tags = Array.isArray(template.tags) ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean))) : undefined
+  return {
+    ...template,
+    title,
+    name: title,
+    category: template.category?.trim() || undefined,
+    tags,
+  }
 }
 
 function drawBatchValues(batch: StoredDrawBatch) {
@@ -363,10 +410,20 @@ export function getContentDomainStore(): ContentDomainStore {
     return {
       listPromptTemplatesByUserId: content.listPromptTemplatesByUserId,
       upsertPromptTemplateForUser: content.upsertPromptTemplateForUser,
+      markPromptTemplateUsedForUser: content.markPromptTemplateUsedForUser,
       deletePromptTemplateForUser: content.deletePromptTemplateForUser,
       listWorksByUserId: content.listWorksByUserId,
       replaceWorksByUserId: content.replaceWorksByUserId,
+      upsertWorkForUser: content.upsertWorkForUser,
+      deleteWorkForUser: content.deleteWorkForUser,
+      deleteWorksForUser: content.deleteWorksForUser,
+      updateWorkFavoriteForUser: content.updateWorkFavoriteForUser,
+      replaceWorkTagsForUser: content.replaceWorkTagsForUser,
+      addTagToWorksForUser: content.addTagToWorksForUser,
+      removeTagFromWorksForUser: content.removeTagFromWorksForUser,
       listDrawBatchesByUserId: content.listDrawBatchesByUserId,
+      findDrawBatchByIdForUser: content.findDrawBatchByIdForUser,
+      upsertDrawBatchForUser: content.upsertDrawBatchForUser,
       replaceDrawBatchesByUserId: content.replaceDrawBatchesByUserId,
     }
   }
@@ -378,10 +435,22 @@ export function getContentDomainStore(): ContentDomainStore {
     },
     async upsertPromptTemplateForUser(template) {
       const store = await getJsonStore().read()
+      const normalized = normalizePromptTemplate(template)
+      const conflict = store.promptTemplates.some((item) => item.id === template.id && item.userId !== template.userId)
+      if (conflict) throw new Error('模板 ID 已被占用')
+
       store.promptTemplates = [
-        ...store.promptTemplates.filter((item) => !(item.id === template.id && item.userId === template.userId)),
-        template,
+        ...store.promptTemplates.filter((item) => !(item.id === normalized.id && item.userId === normalized.userId)),
+        normalized,
       ]
+      await getJsonStore().write(store)
+      return normalized
+    },
+    async markPromptTemplateUsedForUser(userId, id, usedAt) {
+      const store = await getJsonStore().read()
+      const template = store.promptTemplates.find((item) => item.userId === userId && item.id === id)
+      if (!template) return null
+      template.lastUsedAt = usedAt
       await getJsonStore().write(store)
       return template
     },
@@ -401,9 +470,106 @@ export function getContentDomainStore(): ContentDomainStore {
       store.works = [...store.works.filter((item) => item.userId !== userId), ...works]
       await getJsonStore().write(store)
     },
+    async upsertWorkForUser(work) {
+      return await getJsonStore().mutate((store) => {
+        const index = store.works.findIndex((item) => item.userId === work.userId && item.id === work.id)
+        if (index >= 0) {
+          store.works[index] = work
+          return work
+        }
+
+        const conflict = store.works.some((item) => item.id === work.id && item.userId !== work.userId)
+        if (conflict) throw new Error('作品 ID 已被占用')
+
+        store.works.unshift(work)
+        return work
+      })
+    },
+    async deleteWorkForUser(userId, id) {
+      return await getJsonStore().mutate((store) => {
+        const before = store.works.length
+        store.works = store.works.filter((item) => !(item.userId === userId && item.id === id))
+        return store.works.length !== before
+      })
+    },
+    async deleteWorksForUser(userId, ids) {
+      if (!ids.length) return 0
+      const targetIds = new Set(ids)
+      return await getJsonStore().mutate((store) => {
+        const before = store.works.length
+        store.works = store.works.filter((item) => !(item.userId === userId && targetIds.has(item.id)))
+        return before - store.works.length
+      })
+    },
+    async updateWorkFavoriteForUser(userId, id, isFavorite) {
+      return await getJsonStore().mutate((store) => {
+        const work = store.works.find((item) => item.userId === userId && item.id === id) ?? null
+        if (!work) return null
+        work.isFavorite = isFavorite
+        work.favorite = isFavorite
+        return work
+      })
+    },
+    async replaceWorkTagsForUser(userId, id, tags) {
+      const nextTags = Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)))
+      return await getJsonStore().mutate((store) => {
+        const work = store.works.find((item) => item.userId === userId && item.id === id) ?? null
+        if (!work) return null
+        work.tags = nextTags
+        return work
+      })
+    },
+    async addTagToWorksForUser(userId, ids, tag) {
+      const nextTag = tag.trim()
+      if (!nextTag || !ids.length) return []
+      const targetIds = new Set(ids)
+      return await getJsonStore().mutate((store) => {
+        const updated: StoredWork[] = []
+        for (const work of store.works) {
+          if (work.userId !== userId || !targetIds.has(work.id)) continue
+          const tags = Array.from(new Set([...(work.tags ?? []).map((item) => item.trim()).filter(Boolean), nextTag]))
+          work.tags = tags
+          updated.push(work)
+        }
+        return updated
+      })
+    },
+    async removeTagFromWorksForUser(userId, ids, tag) {
+      const nextTag = tag.trim()
+      if (!nextTag || !ids.length) return []
+      const targetIds = new Set(ids)
+      return await getJsonStore().mutate((store) => {
+        const updated: StoredWork[] = []
+        for (const work of store.works) {
+          if (work.userId !== userId || !targetIds.has(work.id)) continue
+          work.tags = (work.tags ?? []).map((item) => item.trim()).filter((item) => item && item !== nextTag)
+          updated.push(work)
+        }
+        return updated
+      })
+    },
     async listDrawBatchesByUserId(userId) {
       const store = await getJsonStore().read()
       return store.drawBatches.filter((item) => item.userId === userId)
+    },
+    async findDrawBatchByIdForUser(userId, id) {
+      const store = await getJsonStore().read()
+      return store.drawBatches.find((item) => item.userId === userId && item.id === id) ?? null
+    },
+    async upsertDrawBatchForUser(batch) {
+      return await getJsonStore().mutate((store) => {
+        const index = store.drawBatches.findIndex((item) => item.userId === batch.userId && item.id === batch.id)
+        if (index >= 0) {
+          store.drawBatches[index] = batch
+          return batch
+        }
+
+        const conflict = store.drawBatches.some((item) => item.id === batch.id && item.userId !== batch.userId)
+        if (conflict) throw new Error('批次 ID 已被占用')
+
+        store.drawBatches.unshift(batch)
+        return batch
+      })
     },
     async replaceDrawBatchesByUserId(userId, batches) {
       const store = await getJsonStore().read()

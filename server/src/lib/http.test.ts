@@ -7,6 +7,14 @@ describe('http helpers', () => {
   })
 
   it('wraps error payload', () => {
-    expect(fail('ERR', 'boom')).toEqual({ error: { code: 'ERR', message: 'boom' } })
+    expect(fail('ERR', 'boom')).toEqual({
+      error: {
+        code: 'ERR',
+        message: 'boom',
+        category: 'service',
+        retryable: false,
+        action: 'contact-support',
+      },
+    })
   })
 })

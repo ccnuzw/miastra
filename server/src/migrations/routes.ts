@@ -10,19 +10,28 @@ const templateSchema = z.object({
   title: z.string().optional(),
   name: z.string().optional(),
   content: z.string(),
+  category: z.string().optional(),
+  tags: z.union([z.array(z.string()), z.string()]).optional(),
   createdAt: z.union([z.string(), z.number()]),
   updatedAt: z.union([z.string(), z.number()]).optional(),
+  lastUsedAt: z.union([z.string(), z.number()]).optional(),
 })
 
 const workSchema = z.object({
   id: z.string(),
   title: z.string(),
   src: z.string().optional(),
+  assetId: z.string().optional(),
+  assetStorage: z.enum(['inline', 'blob', 'remote']).optional(),
+  assetSyncStatus: z.enum(['local-only', 'pending-sync', 'synced']).optional(),
+  assetRemoteKey: z.string().optional(),
+  assetRemoteUrl: z.string().optional(),
+  assetUpdatedAt: z.number().optional(),
   meta: z.string(),
   variation: z.string().optional(),
   batchId: z.string().optional(),
   drawIndex: z.number().optional(),
-  taskStatus: z.enum(['pending', 'running', 'receiving', 'success', 'failed', 'retrying', 'cancelled']).optional(),
+  taskStatus: z.enum(['pending', 'running', 'receiving', 'success', 'failed', 'retrying', 'cancelled', 'timeout', 'interrupted']).optional(),
   error: z.string().optional(),
   retryable: z.boolean().optional(),
   retryCount: z.number().optional(),
@@ -37,7 +46,7 @@ const workSchema = z.object({
   promptText: z.string().optional(),
   isFavorite: z.boolean().optional(),
   favorite: z.boolean().optional(),
-  tags: z.array(z.string()).optional(),
+  tags: z.union([z.array(z.string()), z.string()]).optional(),
 })
 
 const drawBatchSchema = z.object({
@@ -54,6 +63,15 @@ const drawBatchSchema = z.object({
   timeoutCount: z.number().optional(),
   snapshotId: z.string(),
 })
+
+function normalizeTags(tags: string[] | string | undefined): string[] {
+  const values = Array.isArray(tags)
+    ? tags
+    : typeof tags === 'string'
+      ? tags.split(/[,，\n]/)
+      : []
+  return Array.from(new Set(values.map((tag) => tag.trim()).filter(Boolean)))
+}
 
 export async function registerMigrationRoutes(app: FastifyInstance) {
   app.post('/api/migrations/import-local-templates', async (request, reply) => {
@@ -78,10 +96,15 @@ export async function registerMigrationRoutes(app: FastifyInstance) {
         title: template.title ?? template.name ?? '未命名模板',
         name: template.title ?? template.name ?? '未命名模板',
         content: template.content,
+        category: template.category?.trim() || undefined,
+        tags: normalizeTags(template.tags),
         createdAt: typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt,
         updatedAt: template.updatedAt
           ? typeof template.updatedAt === 'number' ? new Date(template.updatedAt).toISOString() : template.updatedAt
           : typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt,
+        lastUsedAt: template.lastUsedAt
+          ? typeof template.lastUsedAt === 'number' ? new Date(template.lastUsedAt).toISOString() : template.lastUsedAt
+          : null,
       }
       store.promptTemplates.push(nextTemplate)
       imported += 1
@@ -112,6 +135,12 @@ export async function registerMigrationRoutes(app: FastifyInstance) {
         userId: user.id,
         title: work.title,
         src: work.src,
+        assetId: work.assetId,
+        assetStorage: work.assetStorage,
+        assetSyncStatus: work.assetSyncStatus,
+        assetRemoteKey: work.assetRemoteKey,
+        assetRemoteUrl: work.assetRemoteUrl,
+        assetUpdatedAt: work.assetUpdatedAt,
         meta: work.meta,
         variation: work.variation,
         batchId: work.batchId,
@@ -131,7 +160,7 @@ export async function registerMigrationRoutes(app: FastifyInstance) {
         promptText: work.promptText,
         isFavorite: work.isFavorite,
         favorite: work.favorite,
-        tags: work.tags,
+        tags: normalizeTags(work.tags),
       }
       store.works.push(nextWork)
       imported += 1

@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { requireAuthenticatedUser } from '../auth/routes'
 import { fail, ok } from '../lib/http'
 import { storeRepository } from '../lib/store'
+import { getBillingConfig } from '../runtime-config'
 import { checkoutBillingPlan, listBillingPlans, listUserBillingInvoices } from './ledger'
 
 const checkoutSchema = z.object({
@@ -11,6 +12,8 @@ const checkoutSchema = z.object({
 })
 
 export async function registerBillingRoutes(app: FastifyInstance) {
+  app.get('/api/billing/config', async () => ok(getBillingConfig()))
+
   app.get('/api/billing/plans', async () => ok(listBillingPlans()))
 
   app.get('/api/billing/invoices', async (request, reply) => {
@@ -23,6 +26,12 @@ export async function registerBillingRoutes(app: FastifyInstance) {
   app.post('/api/billing/checkout', async (request, reply) => {
     const user = await requireAuthenticatedUser(request, reply)
     if (!user) return
+
+    const billingConfig = getBillingConfig()
+    if (!billingConfig.checkoutEnabled) {
+      reply.code(503)
+      return fail('BILLING_CHECKOUT_UNAVAILABLE', billingConfig.notice)
+    }
 
     const parsed = checkoutSchema.safeParse(request.body)
     if (!parsed.success) {
@@ -41,6 +50,7 @@ export async function registerBillingRoutes(app: FastifyInstance) {
       profile: result.profile,
       invoice: result.invoice,
       plans: listBillingPlans(),
+      config: billingConfig,
     })
   })
 

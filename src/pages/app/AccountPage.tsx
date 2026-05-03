@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Header } from '@/components/Header'
+import { useAuthSession } from '@/features/auth/useAuthSession'
 import { apiRequest } from '@/shared/http/client'
 
 type SessionRecord = {
@@ -72,6 +73,7 @@ async function revokeOtherSessions() {
 }
 
 export function AccountPage() {
+  const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [me, setMe] = useState<MeRecord | null>(null)
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [quota, setQuota] = useState<QuotaProfile | null>(null)
@@ -84,6 +86,15 @@ export function AccountPage() {
   const [message, setMessage] = useState('')
 
   async function refresh() {
+    if (!isAuthenticated) {
+      setMe(null)
+      setSessions([])
+      setQuota(null)
+      setInvoices([])
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError('')
     try {
@@ -100,8 +111,9 @@ export function AccountPage() {
   }
 
   useEffect(() => {
+    if (authLoading) return
     void refresh()
-  }, [])
+  }, [authLoading, isAuthenticated])
 
   async function handlePasswordSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()

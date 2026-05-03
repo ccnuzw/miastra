@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useAuthSession } from '@/features/auth/useAuthSession'
 import { defaultConfig, providerPresets } from '@/features/provider/provider.constants'
 import { readStoredConfig, writeStoredConfig } from '@/features/provider/provider.storage'
 import type { ProviderConfig } from '@/features/provider/provider.types'
@@ -8,6 +9,7 @@ type UseProviderConfigOptions = {
 }
 
 export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
+  const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [config, setConfig] = useState<ProviderConfig>(defaultConfig)
   const [draftConfig, setDraftConfig] = useState<ProviderConfig>(defaultConfig)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -18,6 +20,19 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
 
   useEffect(() => {
     let cancelled = false
+
+    if (authLoading) return () => {
+      cancelled = true
+    }
+
+    if (!isAuthenticated) {
+      setConfig(defaultConfig)
+      setDraftConfig(defaultConfig)
+      return () => {
+        cancelled = true
+      }
+    }
+
     void readStoredConfig()
       .then((stored) => {
         if (cancelled) return
@@ -33,7 +48,7 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [authLoading, isAuthenticated])
 
   useEffect(() => {
     if (!settingsOpen) setDraftConfig(config)

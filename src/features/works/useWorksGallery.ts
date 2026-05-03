@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useAuthSession } from '@/features/auth/useAuthSession'
 import type { GalleryImage } from '@/features/works/works.types'
 import { importLegacyWorks, normalizeGallery, normalizeGalleryImage, readStoredGallery, writeStoredGallery } from './works.storage'
 
@@ -58,10 +59,12 @@ export function filterWorksGallery(items: GalleryImage[], filters: WorksGalleryF
 }
 
 export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptions = {}) {
+  const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [gallery, setGalleryState] = useState<GalleryImage[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const galleryHydratedRef = useRef(false)
+  const skipNextPersistRef = useRef(false)
   const persistTimerRef = useRef<number | null>(null)
   const [wallOpen, setWallOpen] = useState(false)
   const [viewerImage, setViewerImage] = useState<GalleryImage | null>(null)
@@ -77,11 +80,21 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
   }
 
   const loadGallery = useCallback(async () => {
+    if (!isAuthenticated) {
+      skipNextPersistRef.current = true
+      setGalleryState([])
+      setError('')
+      setLoading(false)
+      galleryHydratedRef.current = false
+      return []
+    }
+
     setLoading(true)
     setError('')
     try {
       const items = await readStoredGallery()
       const next = batchId && batchId !== 'all' ? items.filter((item) => item.batchId === batchId) : items
+      skipNextPersistRef.current = true
       setGalleryState(next)
       galleryHydratedRef.current = true
       return next
@@ -91,26 +104,51 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
     } finally {
       setLoading(false)
     }
-  }, [batchId])
+  }, [batchId, isAuthenticated])
 
   useEffect(() => {
+    if (authLoading) return
+
     let cancelled = false
+
+    if (!isAuthenticated) {
+      galleryHydratedRef.current = false
+      skipNextPersistRef.current = true
+      setGalleryState([])
+      setError('')
+      setLoading(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
     void importLegacyWorks().then(() => {
       if (cancelled) return
       void loadGallery()
+    }).catch((nextError) => {
+      if (cancelled) return
+      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setLoading(false)
     })
+
     return () => {
       cancelled = true
     }
-  }, [loadGallery])
+  }, [authLoading, isAuthenticated, loadGallery])
 
   useEffect(() => {
-    if (!galleryHydratedRef.current) return
+    if (!isAuthenticated || !galleryHydratedRef.current) return
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false
+      return
+    }
     if (persistTimerRef.current !== null) {
       window.clearTimeout(persistTimerRef.current)
     }
     persistTimerRef.current = window.setTimeout(() => {
-      void writeStoredGallery(gallery)
+      void writeStoredGallery(gallery).catch((nextError) => {
+        setError(nextError instanceof Error ? nextError.message : String(nextError))
+      })
       persistTimerRef.current = null
     }, galleryPersistDebounceMs)
 
@@ -120,7 +158,7 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
         persistTimerRef.current = null
       }
     }
-  }, [gallery])
+  }, [gallery, isAuthenticated])
 
   const availableTags = useMemo(() => Array.from(new Set(gallery.flatMap((item) => item.tags ?? []))).sort((a, b) => a.localeCompare(b, 'zh-CN')), [gallery])
   const selectedWorkSet = useMemo(() => new Set(selectedWorkIds), [selectedWorkIds])
@@ -227,7 +265,7 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
     favoritesOnly,
     wallOpen,
     viewerImage,
-    loading,
+    loading: authLoading || loading,
     error,
     refresh: loadGallery,
     setGallery,

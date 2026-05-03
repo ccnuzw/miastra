@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useAuthSession } from '@/features/auth/useAuthSession'
 import type { DrawBatch, DrawStrategy, DrawTask, DrawTaskStatus, VariationStrength } from '@/features/draw-card/drawCard.types'
 import { drawStrategyOptions, variationDimensions } from '@/features/draw-card/drawCard.constants'
 import { updateGenerationTask } from '@/features/generation/generation.api'
@@ -6,13 +7,13 @@ import { clampDrawConcurrency, drawStatusMeta } from '@/features/draw-card/drawC
 import type { GalleryImage } from '@/features/works/works.types'
 import { readStoredDrawBatches, readStoredDrawTasks, writeStoredDrawBatches, writeStoredDrawTasks } from './drawCard.storage'
 
+const activeStatuses = new Set<DrawTaskStatus>(['pending', 'running', 'receiving', 'retrying'])
+
 type DrawShortcut = 'safe3' | 'balanced5' | 'fast8' | 'turbo10'
 
 type DrawShortcutResult = {
   quality: string
 }
-
-const activeStatuses = new Set<DrawTaskStatus>(['pending', 'running', 'receiving', 'retrying'])
 
 function normalizeBatch(batch: DrawBatch): DrawBatch {
   return {
@@ -58,6 +59,7 @@ function applyBatchCounts(batches: DrawBatch[], tasks: DrawTask[]) {
 }
 
 export function useDrawCardSettings() {
+  const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [drawCount, setDrawCount] = useState(5)
   const [drawStrategy, setDrawStrategy] = useState<DrawStrategy>('smart')
   const [drawConcurrency, setDrawConcurrency] = useState(4)
@@ -68,44 +70,58 @@ export function useDrawCardSettings() {
   const [activeBatchId, setActiveBatchId] = useState<string>('all')
 
   useEffect(() => {
+    if (authLoading) return
+
     let cancelled = false
 
-    void Promise.all([readStoredDrawBatches(), readStoredDrawTasks()]).then(([batches, tasks]) => {
-      if (cancelled) return
-      const normalizedBatches = batches.map(normalizeBatch)
-      const { nextTasks, interruptedTaskIds } = reconcileInterruptedTasks(tasks)
-      const nextBatches = applyBatchCounts(normalizedBatches, nextTasks)
-      setDrawTasks((current) => (current.length ? current : nextTasks))
-      setDrawBatches((current) => (current.length ? current : nextBatches))
-      batchesHydratedRef.current = true
-      tasksHydratedRef.current = true
-
-      if (interruptedTaskIds.length) {
-        nextTasks
-          .filter((task) => interruptedTaskIds.includes(task.id) && task.generationTaskId)
-          .forEach((task) => {
-            void updateGenerationTask(task.generationTaskId!, {
-              status: 'failed',
-              errorMessage: '工作台页面已刷新或会话中断，任务已标记为中断，可手动重试',
-            }).catch(() => undefined)
-          })
+    if (!isAuthenticated) {
+      batchesHydratedRef.current = false
+      tasksHydratedRef.current = false
+      setDrawTasks([])
+      setDrawBatches([])
+      return () => {
+        cancelled = true
       }
-    })
+    }
+
+    void Promise.all([readStoredDrawBatches(), readStoredDrawTasks()])
+      .then(([batches, tasks]) => {
+        if (cancelled) return
+        const normalizedBatches = batches.map(normalizeBatch)
+        const { nextTasks, interruptedTaskIds } = reconcileInterruptedTasks(tasks)
+        const nextBatches = applyBatchCounts(normalizedBatches, nextTasks)
+        setDrawTasks((current) => (current.length ? current : nextTasks))
+        setDrawBatches((current) => (current.length ? current : nextBatches))
+        batchesHydratedRef.current = true
+        tasksHydratedRef.current = true
+
+        if (interruptedTaskIds.length) {
+          nextTasks
+            .filter((task) => interruptedTaskIds.includes(task.id) && task.generationTaskId)
+            .forEach((task) => {
+              void updateGenerationTask(task.generationTaskId!, {
+                status: 'failed',
+                errorMessage: '工作台页面已刷新或会话中断，任务已标记为中断，可手动重试',
+              }).catch(() => undefined)
+            })
+        }
+      })
+      .catch(() => undefined)
 
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [authLoading, isAuthenticated])
 
   useEffect(() => {
-    if (!batchesHydratedRef.current) return
+    if (!isAuthenticated || !batchesHydratedRef.current) return
     void writeStoredDrawBatches(drawBatches)
-  }, [drawBatches])
+  }, [drawBatches, isAuthenticated])
 
   useEffect(() => {
-    if (!tasksHydratedRef.current) return
+    if (!isAuthenticated || !tasksHydratedRef.current) return
     void writeStoredDrawTasks(drawTasks)
-  }, [drawTasks])
+  }, [drawTasks, isAuthenticated])
 
   const [variationStrength, setVariationStrength] = useState<VariationStrength>('medium')
   const [enabledVariationDimensions, setEnabledVariationDimensions] = useState<string[]>(variationDimensions.map((item) => item.id))

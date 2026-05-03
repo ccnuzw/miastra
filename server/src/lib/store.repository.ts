@@ -250,15 +250,14 @@ const postgresSchemaSql = `
 
 async function ensurePostgresSchema(pool: Pool) {
   await pool.query(postgresSchemaSql)
+  await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS cancelled_count INTEGER NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS interrupted_count INTEGER NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS timeout_count INTEGER NOT NULL DEFAULT 0`)
 }
 
 async function writeCoreTables(pool: Pool, store: DataStore) {
   await pool.query('BEGIN')
   try {
-    await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS cancelled_count INTEGER NOT NULL DEFAULT 0`)
-    await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS interrupted_count INTEGER NOT NULL DEFAULT 0`)
-    await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS timeout_count INTEGER NOT NULL DEFAULT 0`)
-
     await pool.query('DELETE FROM billing_invoices')
     await pool.query('DELETE FROM quota_profiles')
     await pool.query('DELETE FROM audit_logs')

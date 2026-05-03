@@ -15,6 +15,12 @@ export type ContentTablesRepository = {
   replaceDrawBatchesByUserId: (userId: string, batches: StoredDrawBatch[]) => Promise<void>
 }
 
+async function ensureDrawBatchColumns(pool: Pool) {
+  await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS cancelled_count INTEGER NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS interrupted_count INTEGER NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS timeout_count INTEGER NOT NULL DEFAULT 0`)
+}
+
 function mapPromptTemplateRow(row: Record<string, unknown>): StoredPromptTemplate {
   return {
     id: String(row.id),
@@ -152,6 +158,7 @@ export function createPostgresContentTablesRepository(pool: Pool): ContentTables
       return result.rows.map(mapWorkRow)
     },
     async listDrawBatches() {
+      await ensureDrawBatchColumns(pool)
       const result = await pool.query(`
         SELECT id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, cancelled_count, interrupted_count, timeout_count, snapshot_id
         FROM draw_batches
@@ -218,6 +225,7 @@ export function createPostgresContentTablesRepository(pool: Pool): ContentTables
       `, workValues(work))
     },
     async listDrawBatchesByUserId(userId) {
+      await ensureDrawBatchColumns(pool)
       const result = await pool.query(`
         SELECT id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, cancelled_count, interrupted_count, timeout_count, snapshot_id
         FROM draw_batches
@@ -230,6 +238,7 @@ export function createPostgresContentTablesRepository(pool: Pool): ContentTables
       const client = await pool.connect()
       try {
         await client.query('BEGIN')
+        await ensureDrawBatchColumns(client as unknown as Pool)
         await client.query(`DELETE FROM draw_batches WHERE user_id = $1`, [userId])
         for (const batch of batches) {
           await client.query(`

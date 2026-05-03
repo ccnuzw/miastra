@@ -10,17 +10,27 @@ type ImportLocalDrawBatchesResult = {
   total: number
 }
 
+let importLegacyDrawBatchesInFlight: Promise<ImportLocalDrawBatchesResult> | null = null
+
 export async function importLegacyDrawBatches() {
-  const legacyBatches = await readBrowserValue<DrawBatch[]>(drawBatchesStorageKey, [])
-  if (!legacyBatches.length) return { imported: 0, total: 0 }
+  if (!importLegacyDrawBatchesInFlight) {
+    importLegacyDrawBatchesInFlight = (async () => {
+      const legacyBatches = await readBrowserValue<DrawBatch[]>(drawBatchesStorageKey, [])
+      if (!legacyBatches.length) return { imported: 0, total: 0 }
 
-  const result = await apiRequest<ImportLocalDrawBatchesResult>('/api/migrations/import-local-draw-batches', {
-    method: 'POST',
-    body: { batches: legacyBatches },
-  })
+      const result = await apiRequest<ImportLocalDrawBatchesResult>('/api/migrations/import-local-draw-batches', {
+        method: 'POST',
+        body: { batches: legacyBatches },
+      })
 
-  await deleteBrowserValue(drawBatchesStorageKey)
-  return result
+      await deleteBrowserValue(drawBatchesStorageKey)
+      return result
+    })().finally(() => {
+      importLegacyDrawBatchesInFlight = null
+    })
+  }
+
+  return importLegacyDrawBatchesInFlight
 }
 
 export async function readStoredDrawBatches() {

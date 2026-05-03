@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useAuthSession } from '@/features/auth/useAuthSession'
 import { apiRequest } from '@/shared/http/client'
 import { deleteBrowserValue, readBrowserValue } from '@/shared/storage/browserDatabase'
 import type { PromptTemplateListItem } from './PromptTemplateLibrary'
@@ -15,6 +16,8 @@ type ImportLocalTemplatesResult = {
   imported: number
   total: number
 }
+
+let importLegacyTemplatesInFlight: Promise<ImportLocalTemplatesResult> | null = null
 
 export function normalizeTemplate(template: PromptTemplateListItem): PromptTemplateListItem {
   const now = Date.now()
@@ -51,7 +54,7 @@ async function deletePromptTemplate(templateId: string) {
   })
 }
 
-export async function importLegacyPromptTemplates() {
+async function runImportLegacyPromptTemplates() {
   const legacyTemplates = normalizeTemplates(await readBrowserValue<PromptTemplateListItem[]>(promptTemplatesStorageKey, []))
   if (!legacyTemplates.length) return { imported: 0, total: 0 }
 
@@ -64,12 +67,30 @@ export async function importLegacyPromptTemplates() {
   return result
 }
 
+export async function importLegacyPromptTemplates() {
+  if (!importLegacyTemplatesInFlight) {
+    importLegacyTemplatesInFlight = runImportLegacyPromptTemplates().finally(() => {
+      importLegacyTemplatesInFlight = null
+    })
+  }
+
+  return importLegacyTemplatesInFlight
+}
+
 export function usePromptTemplates() {
+  const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [templates, setTemplates] = useState<PromptTemplateListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
 
   const refresh = useCallback(async () => {
+    if (!isAuthenticated) {
+      setTemplates([])
+      setError(null)
+      setLoading(false)
+      return []
+    }
+
     setLoading(true)
     setError(null)
     try {
@@ -82,16 +103,24 @@ export function usePromptTemplates() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [isAuthenticated])
 
   const hydrate = useCallback(async () => {
+    if (!isAuthenticated) {
+      setTemplates([])
+      setError(null)
+      setLoading(false)
+      return []
+    }
+
     await importLegacyPromptTemplates()
     return await refresh()
-  }, [refresh])
+  }, [isAuthenticated, refresh])
 
   useEffect(() => {
+    if (authLoading) return
     void hydrate().catch(() => undefined)
-  }, [hydrate])
+  }, [authLoading, hydrate])
 
   const saveTemplate = useCallback(async ({ id, title, content }: SavePromptTemplateInput) => {
     if (!content.trim()) throw new Error('Prompt 模板内容不能为空')
@@ -114,7 +143,7 @@ export function usePromptTemplates() {
 
   return {
     templates,
-    loading,
+    loading: authLoading || loading,
     error,
     refresh,
     saveTemplate,

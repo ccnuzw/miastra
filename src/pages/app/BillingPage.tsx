@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Header } from '@/components/Header'
+import { useAuthSession } from '@/features/auth/useAuthSession'
 import { apiRequest } from '@/shared/http/client'
 
 type BillingPlan = {
@@ -55,6 +56,7 @@ async function checkout(planId: string, mode: 'upgrade' | 'renew') {
 }
 
 export function BillingPage() {
+  const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [plans, setPlans] = useState<BillingPlan[]>([])
   const [invoices, setInvoices] = useState<BillingInvoice[]>([])
   const [quota, setQuota] = useState<QuotaProfile | null>(null)
@@ -64,6 +66,14 @@ export function BillingPage() {
   const [message, setMessage] = useState('')
 
   async function refresh() {
+    if (!isAuthenticated) {
+      setPlans([])
+      setInvoices([])
+      setQuota(null)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError('')
     try {
@@ -79,8 +89,9 @@ export function BillingPage() {
   }
 
   useEffect(() => {
+    if (authLoading) return
     void refresh()
-  }, [])
+  }, [authLoading, isAuthenticated])
 
   async function handleCheckout(planId: string, mode: 'upgrade' | 'renew') {
     setBusy(planId)

@@ -21,8 +21,11 @@ import { storeRepository } from './lib/store'
 loadEnv({ path: resolve(__dirname, '../.env') })
 loadEnv({ path: resolve(__dirname, '../../.env'), override: false })
 
-async function createServer() {
-  const app: FastifyInstance = Fastify({ logger: true })
+export async function createServer() {
+  const app: FastifyInstance = Fastify({
+    logger: true,
+    bodyLimit: 20 * 1024 * 1024,
+  })
 
   await app.register(cookie)
   await app.register(cors, {
@@ -67,11 +70,14 @@ async function createServer() {
   return app
 }
 
-async function start() {
+export async function start() {
   const app = await createServer()
   startGenerationTaskWorker(app.log)
   const port = Number(process.env.PORT ?? 18081)
   await app.listen({ port, host: '0.0.0.0' })
 }
 
-void start()
+const shouldStart = process.argv[1]?.endsWith('server.ts') || process.argv[1]?.endsWith('dist/server.js')
+if (shouldStart) {
+  void start()
+}

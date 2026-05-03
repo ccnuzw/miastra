@@ -14,5 +14,5 @@ export async function apiRequest<T>(path: string, init?: Omit<RequestInit, 'body
     throw new Error(payload?.error?.message ?? `HTTP ${response.status}`)
   }
 
-  return (payload?.data ?? payload) as T
+  return (payload && typeof payload === 'object' && 'data' in payload ? payload.data : payload) as T
 }

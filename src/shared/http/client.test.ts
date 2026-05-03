@@ -12,6 +12,16 @@ describe('apiRequest', () => {
     api.mockRestore()
   })
 
+  it('returns null payloads as null', async () => {
+    const api = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: null }),
+    } as Response)
+
+    await expect(apiRequest<null>('/api/test')).resolves.toBeNull()
+    api.mockRestore()
+  })
+
   it('throws response error message', async () => {
     const api = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: false,

@@ -3,6 +3,7 @@ import { AdminLogsPanel } from '@/features/admin/AdminLogsPanel'
 import { AdminOverviewCards } from '@/features/admin/AdminOverviewCards'
 import { fetchAdminDashboard, fetchAdminTasks, fetchAdminUsers, fetchAdminWorks, type AdminDashboardData, type AdminGenerationTaskRecord, type AdminUserRecord, type AdminWorkRecord } from '@/features/admin/admin.api'
 import { useAdminPageActions } from '@/features/admin/useAdminPageActions'
+import { useAuthSession } from '@/features/auth/useAuthSession'
 import { apiRequest } from '@/shared/http/client'
 
 type AuditLogRecord = {
@@ -31,6 +32,7 @@ async function fetchMySessions() {
 }
 
 export function AdminPage() {
+  const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [data, setData] = useState<AdminDashboardData | null>(null)
   const [users, setUsers] = useState<AdminUserRecord[]>([])
   const [works, setWorks] = useState<AdminWorkRecord[]>([])
@@ -43,6 +45,18 @@ export function AdminPage() {
   const [message, setMessage] = useState('')
 
   async function refresh() {
+    if (!isAuthenticated) {
+      setData(null)
+      setUsers([])
+      setWorks([])
+      setTasks([])
+      setLogs([])
+      setSessions([])
+      setRoleDrafts({})
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError('')
     try {
@@ -68,8 +82,9 @@ export function AdminPage() {
   }
 
   useEffect(() => {
+    if (authLoading) return
     void refresh()
-  }, [])
+  }, [authLoading, isAuthenticated])
 
   const {
     busyId,

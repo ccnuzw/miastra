@@ -2,7 +2,7 @@ import type { GalleryImage } from '../works/works.types'
 
 export type VariationStrength = 'low' | 'medium' | 'high'
 export type DrawStrategy = 'linear' | 'smart' | 'turbo'
-export type DrawTaskStatus = 'pending' | 'running' | 'receiving' | 'success' | 'failed' | 'retrying' | 'cancelled'
+export type DrawTaskStatus = 'pending' | 'running' | 'receiving' | 'success' | 'failed' | 'retrying' | 'cancelled' | 'timeout' | 'interrupted'
 
 export type DrawStrategyOption = {
   label: string
@@ -26,10 +26,14 @@ export type DrawTask = {
   status: DrawTaskStatus
   image?: GalleryImage
   error?: string
+  errorCode?: string
+  retryable?: boolean
   retryCount: number
   startedAt?: number
   finishedAt?: number
+  updatedAt?: number
   snapshotId?: string
+  generationTaskId?: string
 }
 
 export type DrawBatch = {
@@ -41,5 +45,8 @@ export type DrawBatch = {
   count: number
   successCount: number
   failedCount: number
+  cancelledCount: number
+  interruptedCount: number
+  timeoutCount: number
   snapshotId: string
 }

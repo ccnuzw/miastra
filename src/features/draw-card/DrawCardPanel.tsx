@@ -67,9 +67,10 @@ export function DrawCardPanel(props: DrawCardPanelProps) {
     retryTask: props.onRetryTask,
     cancelAll: props.onCancelAllQueue,
   }
-  const actionableTasks = drawQueueState.tasks.filter((task) => task.taskStatus && task.taskStatus !== 'success')
+  const queueTasks = Array.isArray(drawQueueState.tasks) ? drawQueueState.tasks : []
+  const actionableTasks = queueTasks.filter((task) => task.taskStatus && task.taskStatus !== 'success')
   const activeTaskCount = actionableTasks.filter((task) => task.taskStatus === 'pending' || task.taskStatus === 'running' || task.taskStatus === 'receiving' || task.taskStatus === 'retrying').length
-  const failedTasks = actionableTasks.filter((task) => task.taskStatus === 'failed')
+  const failedTasks = actionableTasks.filter((task) => task.taskStatus === 'failed' || task.taskStatus === 'timeout' || task.taskStatus === 'interrupted')
 
   return (
     <div className="mode-panel">
@@ -82,7 +83,7 @@ export function DrawCardPanel(props: DrawCardPanelProps) {
           <div className="draw-summary-card">
             <strong>固定参数抽卡</strong>
             <span>基于当前 Prompt、负面提示词、画幅、质量和细节强度，批量生成相近但有轻微风格差异的图片。</span>
-            <span>当前策略：{drawStrategyOptions.find((item) => item.value === props.drawStrategy)?.label} · 有效并发 {props.effectiveDrawConcurrency} · 完成 {drawQueueState.stats.success ?? 0} / 失败 {drawQueueState.stats.failed ?? 0}</span>
+            <span>当前策略：{drawStrategyOptions.find((item) => item.value === props.drawStrategy)?.label} · 有效并发 {props.effectiveDrawConcurrency} · 完成 {drawQueueState.stats.success ?? 0} / 失败 {drawQueueState.stats.failed ?? 0} / 超时 {drawQueueState.stats.timeout ?? 0} / 中断 {drawQueueState.stats.interrupted ?? 0}</span>
           </div>
           <div className="draw-strategy-section">
             <div className="flex items-center justify-between gap-3">
@@ -100,7 +101,7 @@ export function DrawCardPanel(props: DrawCardPanelProps) {
                   <div key={task.id} className="draw-summary-card">
                     <span className="flex items-center justify-between gap-3">
                       <strong>{task.title}</strong>
-                      <small>{task.taskStatus}{task.retryCount ? ` · 重试 ${task.retryCount}` : ''}</small>
+                      <small>{task.taskStatus}{task.retryCount ? ` · 重试 ${task.retryCount}` : ''}{task.taskStatus === 'failed' || task.taskStatus === 'timeout' || task.taskStatus === 'interrupted' ? task.retryable === false ? ' · 不可重试' : ' · 可重试' : ''}</small>
                     </span>
                     <span>{task.meta}</span>
                     {task.error && <span>失败原因：{task.error}</span>}
@@ -108,8 +109,8 @@ export function DrawCardPanel(props: DrawCardPanelProps) {
                       {(task.taskStatus === 'pending' || task.taskStatus === 'running' || task.taskStatus === 'receiving' || task.taskStatus === 'retrying') && (
                         <button type="button" onClick={() => drawQueueActions.cancelTask(task.id)} className="shortcut-chip">取消该任务</button>
                       )}
-                      {task.taskStatus === 'failed' && (
-                        <button type="button" onClick={() => drawQueueActions.retryTask(task.id)} disabled={drawQueueState.isGenerating} className="shortcut-chip">重试失败项</button>
+                      {(task.taskStatus === 'failed' || task.taskStatus === 'timeout' || task.taskStatus === 'interrupted') && (
+                        <button type="button" onClick={() => drawQueueActions.retryTask(task.id)} disabled={drawQueueState.isGenerating || task.retryable === false} className="shortcut-chip">{task.retryable === false ? '不可重试' : '重试失败项'}</button>
                       )}
                     </span>
                   </div>

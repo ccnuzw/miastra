@@ -1,4 +1,4 @@
-import { drawTaskStatusText, variationDimensions } from './drawCard.constants'
+import { drawStatusMeta as drawStatusMetaFromConstants, drawTaskStatusText, variationDimensions } from './drawCard.constants'
 import type { DrawTaskStatus } from './drawCard.types'
 
 export function pickVariationPrompts(enabledDimensions: string[], index: number) {
@@ -19,7 +19,6 @@ export function clampDrawConcurrency(value: number) {
   return Math.min(8, Math.max(1, Number.isFinite(value) ? value : 1))
 }
 
-export function drawStatusMeta(status: DrawTaskStatus, error?: string) {
-  if (status === 'failed') return error ? `失败：${error}` : '失败，等待重试'
-  return drawTaskStatusText[status]
+export function drawStatusMeta(status: DrawTaskStatus, error?: string, retryable = true) {
+  return drawStatusMetaFromConstants(status, error, retryable)
 }

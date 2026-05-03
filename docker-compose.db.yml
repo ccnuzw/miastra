@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: miastra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-miastra}
+      POSTGRES_USER: ${POSTGRES_USER:-miastra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miastra}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - miastra_postgres_data:/var/lib/postgresql/data
+      - ./server/data/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./server/data/postgres-core-schema.sql:/docker-entrypoint-initdb.d/02-core.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-miastra} -d ${POSTGRES_DB:-miastra}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  miastra_postgres_data:

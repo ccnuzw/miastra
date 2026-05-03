@@ -14,6 +14,8 @@ export const drawTaskStatusText: Record<DrawTaskStatus, string> = {
   failed: '失败',
   retrying: '重试中',
   cancelled: '已取消',
+  timeout: '已超时',
+  interrupted: '已中断',
 }
 
 export const variationDimensions = [
@@ -34,4 +36,12 @@ export const variationStrengthText: Record<VariationStrength, string> = {
   low: '变化幅度很小，仅调整光线、噪点、构图和细节，不改变主体。',
   medium: '变化幅度适中，保持同一主题和人物设定，但允许姿态、光线和镜头距离有自然差异。',
   high: '变化幅度更明显，但仍然保持同一提示词主题、人物设定和画面质感。',
+}
+
+export function drawStatusMeta(status: DrawTaskStatus, error?: string, retryable = true) {
+  if (status === 'failed' || status === 'timeout' || status === 'interrupted') {
+    const retryHint = retryable ? '可重试' : '不可重试'
+    return error ? `${drawTaskStatusText[status]}，${retryHint}：${error}` : `${drawTaskStatusText[status]}，${retryHint}`
+  }
+  return drawTaskStatusText[status]
 }

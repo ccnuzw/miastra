@@ -1,7 +1,5 @@
 import type { ProviderConfig, ProviderPreset } from './provider.types'
 
-export const providerStorageKey = 'lumio-forge-provider-config-v1'
-
 export const providerPresets: ProviderPreset[] = [
   {
     id: 'sub2api',

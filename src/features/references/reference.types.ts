@@ -3,5 +3,9 @@ export type ReferenceImage = {
   src: string
   name: string
   source: 'upload' | 'work'
+  assetId?: string
+  assetRemoteKey?: string
   file?: File
+  workId?: string
+  workTitle?: string
 }

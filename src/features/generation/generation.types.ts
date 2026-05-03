@@ -5,6 +5,11 @@ export type GenerationReferenceSnapshot = {
   sources: Array<{
     source: 'upload' | 'work'
     name: string
+    assetId?: string
+    assetRemoteKey?: string
+    src?: string
+    workId?: string
+    workTitle?: string
   }>
   note: string
 }
@@ -23,6 +28,25 @@ export type GenerationDrawSnapshot = {
   batchSnapshotId?: string
   drawIndex: number
   variation: string
+}
+
+export type GenerationErrorCode =
+  | 'abort'
+  | 'invalid-input'
+  | 'network'
+  | 'timeout'
+  | 'gateway-timeout'
+  | 'provider-unsupported'
+  | 'invalid-response'
+  | 'http-error'
+  | 'interrupted'
+  | 'unknown'
+
+export type GenerationError = {
+  code: GenerationErrorCode
+  message: string
+  retryable: boolean
+  cause?: unknown
 }
 
 export type GenerationRequestOptions = {

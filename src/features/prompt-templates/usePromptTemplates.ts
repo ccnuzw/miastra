@@ -1,49 +1,121 @@
 import { useCallback, useEffect, useState } from 'react'
-import { readBrowserValue, writeBrowserValue } from '@/shared/storage/browserDatabase'
+import { useAuthSession } from '@/features/auth/useAuthSession'
+import { apiRequest } from '@/shared/http/client'
+import { deleteBrowserValue, readBrowserValue } from '@/shared/storage/browserDatabase'
 import type { PromptTemplateListItem } from './PromptTemplateLibrary'
+import { normalizePromptTemplateTags } from './promptTemplate.utils'
 
-const promptTemplatesStorageKey = 'new-pic:prompt-templates:v1'
+export const promptTemplatesStorageKey = 'new-pic:prompt-templates:v1'
 
 type SavePromptTemplateInput = {
   id?: string
   title: string
   content: string
+  category?: string
+  tags?: string[]
 }
 
-function normalizeTemplate(template: PromptTemplateListItem): PromptTemplateListItem {
+type ImportLocalTemplatesResult = {
+  imported: number
+  total: number
+}
+
+let importLegacyTemplatesInFlight: Promise<ImportLocalTemplatesResult> | null = null
+
+export function normalizeTemplate(template: PromptTemplateListItem): PromptTemplateListItem {
   const now = Date.now()
+  const title = template.title?.trim() || template.name?.trim() || '未命名模板'
   return {
     id: template.id || crypto.randomUUID(),
-    title: template.title?.trim() || '未命名模板',
+    title,
+    name: title,
     content: template.content ?? '',
+    category: template.category?.trim() || undefined,
+    tags: normalizePromptTemplateTags(template.tags),
     createdAt: template.createdAt ?? now,
     updatedAt: template.updatedAt ?? template.createdAt ?? now,
+    lastUsedAt: template.lastUsedAt ?? undefined,
   }
 }
 
-function normalizeTemplates(templates: PromptTemplateListItem[]) {
+export function normalizeTemplates(templates: PromptTemplateListItem[]) {
   if (!Array.isArray(templates)) return []
   return templates.map(normalizeTemplate).sort((a, b) => Number(new Date(b.updatedAt ?? b.createdAt)) - Number(new Date(a.updatedAt ?? a.createdAt)))
 }
 
+export function sortPromptTemplates(templates: PromptTemplateListItem[], sortMode: 'updated' | 'used') {
+  const normalized = normalizeTemplates(templates)
+  return normalized.sort((a, b) => {
+    const left = sortMode === 'used' ? (b.lastUsedAt ?? b.updatedAt ?? b.createdAt) : (b.updatedAt ?? b.createdAt)
+    const right = sortMode === 'used' ? (a.lastUsedAt ?? a.updatedAt ?? a.createdAt) : (a.updatedAt ?? a.createdAt)
+    return Number(new Date(left)) - Number(new Date(right))
+  })
+}
+
+async function listPromptTemplates() {
+  return normalizeTemplates(await apiRequest<PromptTemplateListItem[]>('/api/prompt-templates'))
+}
+
+async function savePromptTemplate(input: SavePromptTemplateInput) {
+  return normalizeTemplate(await apiRequest<PromptTemplateListItem>('/api/prompt-templates', {
+    method: 'POST',
+    body: input,
+  }))
+}
+
+async function deletePromptTemplate(templateId: string) {
+  return await apiRequest<{ success: true }>(`/api/prompt-templates/${templateId}`, {
+    method: 'DELETE',
+  })
+}
+
+async function markPromptTemplateUsed(templateId: string) {
+  return normalizeTemplate(await apiRequest<PromptTemplateListItem>(`/api/prompt-templates/${templateId}/use`, {
+    method: 'POST',
+  }))
+}
+
+async function runImportLegacyPromptTemplates() {
+  const legacyTemplates = normalizeTemplates(await readBrowserValue<PromptTemplateListItem[]>(promptTemplatesStorageKey, []))
+  if (!legacyTemplates.length) return { imported: 0, total: 0 }
+
+  const result = await apiRequest<ImportLocalTemplatesResult>('/api/migrations/import-local-templates', {
+    method: 'POST',
+    body: { templates: legacyTemplates },
+  })
+
+  await deleteBrowserValue(promptTemplatesStorageKey)
+  return result
+}
+
+export async function importLegacyPromptTemplates() {
+  if (!importLegacyTemplatesInFlight) {
+    importLegacyTemplatesInFlight = runImportLegacyPromptTemplates().finally(() => {
+      importLegacyTemplatesInFlight = null
+    })
+  }
+
+  return importLegacyTemplatesInFlight
+}
+
 export function usePromptTemplates() {
+  const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [templates, setTemplates] = useState<PromptTemplateListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
 
-  const persistTemplates = useCallback(async (nextTemplates: PromptTemplateListItem[]) => {
-    const normalized = normalizeTemplates(nextTemplates)
-    setTemplates(normalized)
-    await writeBrowserValue(promptTemplatesStorageKey, normalized)
-    return normalized
-  }, [])
-
   const refresh = useCallback(async () => {
+    if (!isAuthenticated) {
+      setTemplates([])
+      setError(null)
+      setLoading(false)
+      return []
+    }
+
     setLoading(true)
     setError(null)
     try {
-      const stored = await readBrowserValue<PromptTemplateListItem[]>(promptTemplatesStorageKey, [])
-      const normalized = normalizeTemplates(stored)
+      const normalized = await listPromptTemplates()
       setTemplates(normalized)
       return normalized
     } catch (nextError) {
@@ -52,38 +124,62 @@ export function usePromptTemplates() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [isAuthenticated])
+
+  const hydrate = useCallback(async () => {
+    if (!isAuthenticated) {
+      setTemplates([])
+      setError(null)
+      setLoading(false)
+      return []
+    }
+
+    await importLegacyPromptTemplates()
+    return await refresh()
+  }, [isAuthenticated, refresh])
 
   useEffect(() => {
-    void refresh().catch(() => undefined)
-  }, [refresh])
+    if (authLoading) return
+    void hydrate().catch(() => undefined)
+  }, [authLoading, hydrate])
 
-  const saveTemplate = useCallback(async ({ id, title, content }: SavePromptTemplateInput) => {
-    const now = Date.now()
+  const saveTemplate = useCallback(async ({ id, title, content, category, tags }: SavePromptTemplateInput) => {
     if (!content.trim()) throw new Error('Prompt 模板内容不能为空')
-    const nextTemplate: PromptTemplateListItem = {
-      id: id || crypto.randomUUID(),
+    const saved = await savePromptTemplate({
+      id,
       title: title.trim() || '未命名模板',
       content,
-      createdAt: now,
-      updatedAt: now,
-    }
-    const nextTemplates = id
-      ? templates.map((template) => template.id === id ? { ...nextTemplate, createdAt: template.createdAt } : template)
-      : [nextTemplate, ...templates]
-    return persistTemplates(nextTemplates)
-  }, [persistTemplates, templates])
+      category,
+      tags,
+    })
+    setTemplates((current) => normalizeTemplates([
+      saved,
+      ...current.filter((template) => template.id !== saved.id),
+    ]))
+    return saved
+  }, [])
 
-  const deleteTemplate = useCallback(async (templateId: string) => {
-    return persistTemplates(templates.filter((template) => template.id !== templateId))
-  }, [persistTemplates, templates])
+  const updateTemplateUsage = useCallback(async (templateId: string) => {
+    const updated = await markPromptTemplateUsed(templateId)
+    setTemplates((current) => normalizeTemplates([
+      updated,
+      ...current.filter((template) => template.id !== updated.id),
+    ]))
+    return updated
+  }, [])
+
+  const removeTemplate = useCallback(async (templateId: string) => {
+    await deletePromptTemplate(templateId)
+    setTemplates((current) => current.filter((template) => template.id !== templateId))
+  }, [])
 
   return {
     templates,
-    loading,
+    loading: authLoading || loading,
     error,
     refresh,
     saveTemplate,
-    deleteTemplate,
+    markTemplateUsed: updateTemplateUsage,
+    deleteTemplate: removeTemplate,
   }
 }

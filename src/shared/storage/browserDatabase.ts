@@ -3,7 +3,7 @@ const databaseVersion = 1
 const storeName = 'key-value'
 
 function hasIndexedDb() {
-  return typeof window !== 'undefined' && 'indexedDB' in window
+  return typeof window !== 'undefined' && 'indexedDB' in window && window.indexedDB != null
 }
 
 function openDatabase(): Promise<IDBDatabase> {

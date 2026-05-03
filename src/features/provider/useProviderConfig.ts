@@ -1,22 +1,55 @@
 import { useEffect, useMemo, useState } from 'react'
-import { editEndpoint, generationEndpoint } from '@/features/generation/generation.constants'
-import { providerPresets, providerStorageKey } from '@/features/provider/provider.constants'
-import { readStoredConfig } from '@/features/provider/provider.storage'
+import { useAuthSession } from '@/features/auth/useAuthSession'
+import { normalizeProviderConfig } from '@/features/provider/provider.compat'
+import { defaultConfig, providerPresets } from '@/features/provider/provider.constants'
+import { readStoredConfig, writeStoredConfig } from '@/features/provider/provider.storage'
 import type { ProviderConfig } from '@/features/provider/provider.types'
-import { resolveImageApiUrl } from '@/shared/utils/url'
 
 type UseProviderConfigOptions = {
   onSaved?: () => void
 }
 
 export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
-  const [config, setConfig] = useState<ProviderConfig>(() => readStoredConfig())
-  const [draftConfig, setDraftConfig] = useState<ProviderConfig>(() => readStoredConfig())
+  const { isAuthenticated, loading: authLoading } = useAuthSession()
+  const [config, setConfig] = useState<ProviderConfig>(defaultConfig)
+  const [draftConfig, setDraftConfig] = useState<ProviderConfig>(defaultConfig)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  const requestUrl = useMemo(() => resolveImageApiUrl(config.apiUrl, generationEndpoint), [config.apiUrl])
-  const editRequestUrl = useMemo(() => resolveImageApiUrl(config.apiUrl, editEndpoint), [config.apiUrl])
+  const requestUrl = useMemo(() => '/api/provider-proxy/v1/images/generations', [config.providerId])
+  const editRequestUrl = useMemo(() => '/api/provider-proxy/v1/images/edits', [config.providerId])
   const activePreset = providerPresets.find((provider) => provider.id === config.providerId) ?? providerPresets[0]
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (authLoading) return () => {
+      cancelled = true
+    }
+
+    if (!isAuthenticated) {
+      setConfig(defaultConfig)
+      setDraftConfig(defaultConfig)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void readStoredConfig()
+      .then((stored) => {
+        if (cancelled) return
+        setConfig(stored)
+        setDraftConfig(stored)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setConfig(defaultConfig)
+        setDraftConfig(defaultConfig)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [authLoading, isAuthenticated])
 
   useEffect(() => {
     if (!settingsOpen) setDraftConfig(config)
@@ -32,29 +65,26 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
     })
   }
 
-  function saveProviderConfig() {
-    const normalized = {
-      ...draftConfig,
-      apiUrl: draftConfig.apiUrl.trim(),
-      model: draftConfig.model.trim(),
-      apiKey: draftConfig.apiKey.trim(),
-    }
-    setConfig(normalized)
-    window.localStorage.setItem(providerStorageKey, JSON.stringify(normalized))
+  async function saveProviderConfig() {
+    const normalized = normalizeProviderConfig(draftConfig)
+    const saved = await writeStoredConfig(normalized)
+    setConfig(saved)
+    setDraftConfig(saved)
     setSettingsOpen(false)
     onSaved?.()
   }
 
-  function applyProviderSnapshot(snapshot: Partial<Pick<ProviderConfig, 'providerId' | 'apiUrl' | 'model'>>) {
-    const normalized = {
+  async function applyProviderSnapshot(snapshot: Partial<Pick<ProviderConfig, 'providerId' | 'apiUrl' | 'model'>>) {
+    const normalized = normalizeProviderConfig({
       ...config,
       providerId: snapshot.providerId?.trim() || config.providerId,
       apiUrl: snapshot.apiUrl?.trim() ?? config.apiUrl,
       model: snapshot.model?.trim() || config.model,
-    }
-    setConfig(normalized)
-    setDraftConfig(normalized)
-    window.localStorage.setItem(providerStorageKey, JSON.stringify(normalized))
+      apiKey: config.apiKey,
+    })
+    const saved = await writeStoredConfig(normalized)
+    setConfig(saved)
+    setDraftConfig(saved)
   }
 
   return {

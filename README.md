@@ -1,107 +1,163 @@
 # Miastra Studio
 
-Miastra Studio 是一个面向图片创作的 AI Image Studio，支持提示词生成、参考图生图、抽卡式批量生成、实时预览、作品墙和本地持久化管理。
+Miastra Studio 是一个面向图片创作的 AI Image Studio，当前仓库包含：
 
-## 功能特性
+- 前端：React + Vite
+- 后端：Fastify
+- 存储：默认 JSON，可切换到 Postgres
 
-- 文生图与图生图：兼容 OpenAI Images API 风格接口。
-- 图片抽卡：固定提示词和参数，批量生成相近但有轻微差异的图片。
-- 作品管理：Works Rail、图片墙、预览、下载、删除、批量选择、复制提示词。
-- 本地持久化：作品与抽卡批次保存在当前浏览器 IndexedDB，刷新不丢失。
-- Provider 配置：API URL、Model、API Key 保存在当前浏览器 localStorage。
+这份 README 只保留新成员最需要的启动、构建、测试和发布入口。更完整的部署说明见 [docs/deployment-runbook.md](./docs/deployment-runbook.md)，发布回归说明见 [docs/release-regression.md](./docs/release-regression.md)。
 
-## 本地开发
+## 运行前提
+
+- Node.js `>= 20.19.0`
+- npm `>= 10`
+- 本地默认端口：
+  - 前端：`5173`
+  - 服务端：`18081`
+  - 可选 Postgres：`5432`
+
+## 快速开始
+
+默认推荐先用 JSON 存储跑通本地环境，不需要额外数据库。
 
 ```bash
 npm install
+npm --prefix server install
 cp .env.example .env
+```
+
+启动服务端：
+
+```bash
+npm --prefix server run dev
+```
+
+另开一个终端启动前端：
+
+```bash
 npm run dev
 ```
 
-默认开发服务地址：`http://127.0.0.1:5173/`
+启动后访问：
 
-如果需要使用本地 `/sub2api` 代理，请在 `.env` 中配置：
+- 前端：`http://127.0.0.1:5173`
+- 服务端健康检查：`http://127.0.0.1:18081/health`
+- 服务端存储健康检查：`http://127.0.0.1:18081/health/store`
 
-```bash
-VITE_SUB2API_PROXY_TARGET=https://your-sub2api.example.com
-```
+说明：
 
+- 项目根目录 `.env` 会同时被前端和服务端读取。
+- `server/.env` 仅在你需要覆盖服务端变量时再创建。
+- 根目录 `npm run dev` 只启动前端，不会自动带起 Fastify。
 
-## Docker 部署
+## 可选：切换到 Postgres
 
-项目提供了生产环境 Docker 配置：前端先通过 Vite 构建静态文件，再由 Nginx 提供访问，并在容器内把 `/sub2api/*` 反向代理到你的生图 API 服务。
-
-### 使用 Docker Compose
-
-```bash
-cp .env.example .env
-# 修改 .env 中的 SUB2API_PROXY_TARGET，例如：
-# SUB2API_PROXY_TARGET=https://your-sub2api.example.com
-
-docker compose up -d --build
-```
-
-默认访问地址：`http://127.0.0.1:8080/`
-
-如果你的服务器已有宝塔、1Panel、Nginx Proxy Manager 或宿主机 Nginx，可以把外层域名反代到：
+先启动本地数据库：
 
 ```bash
-http://127.0.0.1:8080
+docker compose -f docker-compose.db.yml up -d
 ```
 
-### 直接使用 Docker
+然后修改根目录 `.env`：
+
+```env
+SERVER_STORE_BACKEND=postgres
+DATABASE_URL=postgresql://miastra:miastra@127.0.0.1:5432/miastra
+```
+
+初始化表结构：
 
 ```bash
-docker build -t miastra-studio:latest .
-docker run -d \
-  --name miastra-studio \
-  --restart unless-stopped \
-  -p 8080:80 \
-  -e SUB2API_PROXY_TARGET=https://your-sub2api.example.com \
-  miastra-studio:latest
+npm --prefix server run db:init
 ```
 
-### 生产代理说明
+如需导入演示数据：
 
-- Docker 运行时的 `/sub2api/` 代理由 `SUB2API_PROXY_TARGET` 控制。
-- Nginx 已内置较长的生图超时：`proxy_read_timeout`、`proxy_send_timeout`、`send_timeout` 默认 `600s`。
-- Nginx 已关闭代理缓冲：`proxy_buffering off`、`proxy_request_buffering off`，更适合长耗时生成和 SSE/流式响应。
-- 如果前端 Provider 配置中 `API URL` 留空，请求会走当前站点的 `/sub2api/v1/images/generations` 和 `/sub2api/v1/images/edits`。
-- 如果前端 Provider 配置中填写了完整远端 API URL，则浏览器会直接请求该远端服务，需要远端服务允许 CORS。
+```bash
+npm --prefix server run db:seed
+```
 
-### 常用环境变量
+默认演示账号：
 
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `SUB2API_PROXY_TARGET` | `http://127.0.0.1:18080` | 生产容器内 `/sub2api/` 的上游服务地址 |
-| `CLIENT_MAX_BODY_SIZE` | `25m` | 图生图上传请求体大小上限 |
-| `PROXY_CONNECT_TIMEOUT` | `60s` | 连接上游超时 |
-| `PROXY_SEND_TIMEOUT` | `600s` | 向上游发送请求超时 |
-| `PROXY_READ_TIMEOUT` | `600s` | 等待上游生成响应超时 |
-| `SEND_TIMEOUT` | `600s` | Nginx 向浏览器发送响应超时 |
+- 管理员：`admin@miastra.local / secret123`
+- 普通用户：`demo@miastra.local / secret123`
 
-## 构建
+## 常用命令
+
+### 本地开发
+
+```bash
+npm run dev
+npm --prefix server run dev
+```
+
+### 构建
 
 ```bash
 npm run build
-npm run preview
+npm run build:server
 ```
 
-## 数据与安全说明
+前端构建产物在 `dist/`，服务端构建产物在 `server/dist/`。
 
-- 当前版本是前端优先的个人工作台方案。
-- 生成作品和抽卡批次保存在访问者自己的浏览器 IndexedDB 中。
-- Provider 配置保存在访问者自己的浏览器 localStorage 中。
-- 不建议把长期 API Key 写死在前端代码中；多人正式使用时建议增加后端代理、用户系统、数据库和对象存储。
+### 测试与回归
 
-## 技术栈
+```bash
+npm run test:smoke
+npm run test:regression
+npm run release:check
+```
 
-- React 18
-- TypeScript
-- Vite
-- Tailwind CSS
-- Lucide Icons
+命令含义：
 
-## License
+- `npm run test:smoke`：最小高价值回归，适合日常自测。
+- `npm run test:regression`：完整前后端自动化回归。
+- `npm run release:check`：发布前统一门禁，会顺序执行 `smoke -> regression -> 前后端构建`。
 
-MIT
+### 质量检查
+
+```bash
+npm run typecheck
+npm run typecheck:server
+npm run lint
+npm run format:check
+```
+
+## 环境变量
+
+环境变量以根目录 [.env.example](./.env.example) 为准，已经按用途分组：
+
+- 前端开发代理：`VITE_API_PROXY_TARGET`、`VITE_SUB2API_PROXY_TARGET`
+- 服务端运行：`PORT`、`SERVER_STORE_BACKEND`、`DATABASE_URL`
+- Provider / 任务：`PROVIDER_UPSTREAM_ORIGIN`、`GENERATION_*`
+- 认证 / Billing：`AUTH_JWT_SECRET`、`RESET_JWT_SECRET`、`AUTH_PASSWORD_RESET_MODE`、`BILLING_MODE`
+- 前端静态容器 / Nginx：`SUB2API_PROXY_TARGET`、`NGINX_PORT`、`CLIENT_MAX_BODY_SIZE`、`PROXY_*`
+- Postgres Compose：`POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_PORT`
+
+生产环境至少需要确认：
+
+- `NODE_ENV=production`
+- `AUTH_JWT_SECRET`、`RESET_JWT_SECRET` 已替换为强随机值
+- `AUTH_PASSWORD_RESET_MODE=disabled`
+- `BILLING_MODE=disabled` 或显式 `mock`
+
+## 发布与部署
+
+推荐发版前流程：
+
+1. 执行 `npm run release:check`
+2. 按 [docs/release-regression.md](./docs/release-regression.md) 完成手工 smoke
+3. 按 [docs/deployment-runbook.md](./docs/deployment-runbook.md) 发布前端与服务端
+
+当前仓库的部署边界必须注意：
+
+- 仓库内 `Dockerfile` 和 `docker-compose.yml` 只负责前端静态站点容器。
+- Fastify 服务需要单独构建和启动。
+- 生产流量必须把 `/api` 反向代理到 Fastify；否则登录、作品、任务、模板等功能都不可用。
+
+## 文档索引
+
+- [docs/README.md](./docs/README.md)
+- [docs/deployment-runbook.md](./docs/deployment-runbook.md)
+- [docs/release-regression.md](./docs/release-regression.md)

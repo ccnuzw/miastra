@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { Download, ImagePlus, RefreshCw, SlidersHorizontal, X } from 'lucide-react'
 import type { GenerationDrawSnapshot, GenerationMode, GenerationReferenceSnapshot } from '@/features/generation/generation.types'
 import type { GalleryImage } from './works.types'
@@ -6,7 +7,7 @@ type ImageViewerModalProps = {
   image: GalleryImage | null
   onClose: () => void
   onDownload: (item: GalleryImage) => void
-  onPushReference: (item: GalleryImage) => void
+  onPushReference?: (item: GalleryImage) => void
   onReuseParameters?: (item: GalleryImage) => void
   onRegenerateFromParameters?: (item: GalleryImage) => void
 }
@@ -45,11 +46,12 @@ function buildReferenceRows(references?: GenerationReferenceSnapshot): Parameter
   const sources = Array.isArray(references.sources) ? references.sources : []
   return [
     { label: '参考图数量', value: references.count },
-    { label: '参考图来源', value: sources.length ? sources.map((item) => `${item.source === 'work' ? '作品' : '上传'}:${item.name}`).join(' / ') : '未记录来源' },
+    { label: '可恢复项', value: sources.filter((item) => Boolean(item.src)).length },
+    { label: '来源概览', value: sources.length ? sources.map((item) => `${item.source === 'work' ? '作品' : '上传'}:${item.name}`).join(' / ') : '未记录来源' },
   ]
 }
 
-function buildDrawRows(draw?: GenerationDrawSnapshot, image?: GalleryImage): ParameterRow[] {
+function buildBatchRows(draw?: GenerationDrawSnapshot, image?: GalleryImage): ParameterRow[] {
   const batchId = draw?.batchId ?? image?.batchId
   const drawIndex = draw?.drawIndex ?? image?.drawIndex
   const variation = draw?.variation ?? image?.variation
@@ -66,9 +68,43 @@ function buildDrawRows(draw?: GenerationDrawSnapshot, image?: GalleryImage): Par
     { label: '变化强度', value: draw?.variationStrength },
     { label: '变化维度', value: draw?.dimensions.join(' / ') },
     { label: '批次', value: batchId },
+    { label: '批次快照', value: draw?.batchSnapshotId },
     { label: '序号', value: drawIndex === undefined ? undefined : drawIndex + 1 },
     { label: '变化描述', value: variation },
   ]
+}
+
+function buildAssetRows(image: GalleryImage): ParameterRow[] {
+  const rows: ParameterRow[] = [
+    { label: '资产 ID', value: image.assetId },
+    { label: '资产类型', value: image.assetStorage },
+    { label: '同步状态', value: image.assetSyncStatus },
+    { label: '远端标识', value: image.assetRemoteKey },
+    { label: '远端地址', value: image.assetRemoteUrl },
+    { label: '资产更新时间', value: image.assetUpdatedAt ? formatMaybeDate(image.assetUpdatedAt) : undefined },
+  ]
+  return rows.filter((row) => row.value !== undefined && row.value !== null && row.value !== '')
+}
+
+function ReferencePreviewGrid({ references }: { references?: GenerationReferenceSnapshot }) {
+  if (!references?.sources?.length) {
+    return <p className="viewer-reference-note">未保存参考图文件，只记录了参考图数量与来源信息。</p>
+  }
+
+  return (
+    <div className="viewer-reference-grid">
+      {references.sources.map((item, index) => (
+        <div key={`${item.name}-${index}`} className="viewer-reference-card">
+          <div className="viewer-reference-preview">
+            {item.src ? <img src={item.src} alt={item.name} /> : <span>无预览</span>}
+          </div>
+          <strong>{item.name}</strong>
+          <p>{item.source === 'work' ? '作品参考图' : '上传参考图'}</p>
+          <small>{item.workTitle || item.workId || item.assetId || item.assetRemoteKey || '仅保存来源描述'}</small>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function ParameterGrid({ rows }: { rows: ParameterRow[] }) {
@@ -92,14 +128,15 @@ export function ImageViewerModal({
   onReuseParameters,
   onRegenerateFromParameters,
 }: ImageViewerModalProps) {
-  if (!image?.src) return null
+  if (!image?.src || typeof document === 'undefined') return null
 
   const snapshot = image.generationSnapshot
   const mode = snapshot?.mode ?? image.mode
-  const promptText = snapshot?.workspacePrompt || snapshot?.prompt || image.promptText || image.promptSnippet
-  const requestPrompt = snapshot?.requestPrompt
+  const workspacePrompt = snapshot?.workspacePrompt || image.promptText || image.promptSnippet || image.title
+  const requestPromptText = snapshot?.requestPrompt || snapshot?.prompt || image.promptText || image.promptSnippet || image.title
   const references = snapshot?.references
-  const drawRows = buildDrawRows(snapshot?.draw, image)
+  const batchRows = buildBatchRows(snapshot?.draw, image)
+  const assetRows = buildAssetRows(image)
   const baseRows: ParameterRow[] = [
     { label: '模式', value: mode ? modeLabels[mode] : undefined },
     { label: '模型', value: snapshot?.model ?? image.providerModel },
@@ -115,10 +152,10 @@ export function ImageViewerModal({
   ]
   const referenceRows = buildReferenceRows(references)
   const isLegacy = !snapshot
-  const hasReusableParameters = Boolean(promptText || snapshot || image.providerModel || image.size || image.quality || image.mode)
+  const hasReusableParameters = Boolean(workspacePrompt || requestPromptText || snapshot || image.providerModel || image.size || image.quality || image.mode)
   const hasReferenceHint = Boolean(references?.count || mode?.includes('image2image'))
 
-  return (
+  return createPortal(
     <div className="modal-backdrop image-viewer-backdrop" role="dialog" aria-modal="true" aria-label="图片放大预览" onClick={onClose}>
       <div className="image-viewer-card" onClick={(event) => event.stopPropagation()}>
         <div className="image-viewer-header">
@@ -128,7 +165,7 @@ export function ImageViewerModal({
             <p className="mt-1 truncate text-xs text-porcelain-100/55">{image.meta}</p>
           </div>
           <div className="flex shrink-0 gap-2">
-            <button type="button" className="icon-button" onClick={() => onPushReference(image)} aria-label="推送到输入框">
+            <button type="button" className="icon-button" disabled={!onPushReference} onClick={() => onPushReference?.(image)} aria-label="推送到输入框">
               <ImagePlus className="h-4 w-4" />
             </button>
             <button type="button" className="icon-button" onClick={() => onDownload(image)} aria-label="下载图片">
@@ -137,13 +174,13 @@ export function ImageViewerModal({
             <button type="button" className="icon-button" onClick={onClose} aria-label="关闭预览">
               <X className="h-4 w-4" />
             </button>
+            </div>
           </div>
-        </div>
-        <div className="image-viewer-layout">
-          <div className="image-viewer-body">
-            <img src={image.src} alt={image.title} />
-          </div>
-          <aside className="viewer-parameters-panel" aria-label="生成参数详情">
+          <div className="image-viewer-layout">
+            <div className="image-viewer-body">
+              <img src={image.src} alt={image.title} />
+            </div>
+            <aside className="viewer-parameters-panel" aria-label="生成参数详情">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="eyebrow">Parameters</p>
@@ -154,13 +191,18 @@ export function ImageViewerModal({
 
             <section className="viewer-parameter-section">
               <p className="viewer-section-title">Prompt</p>
-              <div className="viewer-prompt-box">{promptText || '旧作品未保存 prompt，仅可复用已记录的模型、尺寸、质量等参数。'}</div>
-              {requestPrompt && requestPrompt !== promptText && (
-                <details className="viewer-request-prompt">
-                  <summary>查看请求 Prompt</summary>
-                  <p>{requestPrompt}</p>
-                </details>
-              )}
+              <div className="viewer-prompt-stack">
+                <div>
+                  <p className="viewer-prompt-label">工作区 Prompt</p>
+                  <div className="viewer-prompt-box">{workspacePrompt || '未记录工作区 Prompt。'}</div>
+                </div>
+                {requestPromptText && requestPromptText !== workspacePrompt && (
+                  <div>
+                    <p className="viewer-prompt-label">请求 Prompt</p>
+                    <div className="viewer-prompt-box">{requestPromptText}</div>
+                  </div>
+                )}
+              </div>
             </section>
 
             <section className="viewer-parameter-section">
@@ -168,21 +210,29 @@ export function ImageViewerModal({
               <ParameterGrid rows={baseRows} />
             </section>
 
+            {assetRows.length > 0 && (
+              <section className="viewer-parameter-section">
+                <p className="viewer-section-title">资产追踪</p>
+                <ParameterGrid rows={assetRows} />
+              </section>
+            )}
+
             {referenceRows.length > 0 && (
               <section className="viewer-parameter-section">
                 <p className="viewer-section-title">参考图</p>
                 <ParameterGrid rows={referenceRows} />
-                <p className="viewer-reference-note">{references?.note ? `${references.note}；参考图文件需重新提供。` : '参考图文件未随作品快照保存；复用或再次生成前需重新提供参考图文件。'}</p>
+                <ReferencePreviewGrid references={references} />
+                <p className="viewer-reference-note">{references?.note ? `${references.note}；可恢复项会在当前会话中自动回填。` : '参考图文件未随作品快照保存；复用或再次生成前需重新提供参考图文件。'}</p>
               </section>
             )}
             {hasReferenceHint && referenceRows.length === 0 && (
               <p className="viewer-reference-note">该作品可能基于图生图生成；旧数据未保存参考图详情，复用后参考图文件需重新提供。</p>
             )}
 
-            {drawRows.length > 0 && (
+            {batchRows.length > 0 && (
               <section className="viewer-parameter-section">
-                <p className="viewer-section-title">抽卡参数</p>
-                <ParameterGrid rows={drawRows} />
+                <p className="viewer-section-title">批次信息</p>
+                <ParameterGrid rows={batchRows} />
               </section>
             )}
 
@@ -210,6 +260,7 @@ export function ImageViewerModal({
           </aside>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

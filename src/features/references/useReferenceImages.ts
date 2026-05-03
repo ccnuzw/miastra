@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useRef, useState } from 'react'
+import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import { acceptedReferenceImageTypes, maxReferenceImageSize } from '@/features/references/reference.constants'
 import type { ReferenceImage } from '@/features/references/reference.types'
 import type { GalleryImage } from '@/features/works/works.types'
@@ -8,8 +8,21 @@ type UseReferenceImagesOptions = {
   onError?: (message: string) => void
 }
 
+const maxReferenceImages = 4
+
 function revokeReferenceImage(image: ReferenceImage) {
   if (image.source === 'upload' && image.src.startsWith('blob:')) URL.revokeObjectURL(image.src)
+}
+
+function clampReferenceImages(nextItems: ReferenceImage[], previousItems: ReferenceImage[]) {
+  const keptIds = new Set(nextItems.slice(0, maxReferenceImages).map((item) => item.id))
+  const discardedItems = nextItems.filter((item) => !keptIds.has(item.id) && !previousItems.some((previous) => previous.id === item.id))
+  const replacedUploads = previousItems.filter((item) => item.source === 'upload' && item.src.startsWith('blob:') && !keptIds.has(item.id))
+
+  discardedItems.forEach(revokeReferenceImage)
+  replacedUploads.forEach(revokeReferenceImage)
+
+  return nextItems.slice(0, maxReferenceImages)
 }
 
 export function useReferenceImages({ onSuccess, onError }: UseReferenceImagesOptions = {}) {
@@ -51,7 +64,7 @@ export function useReferenceImages({ onSuccess, onError }: UseReferenceImagesOpt
     })
 
     if (validImages.length) {
-      setReferenceImages((items) => [...items, ...validImages].slice(0, 4))
+      setReferenceImages((items) => clampReferenceImages([...items, ...validImages], items))
       onSuccess?.(`已添加 ${validImages.length} 张参考图，本次生成将自动使用图生图`)
     }
     if (rejectedNames.length) {
@@ -67,17 +80,29 @@ export function useReferenceImages({ onSuccess, onError }: UseReferenceImagesOpt
     })
   }
 
+  function handleReplaceReferenceImages(nextItems: ReferenceImage[]) {
+    setReferenceImages((items) => clampReferenceImages(nextItems, items))
+  }
+
   function handlePushReferenceImage(image: GalleryImage) {
-    if (!image.src) return
-    setReferenceImages((items) => {
-      if (items.some((item) => item.src === image.src)) return items
-      return [{
-        id: crypto.randomUUID(),
-        src: image.src,
-        name: `${image.title || 'work'}-reference.png`,
-        source: 'work',
-      }, ...items].slice(0, 4)
-    })
+    const src = image.src
+    if (!src) return
+    if (referenceImagesRef.current.some((item) => item.src === src)) {
+      onError?.('该作品已在参考图托盘中。')
+      return
+    }
+
+    const nextReference: ReferenceImage = {
+      id: crypto.randomUUID(),
+      src,
+      name: `${image.title || 'work'}-reference.png`,
+      source: 'work',
+      assetId: image.assetId,
+      assetRemoteKey: image.assetRemoteKey,
+      workId: image.id,
+      workTitle: image.title,
+    }
+    setReferenceImages((items) => clampReferenceImages([nextReference, ...items], items))
     onSuccess?.('已推送到输入框参考图托盘，本次生成将自动使用图生图')
   }
 
@@ -87,6 +112,7 @@ export function useReferenceImages({ onSuccess, onError }: UseReferenceImagesOpt
     referenceInputRef,
     handleReferenceUpload,
     handleRemoveReferenceImage,
+    handleReplaceReferenceImages,
     handlePushReferenceImage,
   }
 }

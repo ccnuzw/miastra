@@ -1,4 +1,5 @@
 import { Images, Search, Star, Trash2, X } from 'lucide-react'
+import { useMemo, useState, type FormEvent } from 'react'
 import type { DrawBatch } from '@/features/draw-card/drawCard.types'
 import { WorkTile } from './WorkTile'
 import type { GalleryImage } from './works.types'
@@ -14,6 +15,7 @@ type WorksRailProps = {
   availableTags: string[]
   activeTag: string
   favoritesOnly: boolean
+  selectedTags?: string[]
   onBatchChange: (batchId: string) => void
   onSearchChange: (query: string) => void
   onTagChange: (tag: string) => void
@@ -22,12 +24,15 @@ type WorksRailProps = {
   onOpenWall: () => void
   onPreview: (item: GalleryImage) => void
   onDownload: (item: GalleryImage) => void
-  onPushReference: (item: GalleryImage) => void
+  onPushReference?: (item: GalleryImage) => void
   onRemove: (id: string) => void
+  onRetry?: (item: GalleryImage) => void
   onToggleSelect: (id: string) => void
   onToggleFavorite: (id: string) => void
   onAddTag: (id: string, tag: string) => void
   onRemoveTag: (id: string, tag: string) => void
+  onAddSelectedTag?: (tag: string) => void
+  onRemoveSelectedTag?: (tag: string) => void
   onClearSelection: () => void
   onRemoveSelected: () => void
   onDownloadSelected: () => void
@@ -56,19 +61,33 @@ export function WorksRail({
   onDownload,
   onPushReference,
   onRemove,
+  onRetry,
   onToggleSelect,
   onToggleFavorite,
   onAddTag,
   onRemoveTag,
+  selectedTags = [],
+  onAddSelectedTag,
+  onRemoveSelectedTag,
   onClearSelection,
   onRemoveSelected,
   onDownloadSelected,
   includeMetadata,
   onIncludeMetadataChange,
 }: WorksRailProps) {
+  const [selectedTagDraft, setSelectedTagDraft] = useState('')
   const taskCount = items.filter((item) => item.taskStatus).length
   const selectedCount = selectedIds.length
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
   const hasFilters = Boolean(searchQuery.trim() || activeTag !== 'all' || favoritesOnly)
+
+  function handleAddSelectedTag(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const nextTag = selectedTagDraft.trim()
+    if (!nextTag) return
+    onAddSelectedTag?.(nextTag)
+    setSelectedTagDraft('')
+  }
 
   return (
     <div className="works-panel works-panel-stacked">
@@ -82,8 +101,31 @@ export function WorksRail({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {selectedCount > 0 && (
-            <div className="bulk-action-bar">
+            <div className="bulk-action-bar flex-wrap">
               <span>已选 {selectedCount}</span>
+              {onAddSelectedTag && (
+                <form onSubmit={handleAddSelectedTag} className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/35 px-2 py-1">
+                  <input
+                    value={selectedTagDraft}
+                    onChange={(event) => setSelectedTagDraft(event.target.value)}
+                    placeholder="批量加标签"
+                    className="w-24 bg-transparent text-[11px] font-black text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
+                    aria-label="批量加标签"
+                  />
+                  <button type="submit" className="bulk-ghost">加</button>
+                </form>
+              )}
+              {onRemoveSelectedTag && selectedTags.length > 0 && selectedTags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => onRemoveSelectedTag(tag)}
+                  className="inline-flex items-center gap-1 rounded-full border border-porcelain-50/10 bg-ink-950/35 px-2 py-1 text-[11px] font-black text-porcelain-100/60 transition hover:border-signal-coral/45 hover:text-signal-coral"
+                  aria-label={`批量移除标签 ${tag}`}
+                >
+                  #{tag}<X className="h-3 w-3" />
+                </button>
+              ))}
               <button type="button" onClick={onDownloadSelected} className="bulk-ghost">下载 ZIP</button>
               <label className="bulk-metadata-toggle" onClick={(event) => event.stopPropagation()}>
                 <input
@@ -109,12 +151,12 @@ export function WorksRail({
           <input
             value={searchQuery}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="搜索标题、Prompt、模型、尺寸、质量、标签"
+            placeholder="搜索标题、Prompt、模型、尺寸、质量、标签、批次、状态、错误"
             className="w-full min-w-0 bg-transparent text-sm font-semibold text-porcelain-50 outline-none placeholder:text-porcelain-100/30"
           />
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => onFavoritesOnlyChange(!favoritesOnly)} className={`batch-chip ${favoritesOnly ? 'batch-chip-active' : ''}`}>
+          <button type="button" onClick={() => onFavoritesOnlyChange(!favoritesOnly)} className={`batch-chip batch-chip-inline ${favoritesOnly ? 'batch-chip-active' : ''}`}>
             <Star className={`h-3.5 w-3.5 ${favoritesOnly ? 'fill-current' : ''}`} />
             收藏
           </button>
@@ -131,7 +173,7 @@ export function WorksRail({
           {batches.slice(0, 5).map((batch) => (
             <button key={batch.id} type="button" onClick={() => onBatchChange(batch.id)} className={`batch-chip ${activeBatchId === batch.id ? 'batch-chip-active' : ''}`}>
               <span>{batch.title}</span>
-              <small>{batch.successCount}/{batch.count} · 并发 {batch.concurrency}</small>
+              <small>{batch.successCount}/{batch.count} · 失败 {batch.failedCount} · 超时 {batch.timeoutCount} · 中断 {batch.interruptedCount}</small>
             </button>
           ))}
         </div>
@@ -141,7 +183,7 @@ export function WorksRail({
           <WorkTile
             key={item.id}
             item={item}
-            selected={selectedIds.includes(item.id)}
+            selected={selectedIdSet.has(item.id)}
             onToggleSelect={onToggleSelect}
             onToggleFavorite={onToggleFavorite}
             onAddTag={onAddTag}
@@ -150,6 +192,7 @@ export function WorksRail({
             onDownload={onDownload}
             onPushReference={onPushReference}
             onRemove={onRemove}
+            onRetry={onRetry}
           />
         ))}
       </div>

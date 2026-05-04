@@ -6,12 +6,6 @@ export type UpdateProfileInput = { nickname: string }
 export type ChangePasswordInput = { currentPassword: string; nextPassword: string }
 export type ForgotPasswordInput = { email: string }
 export type ResetPasswordInput = { email: string; token: string; nextPassword: string }
-export type PasswordResetRuntimeConfig = {
-  mode: 'disabled' | 'debug'
-  requestAvailable: boolean
-  debugTokenAvailable: boolean
-  notice: string
-}
 
 export type AuthUser = {
   id: string
@@ -56,11 +50,7 @@ export async function changePassword(input: ChangePasswordInput) {
 }
 
 export async function forgotPassword(input: ForgotPasswordInput) {
-  return apiRequest<{ success: true; debugResetToken?: string; resetTokenExpiresAt?: string }>('/api/auth/forgot-password', { method: 'POST', body: input })
-}
-
-export async function fetchPasswordResetConfig() {
-  return apiRequest<PasswordResetRuntimeConfig>('/api/auth/password-reset-config')
+  return apiRequest<{ success: true }>('/api/auth/forgot-password', { method: 'POST', body: input })
 }
 
 export async function resetPassword(input: ResetPasswordInput) {
@@ -72,7 +62,7 @@ export async function fetchSessions() {
 }
 
 export async function revokeSession(id: string) {
-  return apiRequest<{ success: true }>('/api/auth/sessions/' + id + '/revoke', { method: 'POST' })
+  return apiRequest<{ success: true }>(`/api/auth/sessions/${id}/revoke`, { method: 'POST' })
 }
 
 export async function revokeOtherSessions() {

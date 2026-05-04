@@ -3,22 +3,32 @@ import type { FastifyInstance } from 'fastify'
 import { requireAuthenticatedUser } from '../auth/routes'
 import { fail, ok } from '../lib/http'
 import { getAuthDomainStore } from '../lib/domain-store'
-import { normalizeProviderConfigInput, validateProviderApiUrl } from './provider.utils'
+import { storeRepository } from '../lib/store'
+import {
+  createDefaultProviderConfig,
+  listPublicManagedProviders,
+  normalizeUserProviderConfigInput,
+  resolveEffectiveProviderConfig,
+} from './provider.service'
+import { validateProviderApiUrl } from './provider.utils'
 
 const providerConfigSchema = z.object({
-  providerId: z.string().trim().min(1),
+  mode: z.enum(['managed', 'custom']),
+  providerId: z.string().trim().optional(),
+  managedProviderId: z.string().trim().optional(),
   apiUrl: z.string().trim(),
   model: z.string().trim().min(1),
   apiKey: z.string().trim(),
 })
 
-function normalizeProviderConfig(config: z.infer<typeof providerConfigSchema>) {
-  return normalizeProviderConfigInput({
-    providerId: config.providerId,
-    apiUrl: config.apiUrl,
-    model: config.model,
-    apiKey: config.apiKey,
-  })
+function buildProviderConfigPayload(params: {
+  config: ReturnType<typeof normalizeUserProviderConfigInput>
+  managedProviders: ReturnType<typeof listPublicManagedProviders>
+}) {
+  return {
+    config: params.config,
+    managedProviders: params.managedProviders,
+  }
 }
 
 export async function registerProviderConfigRoutes(app: FastifyInstance) {
@@ -26,21 +36,14 @@ export async function registerProviderConfigRoutes(app: FastifyInstance) {
     const user = await requireAuthenticatedUser(request, reply)
     if (!user) return
 
+    const store = await storeRepository.read()
+    const managedProviders = listPublicManagedProviders(store)
     const config = await getAuthDomainStore().findProviderConfigByUserId(user.id)
-    if (!config) {
-      return ok({
-        providerId: 'sub2api',
-        apiUrl: '',
-        model: 'gpt-image-2',
-        apiKey: '',
-      })
-    }
-    return ok({
-      providerId: config.providerId,
-      apiUrl: config.apiUrl,
-      model: config.model,
-      apiKey: config.apiKey,
-    })
+
+    return ok(buildProviderConfigPayload({
+      config: normalizeUserProviderConfigInput(config ?? createDefaultProviderConfig(user.id)),
+      managedProviders,
+    }))
   })
 
   app.put('/api/provider-config', async (request, reply) => {
@@ -53,24 +56,68 @@ export async function registerProviderConfigRoutes(app: FastifyInstance) {
       return fail('INVALID_INPUT', 'Provider 配置格式不正确')
     }
 
-    const normalized = {
+    const store = await storeRepository.read()
+    const managedProviders = listPublicManagedProviders(store)
+    const normalized = normalizeUserProviderConfigInput({
       userId: user.id,
-      ...normalizeProviderConfig(parsed.data),
+      mode: parsed.data.mode,
+      providerId: parsed.data.providerId ?? '',
+      managedProviderId: parsed.data.managedProviderId ?? '',
+      apiUrl: parsed.data.apiUrl,
+      model: parsed.data.model,
+      apiKey: parsed.data.apiKey,
       updatedAt: new Date().toISOString(),
-    }
-    const apiUrlError = validateProviderApiUrl(normalized.apiUrl)
-    if (apiUrlError) {
-      reply.code(400)
-      return fail(apiUrlError.code, apiUrlError.message)
+    })
+
+    if (normalized.mode === 'managed') {
+      const selected = managedProviders.find((item) => item.id === normalized.managedProviderId)
+      if (!selected) {
+        reply.code(400)
+        return fail('PROVIDER_CONFIG_REQUIRED', '当前选择的公共 Provider 不存在或已下线，请重新选择。')
+      }
+      const model = normalized.model.trim() || selected.defaultModel
+      if (!selected.models.includes(model)) {
+        reply.code(400)
+        return fail('PROVIDER_MODEL_INVALID', '当前选择的模型不在该公共 Provider 的可用列表中。')
+      }
+      normalized.model = model
+    } else {
+      const rawApiUrl = parsed.data.apiUrl.trim()
+      const apiUrlError = rawApiUrl.startsWith('/') && !rawApiUrl.startsWith('//')
+        ? {
+            code: 'PROVIDER_URL_INVALID',
+            message: 'API URL 不能使用相对路径，请填写完整云端基址或留空使用服务端默认上游。',
+          }
+        : validateProviderApiUrl(normalized.apiUrl)
+      if (apiUrlError) {
+        reply.code(400)
+        return fail(apiUrlError.code, apiUrlError.message)
+      }
     }
 
     await getAuthDomainStore().upsertProviderConfig(normalized)
 
+    return ok(buildProviderConfigPayload({
+      config: normalized,
+      managedProviders,
+    }))
+  })
+
+  app.get('/api/provider-config/resolve', async (request, reply) => {
+    const user = await requireAuthenticatedUser(request, reply)
+    if (!user) return
+
+    const store = await storeRepository.read()
+    const config = await getAuthDomainStore().findProviderConfigByUserId(user.id)
+    const resolved = resolveEffectiveProviderConfig({ store, config })
+    if (resolved.error) {
+      reply.code(409)
+      return fail(resolved.error.code, resolved.error.message)
+    }
     return ok({
-      providerId: normalized.providerId,
-      apiUrl: normalized.apiUrl,
-      model: normalized.model,
-      apiKey: normalized.apiKey,
+      providerId: resolved.config?.providerId ?? '',
+      model: resolved.config?.model ?? '',
+      source: resolved.config?.source ?? 'custom',
     })
   })
 }

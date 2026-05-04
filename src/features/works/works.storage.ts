@@ -1,15 +1,5 @@
 import { apiRequest } from '@/shared/http/client'
-import { deleteBrowserValue, readBrowserValue, writeBrowserValue } from '@/shared/storage/browserDatabase'
 import type { GalleryAssetRecord, GalleryAssetStorage, GalleryAssetSyncStatus, GalleryImage } from './works.types'
-
-export const worksGalleryStorageKey = 'new-pic:works-gallery:v1'
-export const worksGalleryAssetStorageKey = 'new-pic:works-gallery:assets:v1'
-export const worksGalleryAssetRecordStorageKey = 'new-pic:works-gallery:asset-records:v2'
-
-type ImportLocalWorksResult = {
-  imported: number
-  total: number
-}
 
 type WorksMutationResult = {
   success: true
@@ -21,26 +11,12 @@ type WorksBatchTagResult = {
   works: GalleryImage[]
 }
 
-const importLocalWorksBatchLimit = 700_000
-const worksReplaceBodyLimit = 14_000_000
-let importLegacyWorksInFlight: Promise<ImportLocalWorksResult> | null = null
-
-type GalleryAssetMap = Record<string, string>
-type GalleryAssetRecordMap = Record<string, GalleryAssetRecord>
-
 const validAssetStorages: GalleryAssetStorage[] = ['inline', 'blob', 'remote']
 const validAssetSyncStatuses: GalleryAssetSyncStatus[] = ['local-only', 'pending-sync', 'synced']
 
 function normalizeTags(tags: unknown): string[] {
-  const values = Array.isArray(tags)
-    ? tags
-    : typeof tags === 'string'
-      ? tags.split(/[,，\n]/)
-      : []
-
-  return Array.from(new Set(values
-    .map((tag) => typeof tag === 'string' ? tag.trim() : '')
-    .filter(Boolean)))
+  if (!Array.isArray(tags)) return []
+  return Array.from(new Set(tags.map((tag) => typeof tag === 'string' ? tag.trim() : '').filter(Boolean)))
 }
 
 function normalizeOptionalString(value: unknown) {
@@ -51,7 +27,7 @@ function normalizeOptionalTimestamp(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-function createPrimaryAssetId(workId: string) {
+export function createPrimaryAssetId(workId: string) {
   return `work:${workId}:primary`
 }
 
@@ -135,38 +111,11 @@ function normalizeGalleryAssetRecord(asset: GalleryAssetRecord | null | undefine
   } satisfies GalleryAssetRecord
 }
 
-function normalizeStoredAssetRecordMap(assetMap: GalleryAssetRecordMap) {
-  return Object.values(assetMap).reduce<GalleryAssetRecordMap>((records, asset) => {
+function normalizeGalleryAssetRecordMap(assetMap: Record<string, GalleryAssetRecord> | undefined) {
+  if (!assetMap) return {}
+  return Object.values(assetMap).reduce<Record<string, GalleryAssetRecord>>((records, asset) => {
     const normalized = normalizeGalleryAssetRecord(asset)
     if (normalized) records[normalized.id] = normalized
-    return records
-  }, {})
-}
-
-function coerceAssetRecordMap(assetMap: GalleryAssetRecordMap | GalleryAssetMap) {
-  const entries = Object.entries(assetMap)
-  if (!entries.length) return {} satisfies GalleryAssetRecordMap
-
-  const firstValue = entries[0]?.[1]
-  if (typeof firstValue !== 'string') {
-    return normalizeStoredAssetRecordMap(assetMap as GalleryAssetRecordMap)
-  }
-
-  const now = Date.now()
-  return entries.reduce<GalleryAssetRecordMap>((records, [workId, rawSrc]) => {
-    const src = normalizeOptionalString(rawSrc)
-    if (!src) return records
-    const assetId = createPrimaryAssetId(workId)
-    records[assetId] = {
-      id: assetId,
-      workId,
-      src,
-      storage: detectAssetStorage(src) ?? 'remote',
-      syncStatus: normalizeAssetSyncStatus(undefined, { src }) ?? 'local-only',
-      mimeType: detectMimeType(src),
-      createdAt: now,
-      updatedAt: now,
-    }
     return records
   }, {})
 }
@@ -202,8 +151,8 @@ function buildAssetRecord(work: GalleryImage, currentAsset?: GalleryAssetRecord 
   })
 }
 
-function buildGalleryAssetRecordMap(gallery: GalleryImage[], currentAssets: GalleryAssetRecordMap) {
-  return normalizeGallery(gallery).reduce<GalleryAssetRecordMap>((assets, work) => {
+function _buildGalleryAssetRecordMap(gallery: GalleryImage[], currentAssets: Record<string, GalleryAssetRecord>) {
+  return normalizeGallery(gallery).reduce<Record<string, GalleryAssetRecord>>((assets, work) => {
     const assetId = work.assetId
     const currentAsset = assetId ? (assets[assetId] ?? currentAssets[assetId]) : null
     const assetRecord = buildAssetRecord(work, currentAsset)
@@ -212,96 +161,8 @@ function buildGalleryAssetRecordMap(gallery: GalleryImage[], currentAssets: Gall
   }, {})
 }
 
-async function readStoredGalleryAssetRecordMap() {
-  const [assetRecords, legacyAssetMap] = await Promise.all([
-    readBrowserValue<GalleryAssetRecordMap>(worksGalleryAssetRecordStorageKey, {}),
-    readBrowserValue<GalleryAssetMap>(worksGalleryAssetStorageKey, {}),
-  ])
-
-  const normalizedAssets = normalizeStoredAssetRecordMap(assetRecords)
-  const migratedAssets = { ...normalizedAssets }
-  let migrated = Object.keys(normalizedAssets).length !== Object.keys(assetRecords).length
-
-  for (const [workId, rawSrc] of Object.entries(legacyAssetMap)) {
-    const src = normalizeOptionalString(rawSrc)
-    if (!src) continue
-    const assetId = createPrimaryAssetId(workId)
-    if (migratedAssets[assetId]) continue
-    migratedAssets[assetId] = {
-      id: assetId,
-      workId,
-      src,
-      storage: detectAssetStorage(src) ?? 'remote',
-      syncStatus: normalizeAssetSyncStatus(undefined, { src }) ?? 'local-only',
-      mimeType: detectMimeType(src),
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }
-    migrated = true
-  }
-
-  if (migrated) {
-    await writeBrowserValue(worksGalleryAssetRecordStorageKey, migratedAssets)
-  }
-  if (Object.keys(legacyAssetMap).length) {
-    await deleteBrowserValue(worksGalleryAssetStorageKey)
-  }
-
-  return migratedAssets
-}
-
-async function writeStoredGalleryAssetRecords(gallery: GalleryImage[], options: { prune: boolean }) {
-  const normalizedGallery = normalizeGallery(gallery)
-  const currentAssets = await readStoredGalleryAssetRecordMap()
-  const nextAssets = buildGalleryAssetRecordMap(normalizedGallery, currentAssets)
-
-  if (!options.prune) {
-    await writeBrowserValue(worksGalleryAssetRecordStorageKey, {
-      ...currentAssets,
-      ...nextAssets,
-    })
-    return
-  }
-
-  const referencedAssetIds = new Set(normalizedGallery.map((work) => work.assetId).filter(Boolean))
-  const referencedWorkIds = new Set(normalizedGallery.map((work) => work.id))
-  const mergedAssets = {
-    ...currentAssets,
-    ...nextAssets,
-  }
-
-  const prunedAssets = Object.values(mergedAssets).reduce<GalleryAssetRecordMap>((assets, asset) => {
-    if (!referencedAssetIds.has(asset.id) && !referencedWorkIds.has(asset.workId)) return assets
-    assets[asset.id] = asset
-    return assets
-  }, {})
-
-  await writeBrowserValue(worksGalleryAssetRecordStorageKey, prunedAssets)
-}
-
-async function removeStoredGalleryAssets(ids: string[]) {
-  if (!ids.length) return
-  const targetIds = new Set(ids)
-  const currentAssets = await readStoredGalleryAssetRecordMap()
-  const nextAssets = Object.values(currentAssets).reduce<GalleryAssetRecordMap>((assets, asset) => {
-    if (targetIds.has(asset.workId)) return assets
-    assets[asset.id] = asset
-    return assets
-  }, {})
-  await writeBrowserValue(worksGalleryAssetRecordStorageKey, nextAssets)
-}
-
-function buildAssetRecordIndexes(assetMap: GalleryAssetRecordMap) {
-  const byWorkId: Record<string, GalleryAssetRecord> = {}
-  for (const asset of Object.values(assetMap)) {
-    if (!(asset.workId in byWorkId)) byWorkId[asset.workId] = asset
-  }
-  return { byWorkId }
-}
-
 export function normalizeGalleryImage(image: GalleryImage): GalleryImage {
   const {
-    favorite,
     src,
     tags,
     assetId,
@@ -337,7 +198,7 @@ export function normalizeGalleryImage(image: GalleryImage): GalleryImage {
     assetRemoteKey: normalizedRemoteKey,
     assetRemoteUrl: normalizedRemoteUrl,
     assetUpdatedAt: resolvedAssetId ? normalizeOptionalTimestamp(assetUpdatedAt) : undefined,
-    isFavorite: Boolean(image.isFavorite ?? favorite),
+    isFavorite: Boolean(image.isFavorite),
     tags: normalizeTags(tags),
   }
 }
@@ -347,164 +208,69 @@ export function normalizeGallery(gallery: GalleryImage[]): GalleryImage[] {
   return gallery.map(normalizeGalleryImage)
 }
 
-function getBodySize(works: GalleryImage[]) {
-  return new TextEncoder().encode(JSON.stringify({ works })).length
-}
-
-export function hydrateGallerySources(gallery: GalleryImage[], assetMap: GalleryAssetRecordMap | GalleryAssetMap) {
-  const normalizedAssetMap = coerceAssetRecordMap(assetMap)
-  const { byWorkId } = buildAssetRecordIndexes(normalizedAssetMap)
-  return gallery.map((rawWork) => {
-    const fallbackAsset = (rawWork.assetId && normalizedAssetMap[rawWork.assetId]) || byWorkId[rawWork.id]
-    const fallbackSrc = rawWork.src?.trim() || fallbackAsset?.src?.trim() || rawWork.assetRemoteUrl?.trim()
-    return normalizeGalleryImage({
-      ...rawWork,
-      src: fallbackSrc,
-      assetId: rawWork.assetId ?? fallbackAsset?.id,
-      assetStorage: rawWork.assetStorage ?? fallbackAsset?.storage,
-      assetSyncStatus: rawWork.assetSyncStatus ?? fallbackAsset?.syncStatus,
-      assetRemoteKey: rawWork.assetRemoteKey ?? fallbackAsset?.remoteKey,
-      assetRemoteUrl: rawWork.assetRemoteUrl ?? fallbackAsset?.remoteUrl,
-      assetUpdatedAt: rawWork.assetUpdatedAt ?? fallbackAsset?.updatedAt,
-    })
-  })
-}
-
-function splitWorksForImport(works: GalleryImage[]) {
-  const batches: GalleryImage[][] = []
-  let currentBatch: GalleryImage[] = []
-
-  for (const work of works) {
-    const nextBatch = [...currentBatch, work]
-    if (currentBatch.length > 0 && getBodySize(nextBatch) > importLocalWorksBatchLimit) {
-      batches.push(currentBatch)
-      currentBatch = [work]
-      continue
-    }
-
-    currentBatch = nextBatch
-    if (currentBatch.length === 1 && getBodySize(currentBatch) > importLocalWorksBatchLimit) {
-      batches.push(currentBatch)
-      currentBatch = []
-    }
-  }
-
-  if (currentBatch.length > 0) batches.push(currentBatch)
-  return batches
-}
-
-function stripLargeInlineImage(work: GalleryImage): GalleryImage {
-  if (!work.src?.startsWith('data:image/')) return work
-  return { ...work, src: undefined }
-}
-
-export function prepareGalleryForPersistence(gallery: GalleryImage[], bodyLimit = worksReplaceBodyLimit) {
+export function hydrateGallerySources(
+  gallery: GalleryImage[],
+  assetRecords: Record<string, GalleryAssetRecord> = {},
+) {
   const normalizedGallery = normalizeGallery(gallery)
-  const strippedInlineGallery = normalizedGallery.map(stripLargeInlineImage)
-  if (getBodySize(strippedInlineGallery) <= bodyLimit) return strippedInlineGallery
+  const normalizedAssets = normalizeGalleryAssetRecordMap(assetRecords)
 
-  const nextGallery = [...strippedInlineGallery]
-  const dataUrlCandidates = nextGallery
-    .map((work, index) => ({ index, work }))
-    .filter(({ work }) => work.src?.startsWith('data:image/'))
-    .sort((left, right) => (right.work.src?.length ?? 0) - (left.work.src?.length ?? 0))
+  return normalizedGallery.map((work) => {
+    const assetId = normalizeOptionalString(work.assetId)
+    const primaryAsset = normalizedAssets[createPrimaryAssetId(work.id)] ?? null
+    const currentAsset = assetId ? (normalizedAssets[assetId] ?? primaryAsset) : primaryAsset
+    const assetRecord = buildAssetRecord(work, currentAsset)
+    const src = work.src ?? currentAsset?.src
+    const resolvedAssetId = assetId ?? assetRecord?.id ?? currentAsset?.id
 
-  for (const { index } of dataUrlCandidates) {
-    nextGallery[index] = stripLargeInlineImage(nextGallery[index])
-    if (getBodySize(nextGallery) <= bodyLimit) return nextGallery
-  }
-
-  return nextGallery
-}
-
-async function postLegacyWorksBatch(batch: GalleryImage[]) {
-  return await apiRequest<ImportLocalWorksResult>('/api/migrations/import-local-works', {
-    method: 'POST',
-    body: { works: batch },
+    return normalizeGalleryImage({
+      ...work,
+      src,
+      assetId: resolvedAssetId,
+      assetStorage: work.assetStorage ?? assetRecord?.storage ?? currentAsset?.storage,
+      assetSyncStatus: work.assetSyncStatus ?? assetRecord?.syncStatus ?? currentAsset?.syncStatus,
+      assetRemoteKey: work.assetRemoteKey ?? assetRecord?.remoteKey ?? currentAsset?.remoteKey,
+      assetRemoteUrl: work.assetRemoteUrl ?? assetRecord?.remoteUrl ?? currentAsset?.remoteUrl,
+      assetUpdatedAt: work.assetUpdatedAt ?? assetRecord?.updatedAt ?? currentAsset?.updatedAt,
+    })
   })
 }
 
-async function importLegacyWorksBatch(batch: GalleryImage[]): Promise<ImportLocalWorksResult> {
-  try {
-    return await postLegacyWorksBatch(batch)
-  } catch (error) {
-    if (!(error instanceof Error)) throw error
-
-    const errorRecord = error as unknown
-    const statusValue = typeof errorRecord === 'object' && errorRecord !== null && 'status' in errorRecord
-      ? (errorRecord as { status?: unknown }).status
-      : undefined
-    const status = typeof statusValue === 'number' ? statusValue : undefined
-    const shouldRetrySmaller = status === 413 || status === 502 || error.message.includes('HTTP 413') || error.message.includes('HTTP 502')
-    if (!shouldRetrySmaller) throw error
-
-    if (batch.length > 1) {
-      const mid = Math.floor(batch.length / 2)
-      const left = await importLegacyWorksBatch(batch.slice(0, mid))
-      const right = await importLegacyWorksBatch(batch.slice(mid))
-      return { imported: left.imported + right.imported, total: left.total + right.total }
-    }
-
-    const stripped = stripLargeInlineImage(batch[0])
-    if (stripped === batch[0]) throw error
-    return await postLegacyWorksBatch([stripped])
-  }
-}
-
-async function runImportLegacyWorks() {
-  const legacyWorks = normalizeGallery(await readBrowserValue<GalleryImage[]>(worksGalleryStorageKey, []))
-  if (!legacyWorks.length) return { imported: 0, total: 0 }
-
-  await writeStoredGalleryAssetRecords(legacyWorks, { prune: false })
-  const batches = splitWorksForImport(legacyWorks)
-  let imported = 0
-
-  for (const batch of batches) {
-    const result = await importLegacyWorksBatch(batch)
-    imported += result.imported
-  }
-
-  await deleteBrowserValue(worksGalleryStorageKey)
-  return { imported, total: legacyWorks.length }
-}
-
-export async function importLegacyWorks() {
-  if (!importLegacyWorksInFlight) {
-    importLegacyWorksInFlight = runImportLegacyWorks().finally(() => {
-      importLegacyWorksInFlight = null
-    })
-  }
-
-  return importLegacyWorksInFlight
+export function prepareGalleryForPersistence(gallery: GalleryImage[], maxInlineBytes = 1_000_000) {
+  return normalizeGallery(gallery).map((work) => {
+    if (!work.src?.startsWith('data:')) return work
+    return work.src.length > maxInlineBytes ? { ...work, src: undefined } : work
+  })
 }
 
 export async function readStoredGallery() {
-  const [gallery, assetMap] = await Promise.all([
-    apiRequest<GalleryImage[]>('/api/works'),
-    readStoredGalleryAssetRecordMap(),
-  ])
-  const hydratedGallery = hydrateGallerySources(gallery, assetMap)
-  await writeStoredGalleryAssetRecords(hydratedGallery, { prune: true })
-  return hydratedGallery
+  const gallery = await apiRequest<GalleryImage[]>('/api/works')
+  return normalizeGallery(gallery)
 }
 
 export async function writeStoredGallery(gallery: GalleryImage[]) {
   const normalizedGallery = normalizeGallery(gallery)
-  await writeStoredGalleryAssetRecords(normalizedGallery, { prune: true })
-  const persistedGallery = prepareGalleryForPersistence(normalizedGallery)
-  if (getBodySize(persistedGallery) > worksReplaceBodyLimit) {
-    return { success: true, count: normalizedGallery.length }
+  const currentGallery = await readStoredGallery()
+  const currentById = new Map(currentGallery.map((work) => [work.id, work]))
+  const nextById = new Map(normalizedGallery.map((work) => [work.id, work]))
+
+  for (const work of normalizedGallery) {
+    const current = currentById.get(work.id)
+    if (!current || JSON.stringify(current) !== JSON.stringify(work)) {
+      await upsertStoredWork(work)
+    }
   }
 
-  return await apiRequest<WorksMutationResult>('/api/works/replace', {
-    method: 'PUT',
-    body: { works: persistedGallery },
-  })
+  const removedIds = currentGallery.filter((work) => !nextById.has(work.id)).map((work) => work.id)
+  if (removedIds.length) {
+    await deleteStoredWorks(removedIds)
+  }
+
+  return { success: true, count: normalizedGallery.length }
 }
 
 export async function upsertStoredWork(work: GalleryImage) {
   const normalizedWork = normalizeGalleryImage(work)
-  await writeStoredGalleryAssetRecords([normalizedWork], { prune: false })
   return normalizeGalleryImage(await apiRequest<GalleryImage>(`/api/works/${normalizedWork.id}`, {
     method: 'PUT',
     body: normalizedWork,
@@ -515,7 +281,6 @@ export async function deleteStoredWork(id: string) {
   const result = await apiRequest<WorksMutationResult>(`/api/works/${id}`, {
     method: 'DELETE',
   })
-  await removeStoredGalleryAssets([id])
   return result
 }
 
@@ -524,7 +289,6 @@ export async function deleteStoredWorks(ids: string[]) {
     method: 'POST',
     body: { ids },
   })
-  await removeStoredGalleryAssets(ids)
   return result
 }
 

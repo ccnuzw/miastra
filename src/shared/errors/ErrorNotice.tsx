@@ -21,6 +21,7 @@ export function ErrorNotice({ error, className = '', compact = false }: ErrorNot
             {display.badges?.map((badge) => <span key={badge} className="error-notice-code">{badge}</span>)}
             <span className="error-notice-code">{display.code}</span>
             {typeof display.status === 'number' ? <span className="error-notice-code">HTTP {display.status}</span> : null}
+            {display.requestId ? <span className="error-notice-code">RID {display.requestId.slice(0, 8)}</span> : null}
           </div>
           <p className="error-notice-message">{display.message}</p>
           {display.hint ? <p className="error-notice-hint">{display.hint}</p> : null}

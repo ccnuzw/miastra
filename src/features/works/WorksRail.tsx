@@ -127,7 +127,7 @@ export function WorksRail({
                 </button>
               ))}
               <button type="button" onClick={onDownloadSelected} className="bulk-ghost">下载 ZIP</button>
-              <label className="bulk-metadata-toggle" onClick={(event) => event.stopPropagation()}>
+              <label className="bulk-metadata-toggle">
                 <input
                   type="checkbox"
                   checked={includeMetadata}
@@ -168,7 +168,7 @@ export function WorksRail({
         </div>
       </div>
       {batches.length > 0 && (
-        <div className="batch-strip" aria-label="抽卡批次筛选">
+        <div className="batch-strip">
           <button type="button" onClick={() => onBatchChange('all')} className={`batch-chip ${activeBatchId === 'all' ? 'batch-chip-active' : ''}`}>全部批次</button>
           {batches.slice(0, 5).map((batch) => (
             <button key={batch.id} type="button" onClick={() => onBatchChange(batch.id)} className={`batch-chip ${activeBatchId === batch.id ? 'batch-chip-active' : ''}`}>
@@ -178,7 +178,7 @@ export function WorksRail({
           ))}
         </div>
       )}
-      <div className="works-grid" aria-label="生成作品列表">
+      <div className="works-grid">
         {items.map((item) => (
           <WorkTile
             key={item.id}

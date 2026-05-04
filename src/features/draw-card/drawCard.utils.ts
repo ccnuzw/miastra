@@ -1,4 +1,4 @@
-import { drawStatusMeta as drawStatusMetaFromConstants, drawTaskStatusText, variationDimensions } from './drawCard.constants'
+import { drawStatusMeta as drawStatusMetaFromConstants, variationDimensions } from './drawCard.constants'
 import type { DrawTaskStatus } from './drawCard.types'
 
 export function pickVariationPrompts(enabledDimensions: string[], index: number) {

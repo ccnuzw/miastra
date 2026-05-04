@@ -8,6 +8,7 @@ const emptyStore = {
   promptTemplates: [],
   works: [],
   providerConfigs: [],
+  managedProviders: [],
   drawBatches: [],
   generationTasks: [],
   auditLogs: [],
@@ -16,12 +17,10 @@ const emptyStore = {
 }
 
 const originalNodeEnv = process.env.NODE_ENV
-const originalPasswordResetMode = process.env.AUTH_PASSWORD_RESET_MODE
 const originalBillingMode = process.env.BILLING_MODE
 
 beforeEach(async () => {
   await storeRepository.write(structuredClone(emptyStore))
-  delete process.env.AUTH_PASSWORD_RESET_MODE
   delete process.env.BILLING_MODE
   process.env.NODE_ENV = 'test'
 })
@@ -31,9 +30,6 @@ afterEach(async () => {
 
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV
   else process.env.NODE_ENV = originalNodeEnv
-
-  if (originalPasswordResetMode === undefined) delete process.env.AUTH_PASSWORD_RESET_MODE
-  else process.env.AUTH_PASSWORD_RESET_MODE = originalPasswordResetMode
 
   if (originalBillingMode === undefined) delete process.env.BILLING_MODE
   else process.env.BILLING_MODE = originalBillingMode
@@ -50,13 +46,48 @@ describe('createServer', () => {
     const app = await createServer()
     const response = await app.inject({ method: 'GET', url: '/api/provider-config' })
     expect(response.statusCode).toBe(401)
-    expect(response.json()).toMatchObject({ error: { message: '请先登录' } })
+    expect(response.headers['x-request-id']).toBeTruthy()
+    expect(response.json()).toMatchObject({ error: { code: 'UNAUTHORIZED' } })
     await app.close()
   })
 
-  it('does not expose debug reset tokens in production', async () => {
+  it('allows login with the first admin username', async () => {
+    const app = await createServer()
+    const registerResponse = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'admin@example.com',
+        password: 'admin123',
+        nickname: 'admin',
+      },
+    })
+
+    expect(registerResponse.statusCode).toBe(200)
+
+    const loginResponse = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: 'admin',
+        password: 'admin123',
+      },
+    })
+
+    expect(loginResponse.statusCode).toBe(200)
+    expect(loginResponse.json()).toMatchObject({
+      data: {
+        email: 'admin@example.com',
+        nickname: 'admin',
+      },
+    })
+    await app.close()
+  })
+
+  it('never exposes reset tokens from forgot-password responses', async () => {
     process.env.NODE_ENV = 'production'
-    process.env.AUTH_PASSWORD_RESET_MODE = 'debug'
+    process.env.AUTH_JWT_SECRET = 'test-auth-secret'
+    process.env.RESET_JWT_SECRET = 'test-reset-secret'
 
     const app = await createServer()
     const registerResponse = await app.inject({
@@ -71,65 +102,22 @@ describe('createServer', () => {
 
     expect(registerResponse.statusCode).toBe(200)
 
-    const configResponse = await app.inject({ method: 'GET', url: '/api/auth/password-reset-config' })
-    expect(configResponse.statusCode).toBe(200)
-    expect(configResponse.json()).toMatchObject({
-      data: {
-        mode: 'disabled',
-        requestAvailable: false,
-        debugTokenAvailable: false,
-      },
-    })
-
     const forgotResponse = await app.inject({
       method: 'POST',
       url: '/api/auth/forgot-password',
       payload: { email: 'prod@example.com' },
     })
 
-    expect(forgotResponse.statusCode).toBe(503)
-    expect(forgotResponse.json()).toMatchObject({
-      error: {
-        code: 'PASSWORD_RESET_UNAVAILABLE',
-      },
-    })
-    await app.close()
-  })
-
-  it('exposes debug reset tokens only in debug mode', async () => {
-    process.env.AUTH_PASSWORD_RESET_MODE = 'debug'
-
-    const app = await createServer()
-    const registerResponse = await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: {
-        email: 'dev@example.com',
-        password: 'secret123',
-        nickname: 'dev-user',
-      },
-    })
-
-    expect(registerResponse.statusCode).toBe(200)
-
-    const forgotResponse = await app.inject({
-      method: 'POST',
-      url: '/api/auth/forgot-password',
-      payload: { email: 'dev@example.com' },
-    })
-
     expect(forgotResponse.statusCode).toBe(200)
-    expect(forgotResponse.json()).toMatchObject({
-      data: {
-        success: true,
-      },
-    })
-    expect(forgotResponse.json().data.debugResetToken).toEqual(expect.any(String))
+    expect(forgotResponse.json()).toEqual({ data: { success: true } })
     await app.close()
   })
 
   it('disables billing checkout by default in production', async () => {
     process.env.NODE_ENV = 'production'
+    process.env.BILLING_MODE = 'mock'
+    process.env.AUTH_JWT_SECRET = 'test-auth-secret'
+    process.env.RESET_JWT_SECRET = 'test-reset-secret'
 
     const app = await createServer()
     const registerResponse = await app.inject({

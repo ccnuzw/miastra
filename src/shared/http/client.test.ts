@@ -27,13 +27,15 @@ describe('apiRequest', () => {
     const api = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: false,
       status: 401,
+      headers: new Headers({ 'x-request-id': 'req_1234567890' }),
       json: async () => ({ error: { code: 'UNAUTHORIZED', message: 'nope' } }),
     } as Response)
 
     await expect(apiRequest('/api/test')).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
-      message: 'nope',
+      message: '登录状态已失效，请重新登录后继续。',
       action: 'login',
+      requestId: 'req_1234567890',
     })
     api.mockRestore()
   })

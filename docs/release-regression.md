@@ -1,10 +1,10 @@
-# 发布回归说明
+# 发布回归与门禁说明
 
-这份文档定义 Miastra Studio 当前版本的发布回归入口。目标不是堆大量脆弱测试，而是在不依赖真实外部 Provider 的前提下，优先拦截高频回归，并把发版前的自动化与手工检查收敛到少数几个稳定命令。
+这份文档定义当前云端项目的发布门禁、自动化回归范围和手工 smoke 标准。目标只有一个：让新成员拿到仓库后，能明确知道发布前必须跑什么、自动化覆盖了什么、剩下哪些项需要人工确认。
 
-## 自动化命令入口
+## 1. 标准命令
 
-当前发布相关的三个命令：
+当前发布相关命令只有三条：
 
 ```bash
 npm run test:smoke
@@ -12,181 +12,189 @@ npm run test:regression
 npm run release:check
 ```
 
-建议使用方式：
+命令职责：
 
 - `npm run test:smoke`
   - 最小高价值门禁
-  - 适合日常自测、修复高风险问题后快速回归
+  - 适合日常自测、修复高风险问题后的快速回归
 - `npm run test:regression`
-  - 全量前后端自动化回归
-  - 适合定位问题时单独执行
+  - 完整前后端自动化回归
+  - 适合定位问题或在合并前做全量确认
 - `npm run release:check`
   - 标准发版入口
-  - 顺序执行 `smoke -> regression -> 前后端构建`
+  - 顺序执行 `smoke -> regression -> build -> build:server`
 
-说明：
+发版前直接执行 `npm run release:check` 即可，不需要再手动重复跑一遍 `test:smoke` 或 `test:regression`。
 
-- 发版前优先执行 `npm run release:check`
-- `release:check` 已经包含 `smoke` 和 `regression`，不要在它前面机械重复跑同一套命令，除非你在定位失败原因
+## 2. 当前门禁定义
 
-## 当前自动化覆盖范围
+### 2.1 Smoke Gate
 
-当前自动化覆盖以下高风险链路：
+`npm run test:smoke` 由以下两部分组成：
 
-- 认证登录态
-  - 注册后自动建会话
-  - `/api/auth/me` 会话识别
-  - `revoke-others` 后旧会话失效
-  - `logout` 后登录态清空
-- 作品存储与展示基础行为
-  - 本地 legacy 作品迁移
-  - 大 payload 分批导入与超大 data URL 降级
-  - 作品读取时本地资源回填
-  - 作品保存时超大 inline 图片剥离
-  - 作品搜索、标签、收藏、批次筛选
-- ZIP 导出
-  - ZIP 结构生成
-  - metadata 计数、文件映射、失败原因
-  - generation snapshot 脱敏
-  - 空 blob / 缺图兜底
-- 任务列表基础状态流转
-  - 未配置 Provider 时禁止建任务
-  - 已登录用户创建任务
-  - `queued -> running -> succeeded` 更新
-  - 终态任务禁止取消
-- 迁移兼容
-  - 服务端 works 导入与读取
-  - legacy `favorite/isFavorite`、`tags`、`src` roundtrip
+- 客户端高价值 smoke 用例
+- 服务端 `src/server.test.ts` 与 `src/release.regression.test.ts`
 
-## 当前未纳入发布阻断的项
+它的目标不是覆盖所有细节，而是优先拦截以下高频回归：
 
-以下检查目前没有并入 `release:check`：
+- 认证与会话
+- 作品读写与作品墙筛选
+- ZIP 导出与 `metadata.json`
+- 任务创建、状态流转和终态限制
 
-- `npm run lint`
-- `npm run format:check`
-- `npm run typecheck`
-- `npm run typecheck:server`
+### 2.2 Regression Gate
 
-原因不是这些项不重要，而是仓库当前仍有历史基线问题。直接并入会让发布门禁长期红灯，失去拦截高频回归的价值。
+`npm run test:regression` 执行完整前后端自动化测试：
 
-建议后续补一轮基线治理，再把这些检查重新纳入发布阻断。
+- `npm run test:client`
+- `npm run test:server`
 
-## 手工 Smoke 的执行前提
+这条命令适合在以下场景使用：
 
-执行手工 smoke 前，至少确认：
+- 大范围改动后做全量确认
+- smoke 失败后定位更深层问题
+- 合并前补一次完整自动化验证
 
-- 前端已可访问
-- 服务端 `/health` 与 `/health/store` 正常
-- 如果要验证真实生成，已准备可用 Provider 账号或预发布测试环境
-- 如果没有真实 Provider，也至少要验证“未配置 Provider 时阻断”这条兜底链路
+### 2.3 Release Gate
 
-## 手工 Smoke Checklist
-
-### 认证
-
-- 注册新账号后自动进入登录态
-- 刷新页面后，受保护页面仍保持登录态
-- 登出后再次访问 `/app/*` 会被拦回登录页
-- 同账号二次登录后，在账号页执行“撤销其他会话”，旧标签页刷新后应失效
-
-### Provider
-
-- 打开设置，保存 Provider API Key 与 Model 后无异常报错
-- Provider API URL 留空时，前端能继续走 `/sub2api` 或服务端回退代理
-- 未配置 Provider 时提交任务，应得到明确阻断提示
-
-### 作品
-
-- 新建或导入作品后，作品页可正常展示标题、元信息、标签、收藏状态
-- 作品页搜索可命中标题、Prompt、标签、模型、状态等关键词
-- 收藏筛选、标签筛选、清空筛选行为正常
-- 删除单个作品、批量删除作品后，列表与预览状态同步更新
-- 刷新页面后，作品与本地资源回填正常，没有大量丢图
-
-### 导出
-
-- 在作品墙选择 1 到 3 个作品执行 ZIP 导出
-- ZIP 能解压，图片文件名可读，没有明显非法字符
-- 勾选 metadata 时，压缩包中包含 `metadata.json`
-- `metadata.json` 中计数、标题、标签、收藏信息与页面一致
-- `metadata.json` 中不应出现 `apiKey`、`authorization`、`password`、`secret` 等敏感字段
-
-### 任务
-
-- 配置 Provider 后，提交任务可进入任务列表
-- 任务状态至少能覆盖 `queued/running/succeeded` 或 `queued/running/failed`
-- 已结束任务点击取消时应给出不可取消提示，不应假装成功
-
-### 迁移兼容
-
-- 如果本地还留有 legacy works 数据，首次登录后应自动迁移，不应重复导入
-- 含大 data URL 的旧作品迁移后，作品基础信息必须保留；图片缺失时应能从本地资源缓存回填
-
-## 推荐发布节奏
-
-### 日常开发自测
+`npm run release:check` 是当前唯一的自动化发布阻断门禁，执行顺序固定为：
 
 ```bash
 npm run test:smoke
-```
-
-### 合并前或发版前
-
-```bash
-npm run release:check
-```
-
-命令通过后，再执行上面的手工 smoke。
-
-### 仅在定位失败时
-
-```bash
 npm run test:regression
+npm run build
+npm run build:server
 ```
 
-## 为什么当前没有 Playwright 门禁
+只要这条命令失败，就不应进入发布阶段。
 
-之前已经尝试过 Playwright，但当前仓库环境依赖还不完整。现阶段如果强行引入，会让发布门禁依赖浏览器安装、系统库和外部环境，稳定性反而下降。
+## 3. 自动化覆盖范围
 
-当前替代方案：
+当前自动化覆盖的高风险主链路包括：
 
-- 前端使用 `vitest + jsdom` 覆盖作品筛选、导出与存储逻辑
-- 服务端使用 `fastify.inject()` 覆盖认证、作品、迁移、任务主链路
-- 剩余不适合在当前环境稳定自动化的浏览器交互，使用上面的手工 smoke checklist 兜底
+- 认证
+  - 注册后建会话
+  - `/api/auth/me` 识别登录态
+  - 登出与撤销其他会话
+- Provider 与运行时配置
+  - Provider 配置保存
+  - 默认上游和运行时检查
+  - 未配置 Provider 时的阻断反馈
+- 任务流转
+  - 已登录用户创建任务
+  - `queued -> running -> succeeded`
+  - 终态任务不可取消
+- 作品管理
+  - 作品保存、读取、筛选、收藏、删除
+  - 云端展示状态恢复
+- 导出
+  - ZIP 结构
+  - `metadata.json` 统计与脱敏
+  - 缺图、空文件等异常兜底
 
-等 Playwright 依赖链补齐后，再补一个真正可运行的 browser smoke，而不是保留一套跑不稳的伪门禁。
+## 4. 门禁运行环境
 
-## 失败后先看哪里
+自动化测试默认不依赖真实云端数据库，也不依赖生产 Provider：
 
-- 认证失败
+- 服务端测试固定使用 `NODE_ENV=test`
+- 服务端测试固定使用 `SERVER_STORE_BACKEND=json`
+
+这意味着：
+
+- `test:smoke`
+- `test:regression`
+- `release:check`
+
+都可以在本地或 CI 里直接运行，不需要先准备 Postgres 或真实上游密钥。
+
+## 5. 不属于发布阻断的检查
+
+以下命令当前仍保留为工程质量检查，但不属于自动化发布阻断：
+
+- `npm run typecheck`
+- `npm run typecheck:server`
+- `npm run lint`
+- `npm run format:check`
+
+建议在较大改动或合并前额外执行，但当前发布门禁的准入标准仍以 `npm run release:check` 为准。
+
+## 6. 发布前手工 Smoke
+
+自动化通过后，还需要做一次最小手工 smoke，确认真实部署链路没有偏差。
+
+### 6.1 环境前提
+
+至少确认：
+
+- 前端可访问
+- `/api` 已经正确路由到 Fastify
+- `/health` 与 `/health/store` 正常
+- 若要验证真实生图，准备可用 Provider 账号或预发布环境
+
+### 6.2 必做清单
+
+认证：
+
+- 注册新账号后自动进入登录态
+- 刷新页面后会话仍有效
+- 登出后再次访问受保护页面会被拦回登录页
+
+Provider：
+
+- 保存 Provider API URL、Model、API Key 无异常
+- 留空 API URL 时，如配置了 `PROVIDER_UPSTREAM_ORIGIN`，仍可正常走默认上游
+- 未配置 Provider 时，提交任务会得到明确阻断提示
+
+任务：
+
+- 创建任务后能进入任务列表
+- 状态至少覆盖一次 `queued -> running -> succeeded` 或 `queued -> running -> failed`
+- 已结束任务点击取消时不会假装成功
+
+作品：
+
+- 作品页能看到标题、标签、收藏状态和关键元信息
+- 搜索、标签筛选、收藏筛选和删除行为正常
+- 刷新后作品仍可正常读取
+
+导出：
+
+- 导出 1 到 3 个作品的 ZIP
+- ZIP 可解压
+- `metadata.json` 内容与页面一致
+- `metadata.json` 中不应出现 `apiKey`、`authorization`、`password`、`secret` 等敏感字段
+
+## 7. 失败后优先排查位置
+
+- 认证或登录态异常
   - `server/src/auth/routes.ts`
   - `src/features/auth/useAuthSession.tsx`
   - `src/shared/http/client.ts`
-- 作品读写或迁移失败
-  - `src/features/works/works.storage.ts`
-  - `src/features/works/useWorksGallery.ts`
+- Provider 配置或代理异常
+  - `server/src/provider-config/provider.service.ts`
+  - `server/src/provider-proxy/routes.ts`
+  - `src/features/provider/useProviderConfig.ts`
+- 任务状态流转异常
+  - `server/src/generation-tasks/routes.ts`
+  - `server/src/generation-tasks/worker.ts`
+  - `src/features/generation/`
+- 作品或导出异常
   - `server/src/works/routes.ts`
-  - `server/src/migrations/routes.ts`
-- ZIP 导出或 metadata 异常
+  - `src/features/works/`
   - `src/shared/utils/download.ts`
   - `src/shared/utils/download.metadata.ts`
-  - `src/shared/utils/download.file.ts`
-- 任务状态流转异常
-  - `src/features/generation/generation.api.ts`
-  - `server/src/generation-tasks/routes.ts`
 
-## 当前 smoke 用例清单
+## 8. 当前 smoke 入口清单
 
-客户端：
+客户端 smoke 入口：
 
 - `src/shared/http/client.test.ts`
-- `src/shared/storage/browserDatabase.test.ts`
 - `src/shared/utils/download.metadata.test.ts`
 - `src/shared/utils/download.zip.test.ts`
 - `src/features/works/works.storage.test.ts`
 - `src/features/works/useWorksGallery.test.ts`
 
-服务端：
+服务端 smoke 入口：
 
 - `server/src/server.test.ts`
 - `server/src/release.regression.test.ts`

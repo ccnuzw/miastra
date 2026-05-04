@@ -1,6 +1,7 @@
 import type { DataStore } from '../auth/types'
 import { Pool } from 'pg'
 import { createPostgresAuthTablesRepository } from './auth-tables.repository'
+import { createPostgresAuditLogTablesRepository } from './audit-log-tables.repository'
 import { createPostgresContentTablesRepository } from './content-tables.repository'
 import { createPostgresGenerationTaskTablesRepository } from './generation-task-tables.repository'
 import { createJsonStoreRepository, createPostgresStoreRepository, type StoreRepository } from './store.repository'
@@ -8,8 +9,44 @@ import { createJsonStoreRepository, createPostgresStoreRepository, type StoreRep
 let repositoryInstance: StoreRepository | null = null
 let postgresPool: Pool | null = null
 
-function getStoreBackend() {
-  return (process.env.SERVER_STORE_BACKEND ?? 'json').trim().toLowerCase()
+type StoreBackend = 'json' | 'postgres'
+
+function resolveStoreBackend() {
+  const raw = process.env.SERVER_STORE_BACKEND?.trim().toLowerCase()
+  if (!raw) {
+    return {
+      backend: process.env.NODE_ENV === 'production' ? 'postgres' : 'json',
+      raw: undefined,
+      valid: true,
+    }
+  }
+
+  if (raw === 'json' || raw === 'postgres') {
+    return {
+      backend: raw as StoreBackend,
+      raw,
+      valid: true,
+    }
+  }
+
+  return {
+    backend: process.env.NODE_ENV === 'production' ? 'postgres' : 'json',
+    raw,
+    valid: false,
+    error: `SERVER_STORE_BACKEND 必须是 json 或 postgres，当前值为 ${raw}`,
+  }
+}
+
+function _getStoreBackend() {
+  return resolveStoreBackend().backend
+}
+
+function assertStoreBackend() {
+  const config = resolveStoreBackend()
+  if (!config.valid) {
+    throw new Error(config.error)
+  }
+  return config
 }
 
 function getPostgresConnectionString() {
@@ -21,13 +58,14 @@ function getPostgresConnectionString() {
 }
 
 export function isPostgresStoreBackend() {
-  return getStoreBackend() === 'postgres'
+  return assertStoreBackend().backend === 'postgres'
 }
 
 function getStoreRepository(): StoreRepository {
   if (repositoryInstance) return repositoryInstance
 
-  if (isPostgresStoreBackend()) {
+  const backend = assertStoreBackend().backend
+  if (backend === 'postgres') {
     repositoryInstance = createPostgresStoreRepository({ connectionString: getPostgresConnectionString() })
     return repositoryInstance
   }
@@ -47,6 +85,7 @@ export function getPostgresRepositories() {
   return {
     pool,
     auth: createPostgresAuthTablesRepository(pool),
+    audit: createPostgresAuditLogTablesRepository(pool),
     content: createPostgresContentTablesRepository(pool),
     generationTasks: createPostgresGenerationTaskTablesRepository(pool),
   }
@@ -65,6 +104,14 @@ export const storeRepository: StoreRepository = {
   createId() {
     return getStoreRepository().createId()
   },
+  async close() {
+    await repositoryInstance?.close?.()
+    repositoryInstance = null
+    if (postgresPool) {
+      await postgresPool.end()
+      postgresPool = null
+    }
+  },
 }
 
 export async function readStore() {
@@ -77,4 +124,20 @@ export async function writeStore(store: DataStore) {
 
 export function createId() {
   return storeRepository.createId()
+}
+
+export function getStoreRuntimeInfo() {
+  const resolved = resolveStoreBackend()
+  return {
+    backend: resolved.backend,
+    rawBackend: resolved.raw,
+    valid: resolved.valid,
+    error: resolved.valid ? undefined : resolved.error,
+    isPostgres: resolved.backend === 'postgres',
+    isProduction: process.env.NODE_ENV === 'production',
+  }
+}
+
+export async function resetStoreRepositoryForTests() {
+  await storeRepository.close?.()
 }

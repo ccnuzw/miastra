@@ -11,12 +11,14 @@ export type AuthTablesRepository = {
   listSessions: () => Promise<SessionRecord[]>
   listProviderConfigs: () => Promise<StoredProviderConfig[]>
   findUserByEmail: (email: string) => Promise<AuthRecord | null>
+  findUserByLoginIdentifier: (identifier: string) => Promise<AuthRecord | null>
   findUserById: (id: string) => Promise<AuthRecord | null>
   createUser: (user: AuthRecord) => Promise<void>
   updateUserProfile: (userId: string, nickname: string, updatedAt: string) => Promise<AuthRecord | null>
   updatePasswordResetToken: (userId: string, token: string | null, expiresAt: string | null, updatedAt: string) => Promise<void>
   resetUserPassword: (userId: string, passwordHash: string, updatedAt: string) => Promise<void>
   resetUserPasswordAndRevokeSessions: (userId: string, passwordHash: string, updatedAt: string, revokeOthersOnly?: { excludeSessionId: string }) => Promise<void>
+  updateSessionExpiresAt: (sessionId: string, userId: string, expiresAt: string) => Promise<boolean>
   findSessionById: (id: string) => Promise<SessionRecord | null>
   createSession: (session: SessionRecord) => Promise<void>
   revokeSession: (sessionId: string, revokedAt: string) => Promise<boolean>
@@ -29,6 +31,7 @@ export type AuthTablesRepository = {
   upsertQuotaProfile: (profile: StoredQuotaProfile) => Promise<void>
   listQuotaProfiles: () => Promise<StoredQuotaProfile[]>
   listBillingInvoices: () => Promise<StoredBillingInvoice[]>
+  listBillingInvoicesByUserId: (userId: string) => Promise<StoredBillingInvoice[]>
 }
 
 function toIsoString(value: string | Date | null | undefined) {
@@ -64,7 +67,9 @@ function mapSessionRow(row: Record<string, unknown>): SessionRecord {
 function mapProviderConfigRow(row: Record<string, unknown>): StoredProviderConfig {
   return {
     userId: String(row.user_id),
+    mode: row.mode === 'managed' ? 'managed' : 'custom',
     providerId: String(row.provider_id),
+    managedProviderId: row.managed_provider_id ? String(row.managed_provider_id) : undefined,
     apiUrl: String(row.api_url),
     model: String(row.model),
     apiKey: String(row.api_key),
@@ -119,7 +124,7 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
     },
     async listProviderConfigs() {
       const result = await pool.query(`
-        SELECT user_id, provider_id, api_url, model, api_key, updated_at
+        SELECT user_id, mode, provider_id, managed_provider_id, api_url, model, api_key, updated_at
         FROM provider_configs
         ORDER BY updated_at DESC
       `)
@@ -132,6 +137,15 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
         WHERE email = $1
         LIMIT 1
       `, [email])
+      return result.rows[0] ? mapUserRow(result.rows[0]) : null
+    },
+    async findUserByLoginIdentifier(identifier) {
+      const result = await pool.query(`
+        SELECT id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
+        FROM users
+        WHERE lower(email) = lower($1) OR lower(nickname) = lower($1)
+        LIMIT 1
+      `, [identifier])
       return result.rows[0] ? mapUserRow(result.rows[0]) : null
     },
     async findUserById(id) {
@@ -202,6 +216,14 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
       } finally {
         client.release()
       }
+    },
+    async updateSessionExpiresAt(sessionId, userId, expiresAt) {
+      const result = await pool.query(`
+        UPDATE sessions
+        SET expires_at = $3
+        WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+      `, [sessionId, userId, expiresAt])
+      return result.rowCount > 0
     },
     async findSessionById(id) {
       const result = await pool.query(`
@@ -281,7 +303,7 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
     },
     async findProviderConfigByUserId(userId) {
       const result = await pool.query(`
-        SELECT user_id, provider_id, api_url, model, api_key, updated_at
+        SELECT user_id, mode, provider_id, managed_provider_id, api_url, model, api_key, updated_at
         FROM provider_configs
         WHERE user_id = $1
         LIMIT 1
@@ -290,11 +312,11 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
     },
     async upsertProviderConfig(config) {
       await pool.query(`
-        INSERT INTO provider_configs (user_id, provider_id, api_url, model, api_key, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO provider_configs (user_id, mode, provider_id, managed_provider_id, api_url, model, api_key, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (user_id)
-        DO UPDATE SET provider_id = EXCLUDED.provider_id, api_url = EXCLUDED.api_url, model = EXCLUDED.model, api_key = EXCLUDED.api_key, updated_at = EXCLUDED.updated_at
-      `, [config.userId, config.providerId, config.apiUrl, config.model, config.apiKey, config.updatedAt])
+        DO UPDATE SET mode = EXCLUDED.mode, provider_id = EXCLUDED.provider_id, managed_provider_id = EXCLUDED.managed_provider_id, api_url = EXCLUDED.api_url, model = EXCLUDED.model, api_key = EXCLUDED.api_key, updated_at = EXCLUDED.updated_at
+      `, [config.userId, config.mode, config.providerId, config.managedProviderId ?? null, config.apiUrl, config.model, config.apiKey, config.updatedAt])
     },
     async findQuotaProfileByUserId(userId) {
       const result = await pool.query(`
@@ -328,6 +350,15 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
         FROM billing_invoices
         ORDER BY created_at DESC
       `)
+      return result.rows.map(mapBillingInvoiceRow)
+    },
+    async listBillingInvoicesByUserId(userId) {
+      const result = await pool.query(`
+        SELECT id, user_id, plan_name, amount_cents, currency, status, provider, provider_ref, created_at, updated_at
+        FROM billing_invoices
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+      `, [userId])
       return result.rows.map(mapBillingInvoiceRow)
     },
   }

@@ -9,6 +9,7 @@ const emptyStore: DataStore = {
   promptTemplates: [],
   works: [],
   providerConfigs: [],
+  managedProviders: [],
   drawBatches: [],
   generationTasks: [],
   auditLogs: [],
@@ -40,7 +41,14 @@ async function registerUser(app: Awaited<ReturnType<typeof createServer>>, email
 async function saveProviderConfig(
   app: Awaited<ReturnType<typeof createServer>>,
   cookie: string,
-  payload: { providerId: string; apiUrl: string; model: string; apiKey: string },
+  payload: {
+    mode: 'managed' | 'custom'
+    providerId?: string
+    managedProviderId?: string
+    apiUrl: string
+    model: string
+    apiKey: string
+  },
 ) {
   return await app.inject({
     method: 'PUT',
@@ -52,8 +60,9 @@ async function saveProviderConfig(
 
 beforeEach(async () => {
   await resetStore()
-  delete process.env.PROVIDER_UPSTREAM_ORIGIN
   vi.restoreAllMocks()
+  if (originalProviderUpstreamOrigin === undefined) delete process.env.PROVIDER_UPSTREAM_ORIGIN
+  else process.env.PROVIDER_UPSTREAM_ORIGIN = originalProviderUpstreamOrigin
 })
 
 afterEach(async () => {
@@ -64,12 +73,13 @@ afterEach(async () => {
 })
 
 describe('provider proxy routes', () => {
-  it('normalizes saved provider api urls', async () => {
+  it('normalizes saved custom provider config', async () => {
     const app = await createServer()
     const cookie = await registerUser(app, 'provider-normalize@example.com')
 
     const response = await saveProviderConfig(app, cookie, {
-      providerId: 'openai',
+      mode: 'custom',
+      providerId: 'custom',
       apiUrl: 'https://api.openai.com/v1/images/generations',
       model: 'gpt-image-2',
       apiKey: 'secret',
@@ -78,9 +88,56 @@ describe('provider proxy routes', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json()).toMatchObject({
       data: {
-        apiUrl: 'https://api.openai.com',
+        config: {
+          mode: 'custom',
+          providerId: 'custom',
+          apiUrl: 'https://api.openai.com',
+          model: 'gpt-image-2',
+          apiKey: 'secret',
+        },
       },
     })
+    await app.close()
+  })
+
+  it('returns public managed providers without exposing secrets', async () => {
+    const store = await storeRepository.read()
+    store.managedProviders.push({
+      id: 'openai-main',
+      name: 'OpenAI Main',
+      description: '公共图像服务',
+      apiUrl: 'https://api.openai.com/v1',
+      apiKey: 'secret-key',
+      models: ['gpt-image-2'],
+      defaultModel: 'gpt-image-2',
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    })
+    await storeRepository.write(store)
+
+    const app = await createServer()
+    const cookie = await registerUser(app, 'provider-public-list@example.com')
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/provider-config',
+      headers: { cookie },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      data: {
+        managedProviders: [
+          {
+            id: 'openai-main',
+            name: 'OpenAI Main',
+            models: ['gpt-image-2'],
+            defaultModel: 'gpt-image-2',
+          },
+        ],
+      },
+    })
+    expect(JSON.stringify(response.json())).not.toContain('secret-key')
+    expect(JSON.stringify(response.json())).not.toContain('https://api.openai.com/v1')
     await app.close()
   })
 
@@ -89,6 +146,7 @@ describe('provider proxy routes', () => {
     const cookie = await registerUser(app, 'provider-invalid-url@example.com')
 
     const response = await saveProviderConfig(app, cookie, {
+      mode: 'custom',
       providerId: 'custom',
       apiUrl: 'ftp://example.com/provider',
       model: 'flux-1-dev',
@@ -101,14 +159,85 @@ describe('provider proxy routes', () => {
         code: 'PROVIDER_URL_INVALID',
       },
     })
+
+    const pathResponse = await saveProviderConfig(app, cookie, {
+      mode: 'custom',
+      providerId: 'custom',
+      apiUrl: '/sub2api/v1',
+      model: 'flux-1-dev',
+      apiKey: 'secret',
+    })
+
+    expect(pathResponse.statusCode).toBe(400)
+    expect(pathResponse.json()).toMatchObject({
+      error: {
+        code: 'PROVIDER_URL_INVALID',
+      },
+    })
     await app.close()
   })
 
-  it('maps direct provider requests and removes unstable params', async () => {
+  it('uses admin-managed provider credentials without exposing them to users', async () => {
+    const store = await storeRepository.read()
+    store.managedProviders.push({
+      id: 'managed-openai',
+      name: 'Managed OpenAI',
+      description: 'admin secret',
+      apiUrl: 'https://managed.example.com/v1',
+      apiKey: 'managed-secret',
+      models: ['gpt-image-2'],
+      defaultModel: 'gpt-image-2',
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    })
+    await storeRepository.write(store)
+
+    const app = await createServer()
+    const cookie = await registerUser(app, 'provider-managed@example.com')
+    await saveProviderConfig(app, cookie, {
+      mode: 'managed',
+      managedProviderId: 'managed-openai',
+      providerId: 'managed-openai',
+      apiUrl: '',
+      model: 'gpt-image-2',
+      apiKey: '',
+    })
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ url: 'https://cdn.example.com/output.png' }],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/provider-proxy/v1/images/generations',
+      headers: {
+        cookie,
+        'content-type': 'application/json',
+        'x-miastra-charge-quota': '0',
+      },
+      payload: {
+        model: 'gpt-image-2',
+        prompt: 'portrait',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://managed.example.com/v1/images/generations')
+    const headers = fetchSpy.mock.calls[0]?.[1]?.headers as Headers
+    expect(headers.get('authorization')).toBe('Bearer managed-secret')
+    await app.close()
+  })
+
+  it('forwards custom provider requests without stripping payload fields', async () => {
     const app = await createServer()
     const cookie = await registerUser(app, 'provider-direct@example.com')
 
     await saveProviderConfig(app, cookie, {
+      mode: 'custom',
       providerId: 'custom',
       apiUrl: 'https://image.example.com/v1',
       model: 'flux-1-dev',
@@ -147,20 +276,34 @@ describe('provider proxy routes', () => {
       model: 'flux-1-dev',
       prompt: 'portrait',
       size: '1024x1024',
+      quality: 'high',
+      n: 1,
+      stream: false,
     })
     await app.close()
   })
 
-  it('uses PROVIDER_UPSTREAM_ORIGIN for blank or /sub2api style configs', async () => {
-    process.env.PROVIDER_UPSTREAM_ORIGIN = 'http://127.0.0.1:19090'
+  it('allows blank custom provider api urls and falls back to the server upstream origin', async () => {
     const app = await createServer()
-    const cookie = await registerUser(app, 'provider-sub2api@example.com')
+    const cookie = await registerUser(app, 'provider-default-upstream@example.com')
+    process.env.PROVIDER_UPSTREAM_ORIGIN = 'https://default-upstream.example.com/v1'
 
-    await saveProviderConfig(app, cookie, {
-      providerId: 'sub2api',
-      apiUrl: '/sub2api/v1',
+    const response = await saveProviderConfig(app, cookie, {
+      mode: 'custom',
+      providerId: 'custom',
+      apiUrl: '',
       model: 'gpt-image-2',
       apiKey: 'secret',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      data: {
+        config: {
+          providerId: 'custom',
+          apiUrl: '',
+        },
+      },
     })
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
@@ -170,7 +313,7 @@ describe('provider proxy routes', () => {
       headers: { 'content-type': 'application/json' },
     }))
 
-    const response = await app.inject({
+    const proxyResponse = await app.inject({
       method: 'POST',
       url: '/api/provider-proxy/v1/images/generations',
       headers: {
@@ -181,13 +324,12 @@ describe('provider proxy routes', () => {
       payload: {
         model: 'gpt-image-2',
         prompt: 'portrait',
-        size: '1024x1024',
-        quality: 'high',
       },
     })
 
-    expect(response.statusCode).toBe(200)
-    expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://127.0.0.1:19090/v1/images/generations')
+    expect(proxyResponse.statusCode).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://default-upstream.example.com/v1/images/generations')
     await app.close()
   })
 
@@ -196,7 +338,8 @@ describe('provider proxy routes', () => {
     const cookie = await registerUser(app, 'provider-key-error@example.com')
 
     await saveProviderConfig(app, cookie, {
-      providerId: 'openai',
+      mode: 'custom',
+      providerId: 'custom',
       apiUrl: 'https://api.openai.com/v1',
       model: 'gpt-image-2',
       apiKey: 'bad-key',
@@ -232,11 +375,12 @@ describe('provider proxy routes', () => {
     await app.close()
   })
 
-  it('translates edit endpoint 404 into compatibility errors', async () => {
+  it('translates edit endpoint 404 into unsupported errors', async () => {
     const app = await createServer()
     const cookie = await registerUser(app, 'provider-edit-error@example.com')
 
     await saveProviderConfig(app, cookie, {
+      mode: 'custom',
       providerId: 'custom',
       apiUrl: 'https://image.example.com/v1',
       model: 'flux-1-dev',
@@ -265,7 +409,7 @@ describe('provider proxy routes', () => {
     expect(response.statusCode).toBe(409)
     expect(response.json()).toMatchObject({
       error: {
-        code: 'PROVIDER_COMPATIBILITY_ERROR',
+        code: 'PROVIDER_UNSUPPORTED',
       },
     })
     await app.close()

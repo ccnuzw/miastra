@@ -2,10 +2,12 @@ import { z } from 'zod'
 import type { FastifyInstance } from 'fastify'
 import { requireAuthenticatedUser } from '../auth/routes'
 import { fail, ok } from '../lib/http'
-import { getAuthDomainStore, getContentDomainStore, getGenerationTaskDomainStore } from '../lib/domain-store'
+import { getContentDomainStore, getGenerationTaskDomainStore } from '../lib/domain-store'
 import { createId } from '../lib/store'
 import { cancelGenerationTaskProcessing } from './worker'
 import type { StoredGenerationTask } from '../auth/types'
+import { storeRepository } from '../lib/store'
+import { findStoredProviderConfigByUserId, resolveEffectiveProviderConfig } from '../provider-config/provider.service'
 import {
   buildLatestTaskMap,
   canTransitionTaskStatus,
@@ -145,10 +147,12 @@ export async function registerGenerationTaskRoutes(app: FastifyInstance) {
       return fail('INVALID_INPUT', '生成任务数据格式不正确')
     }
 
-    const providerConfig = await getAuthDomainStore().findProviderConfigByUserId(user.id)
-    if (!providerConfig?.apiKey.trim()) {
+    const store = await storeRepository.read()
+    const providerConfig = findStoredProviderConfigByUserId(store, user.id)
+    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: providerConfig })
+    if (resolvedProvider.error) {
       reply.code(409)
-      return fail('PROVIDER_CONFIG_REQUIRED', '请先在设置中保存 Provider API Key 后再提交任务')
+      return fail(resolvedProvider.error.code, resolvedProvider.error.message)
     }
 
     const now = new Date().toISOString()
@@ -225,10 +229,12 @@ export async function registerGenerationTaskRoutes(app: FastifyInstance) {
       return fail('TASK_NOT_RETRYABLE', '当前任务状态不支持重试，可能已有更新的尝试记录')
     }
 
-    const providerConfig = await getAuthDomainStore().findProviderConfigByUserId(user.id)
-    if (!providerConfig?.apiKey.trim()) {
+    const store = await storeRepository.read()
+    const providerConfig = findStoredProviderConfigByUserId(store, user.id)
+    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: providerConfig })
+    if (resolvedProvider.error) {
       reply.code(409)
-      return fail('PROVIDER_CONFIG_REQUIRED', '请先在设置中保存 Provider API Key 后再重试任务')
+      return fail(resolvedProvider.error.code, resolvedProvider.error.message)
     }
 
     const now = new Date().toISOString()

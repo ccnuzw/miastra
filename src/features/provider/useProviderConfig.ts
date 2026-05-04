@@ -1,23 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuthSession } from '@/features/auth/useAuthSession'
-import { normalizeProviderConfig } from '@/features/provider/provider.compat'
-import { defaultConfig, providerPresets } from '@/features/provider/provider.constants'
+import { defaultConfig, providerConnectionLabel } from '@/features/provider/provider.constants'
 import { readStoredConfig, writeStoredConfig } from '@/features/provider/provider.storage'
-import type { ProviderConfig } from '@/features/provider/provider.types'
+import { normalizeProviderConfig, providerEditRequestUrl, providerGenerationRequestUrl } from '@/features/provider/provider.utils'
+import type { ManagedProviderOption, ProviderConfig } from '@/features/provider/provider.types'
 
 type UseProviderConfigOptions = {
   onSaved?: () => void
+}
+
+function resolveProviderDisplayName(config: ProviderConfig, managedProviders: ManagedProviderOption[]) {
+  if (config.mode === 'managed') {
+    return managedProviders.find((item) => item.id === config.managedProviderId)?.name || '公共 Provider'
+  }
+  return '自定义 Provider'
 }
 
 export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
   const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [config, setConfig] = useState<ProviderConfig>(defaultConfig)
   const [draftConfig, setDraftConfig] = useState<ProviderConfig>(defaultConfig)
+  const [managedProviders, setManagedProviders] = useState<ManagedProviderOption[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  const requestUrl = useMemo(() => '/api/provider-proxy/v1/images/generations', [config.providerId])
-  const editRequestUrl = useMemo(() => '/api/provider-proxy/v1/images/edits', [config.providerId])
-  const activePreset = providerPresets.find((provider) => provider.id === config.providerId) ?? providerPresets[0]
+  const requestUrl = providerGenerationRequestUrl
+  const editRequestUrl = providerEditRequestUrl
 
   useEffect(() => {
     let cancelled = false
@@ -29,6 +36,7 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
     if (!isAuthenticated) {
       setConfig(defaultConfig)
       setDraftConfig(defaultConfig)
+      setManagedProviders([])
       return () => {
         cancelled = true
       }
@@ -37,13 +45,15 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
     void readStoredConfig()
       .then((stored) => {
         if (cancelled) return
-        setConfig(stored)
-        setDraftConfig(stored)
+        setConfig(stored.config)
+        setDraftConfig(stored.config)
+        setManagedProviders(stored.managedProviders)
       })
       .catch(() => {
         if (cancelled) return
         setConfig(defaultConfig)
         setDraftConfig(defaultConfig)
+        setManagedProviders([])
       })
 
     return () => {
@@ -55,49 +65,38 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
     if (!settingsOpen) setDraftConfig(config)
   }, [config, settingsOpen])
 
-  function handleProviderChange(nextProviderId: string) {
-    const nextPreset = providerPresets.find((provider) => provider.id === nextProviderId) ?? providerPresets[0]
-    setDraftConfig({
-      providerId: nextPreset.id,
-      apiUrl: nextPreset.apiUrl,
-      model: nextPreset.model,
-      apiKey: draftConfig.apiKey,
-    })
-  }
-
   async function saveProviderConfig() {
     const normalized = normalizeProviderConfig(draftConfig)
     const saved = await writeStoredConfig(normalized)
-    setConfig(saved)
-    setDraftConfig(saved)
+    setConfig(saved.config)
+    setDraftConfig(saved.config)
+    setManagedProviders(saved.managedProviders)
     setSettingsOpen(false)
     onSaved?.()
   }
 
-  async function applyProviderSnapshot(snapshot: Partial<Pick<ProviderConfig, 'providerId' | 'apiUrl' | 'model'>>) {
-    const normalized = normalizeProviderConfig({
-      ...config,
-      providerId: snapshot.providerId?.trim() || config.providerId,
-      apiUrl: snapshot.apiUrl?.trim() ?? config.apiUrl,
-      model: snapshot.model?.trim() || config.model,
-      apiKey: config.apiKey,
-    })
-    const saved = await writeStoredConfig(normalized)
-    setConfig(saved)
-    setDraftConfig(saved)
-  }
+  const connectionLabel = useMemo(() => {
+    if (config.mode === 'managed') return `${providerConnectionLabel} · ${resolveProviderDisplayName(config, managedProviders)}`
+    return `${providerConnectionLabel} · 自定义`
+  }, [config, managedProviders])
+
+  const selectedManagedProvider = useMemo(
+    () => managedProviders.find((item) => item.id === draftConfig.managedProviderId) ?? null,
+    [draftConfig.managedProviderId, managedProviders],
+  )
 
   return {
     config,
     draftConfig,
+    managedProviders,
+    selectedManagedProvider,
     settingsOpen,
+    connectionLabel,
+    providerDisplayName: resolveProviderDisplayName(config, managedProviders),
     requestUrl,
     editRequestUrl,
-    activePreset,
     setDraftConfig,
     setSettingsOpen,
-    applyProviderSnapshot,
-    handleProviderChange,
     saveProviderConfig,
   }
 }

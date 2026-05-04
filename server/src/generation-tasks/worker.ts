@@ -1,14 +1,14 @@
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
-import { getAuthDomainStore, getGenerationTaskDomainStore } from '../lib/domain-store'
-import type { StoredGenerationTask, StoredProviderConfig, StoredWork } from '../auth/types'
+import { getGenerationTaskDomainStore } from '../lib/domain-store'
+import type { StoredGenerationTask, StoredWork } from '../auth/types'
 import { consumeQuota, refundQuota } from '../billing/ledger'
+import { storeRepository } from '../lib/store'
+import { findStoredProviderConfigByUserId, resolveEffectiveProviderConfig, type ResolvedProviderRuntimeConfig } from '../provider-config/provider.service'
+import { joinProviderUrl } from '../provider-config/provider.utils'
 
 const generationEndpoint = '/v1/images/generations'
 const editEndpoint = '/v1/images/edits'
-const workerIntervalMs = Number(process.env.GENERATION_WORKER_INTERVAL_MS ?? 1200)
-const workerConcurrency = Math.max(1, Number(process.env.GENERATION_WORKER_CONCURRENCY ?? 2))
-const fallbackProxyOrigin = process.env.GENERATION_PROXY_ORIGIN ?? 'http://127.0.0.1:5173'
 const activeTaskIds = new Set<string>()
 const activeControllers = new Map<string, AbortController>()
 let started = false
@@ -35,21 +35,27 @@ type TaskClaim = {
   chargedQuota: boolean
 }
 
-function trimTrailingSlash(value: string) {
-  return value.trim().replace(/\/$/, '')
+function getWorkerRuntimeConfig() {
+  return {
+    intervalMs: Number(process.env.GENERATION_WORKER_INTERVAL_MS ?? 1200),
+    concurrency: Math.max(1, Number(process.env.GENERATION_WORKER_CONCURRENCY ?? 2)),
+    fallbackProxyOrigin: process.env.GENERATION_PROXY_ORIGIN ?? 'http://127.0.0.1:5173',
+  }
 }
 
-function resolveProviderBaseUrl(config: StoredProviderConfig) {
-  if (/^https?:\/\//i.test(config.apiUrl.trim())) return trimTrailingSlash(config.apiUrl)
-  return trimTrailingSlash(process.env.PROVIDER_UPSTREAM_ORIGIN?.trim() || 'http://127.0.0.1:18080')
-}
-
-function resolveProviderRequestUrl(task: StoredGenerationTask, config: StoredProviderConfig) {
-  const baseUrl = resolveProviderBaseUrl(config)
+function resolveProviderRequestUrl(task: StoredGenerationTask, config: Pick<ResolvedProviderRuntimeConfig, 'apiUrl'>) {
+  const baseUrl = config.apiUrl
   const endpoint = task.payload.mode === 'image2image' || task.payload.mode === 'draw-image2image'
     ? editEndpoint
     : generationEndpoint
-  return `${baseUrl}${endpoint}`
+  return joinProviderUrl(baseUrl, endpoint)
+}
+
+function resolveSnapshotRequestUrl(task: StoredGenerationTask, requestUrl: string, exposeApiUrl: boolean) {
+  if (exposeApiUrl) return requestUrl
+  return task.payload.mode === 'image2image' || task.payload.mode === 'draw-image2image'
+    ? editEndpoint
+    : generationEndpoint
 }
 
 function extractImageSrc(payload: string) {
@@ -113,7 +119,14 @@ async function readGenerationResponse(response: Response) {
   return fullText
 }
 
-function buildTaskResult(task: StoredGenerationTask, execution: ExecutionResult, workId: string, snapshotId: string, requestUrl: string) {
+function buildTaskResult(
+  task: StoredGenerationTask,
+  execution: ExecutionResult,
+  workId: string,
+  snapshotId: string,
+  requestUrl: string,
+  apiUrl: string,
+) {
   return {
     workId,
     imageUrl: execution.imageUrl,
@@ -140,7 +153,7 @@ function buildTaskResult(task: StoredGenerationTask, execution: ExecutionResult,
       quality: task.payload.quality,
       model: execution.providerModel,
       providerId: task.payload.providerId,
-      apiUrl: '',
+      apiUrl,
       requestUrl,
       stream: task.payload.stream,
       references: task.payload.referenceImages
@@ -160,16 +173,20 @@ function buildTaskResult(task: StoredGenerationTask, execution: ExecutionResult,
   }
 }
 
-function buildWorkRecord(task: StoredGenerationTask, execution: ExecutionResult, requestUrl: string): StoredWork {
+function buildWorkRecord(task: StoredGenerationTask, execution: ExecutionResult, requestUrl: string, apiUrl: string): StoredWork {
   const createdAt = Date.now()
   const snapshotId = task.payload.snapshotId || randomUUID()
   const workId = randomUUID()
-  const result = buildTaskResult(task, execution, workId, snapshotId, requestUrl)
+  const result = buildTaskResult(task, execution, workId, snapshotId, requestUrl, apiUrl)
+  const assetRemoteUrl = /^https?:\/\//i.test(execution.imageUrl) ? execution.imageUrl : undefined
   return {
     id: workId,
     userId: task.userId,
     title: task.payload.title,
     src: execution.imageUrl,
+    assetStorage: execution.imageUrl.startsWith('data:image/') ? 'inline' : execution.imageUrl.startsWith('blob:') ? 'blob' : 'remote',
+    assetSyncStatus: assetRemoteUrl ? 'synced' : execution.imageUrl.startsWith('http://') || execution.imageUrl.startsWith('https://') ? 'pending-sync' : 'local-only',
+    assetRemoteUrl,
     meta: task.payload.meta,
     variation: task.payload.draw?.variation,
     batchId: task.payload.draw?.batchId,
@@ -188,7 +205,6 @@ function buildWorkRecord(task: StoredGenerationTask, execution: ExecutionResult,
     promptSnippet: task.payload.requestPrompt.slice(0, 180),
     promptText: task.payload.requestPrompt,
     isFavorite: false,
-    favorite: false,
     tags: [],
   }
 }
@@ -214,7 +230,7 @@ async function referenceToFile(reference: NonNullable<StoredGenerationTask['payl
   throw new Error('当前仅支持 data URL 或 http(s) 参考图')
 }
 
-async function executeGenerationTask(task: StoredGenerationTask, config: StoredProviderConfig, signal: AbortSignal): Promise<ExecutionResult> {
+async function executeGenerationTask(task: StoredGenerationTask, config: ResolvedProviderRuntimeConfig, signal: AbortSignal): Promise<ExecutionResult> {
   const requestUrl = resolveProviderRequestUrl(task, config)
   const headers = new Headers({ authorization: `Bearer ${config.apiKey}` })
   let response: Response
@@ -226,7 +242,9 @@ async function executeGenerationTask(task: StoredGenerationTask, config: StoredP
     const formData = new FormData()
     formData.append('model', config.model.trim())
     formData.append('prompt', task.payload.requestPrompt)
-    files.forEach((file) => formData.append('image', file))
+    files.forEach((file) => {
+      formData.append('image', file)
+    })
     formData.append('size', task.payload.size)
     if (task.payload.quality?.trim()) formData.append('quality', task.payload.quality.trim())
     response = await fetch(requestUrl, {
@@ -304,12 +322,14 @@ async function processTask(claim: TaskClaim, logger?: WorkerLogger) {
   const timeout = setTimeout(() => controller.abort(), timeoutSec * 1000)
 
   try {
-    const config = await getAuthDomainStore().findProviderConfigByUserId(task.userId)
-    if (!config?.apiKey.trim()) {
+    const store = await storeRepository.read()
+    const storedConfig = findStoredProviderConfigByUserId(store, task.userId)
+    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: storedConfig })
+    if (resolvedProvider.error || !resolvedProvider.config) {
       await generationStore.updateGenerationTask(task.id, {
         status: 'failed',
         progress: task.progress ?? 15,
-        errorMessage: '请先在设置中保存 Provider API Key 后再提交任务',
+        errorMessage: resolvedProvider.error?.message ?? '请先补全 Provider 配置后再提交任务',
         updatedAt: new Date().toISOString(),
       })
       if (chargedQuota) await refundQuota(task.userId, 1).catch(() => undefined)
@@ -317,17 +337,22 @@ async function processTask(claim: TaskClaim, logger?: WorkerLogger) {
     }
 
     logger?.info?.({ taskId: task.id, userId: task.userId }, 'generation task started')
+    const config = resolvedProvider.config
     const requestUrl = resolveProviderRequestUrl(task, config)
+    const snapshotRequestUrl = resolveSnapshotRequestUrl(task, requestUrl, config.exposeApiUrl)
     const execution = await executeGenerationTask(task, config, controller.signal)
-    const work = buildWorkRecord(task, execution, requestUrl)
-    await generationStore.completeGenerationTaskAndInsertWork(task.id, {
+    if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    const snapshotApiUrl = config.exposeApiUrl ? config.apiUrl : ''
+    const work = buildWorkRecord(task, execution, snapshotRequestUrl, snapshotApiUrl)
+    const completed = await generationStore.completeGenerationTaskAndInsertWork(task.id, {
       status: 'succeeded',
       progress: 100,
       updatedAt: new Date().toISOString(),
       errorMessage: undefined,
-      result: buildTaskResult(task, execution, work.id, work.snapshotId || randomUUID(), requestUrl),
+      result: buildTaskResult(task, execution, work.id, work.snapshotId || randomUUID(), snapshotRequestUrl, snapshotApiUrl),
     }, work)
-    logger?.info?.({ taskId: task.id, workId: work.id }, 'generation task succeeded')
+    if (completed) logger?.info?.({ taskId: task.id, workId: work.id }, 'generation task succeeded')
+    else logger?.warn?.({ taskId: task.id }, 'generation task completion skipped because task is no longer running')
   } catch (error) {
     const status = inferFailureStatus(error)
     const message = error instanceof Error ? error.message : String(error)
@@ -351,8 +376,9 @@ async function processTask(claim: TaskClaim, logger?: WorkerLogger) {
 async function tick(logger?: WorkerLogger) {
   if (draining) return
   draining = true
+  const { concurrency } = getWorkerRuntimeConfig()
   try {
-    while (activeTaskIds.size < workerConcurrency) {
+    while (activeTaskIds.size < concurrency) {
       const claim = await claimTaskForExecution(logger)
       if (!claim) break
       void processTask(claim, logger)
@@ -367,10 +393,11 @@ async function tick(logger?: WorkerLogger) {
 export function startGenerationTaskWorker(logger?: WorkerLogger) {
   if (started) return
   started = true
+  const runtime = getWorkerRuntimeConfig()
   void tick(logger)
   tickTimer = setInterval(() => {
     void tick(logger)
-  }, workerIntervalMs)
+  }, runtime.intervalMs)
 }
 
 export async function cancelGenerationTaskProcessing(taskId?: string) {
@@ -401,5 +428,6 @@ export async function stopGenerationTaskWorker() {
   if (tickTimer) clearInterval(tickTimer)
   tickTimer = null
   started = false
+  draining = false
   await cancelGenerationTaskProcessing()
 }

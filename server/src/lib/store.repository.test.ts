@@ -10,7 +10,8 @@ describe('store.repository json backend', () => {
 
   afterEach(() => {
     while (tempDirs.length) {
-      rmSync(tempDirs.pop()!, { recursive: true, force: true })
+      const tempDir = tempDirs.pop()
+      if (tempDir) rmSync(tempDir, { recursive: true, force: true })
     }
   })
 
@@ -21,7 +22,7 @@ describe('store.repository json backend', () => {
     expect(store.sessions).toEqual([])
   })
 
-  it('normalizes legacy work tags and favorite fields on read and write', async () => {
+  it('normalizes cloud work fields on read and write', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'miastra-store-'))
     tempDirs.push(dir)
     const filePath = join(dir, 'store.json')
@@ -35,13 +36,13 @@ describe('store.repository json backend', () => {
           id: 'work-1',
           userId: 'user-1',
           title: '旧作品',
-          meta: 'legacy',
+          meta: 'from-api',
           src: ' https://example.com/work.png ',
-          favorite: true,
           tags: 'a, b，a',
         },
       ],
       providerConfigs: [],
+      managedProviders: [],
       drawBatches: [],
       generationTasks: [],
       auditLogs: [],
@@ -53,8 +54,7 @@ describe('store.repository json backend', () => {
     const store = await repo.read()
     expect(store.works[0]).toMatchObject({
       id: 'work-1',
-      isFavorite: true,
-      favorite: true,
+      isFavorite: false,
       src: 'https://example.com/work.png',
       tags: ['a', 'b'],
     })
@@ -62,8 +62,7 @@ describe('store.repository json backend', () => {
     await repo.write(store)
     const nextStore = JSON.parse(await readFile(filePath, 'utf8')) as { works: Array<Record<string, unknown>> }
     expect(nextStore.works[0]).toMatchObject({
-      isFavorite: true,
-      favorite: true,
+      isFavorite: false,
       src: 'https://example.com/work.png',
       tags: ['a', 'b'],
     })

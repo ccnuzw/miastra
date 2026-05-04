@@ -13,6 +13,7 @@ export type StoreRepository = {
   write: (store: DataStore) => Promise<void>
   mutate: <T>(updater: (store: DataStore) => T | Promise<T>) => Promise<T>
   createId: () => string
+  close?: () => Promise<void>
 }
 
 export type JsonStoreRepositoryOptions = {
@@ -32,6 +33,7 @@ const emptyStore: DataStore = {
   promptTemplates: [],
   works: [],
   providerConfigs: [],
+  managedProviders: [],
   drawBatches: [],
   generationTasks: [],
   auditLogs: [],
@@ -50,6 +52,7 @@ function normalizeStore(value: Partial<DataStore> | null | undefined): DataStore
     promptTemplates: Array.isArray(value?.promptTemplates) ? value.promptTemplates : [],
     works,
     providerConfigs: Array.isArray(value?.providerConfigs) ? value.providerConfigs : [],
+    managedProviders: Array.isArray(value?.managedProviders) ? value.managedProviders : [],
     drawBatches: Array.isArray(value?.drawBatches) ? value.drawBatches : [],
     generationTasks: Array.isArray(value?.generationTasks) ? value.generationTasks : [],
     auditLogs: Array.isArray(value?.auditLogs) ? value.auditLogs : [],
@@ -79,20 +82,20 @@ function normalizeStoredWork(work: unknown): StoredWork | null {
   const userId = normalizeOptionalString(record.userId)
   if (!id || !userId) return null
 
-  const isFavorite = Boolean(record.isFavorite ?? record.favorite)
+  const isFavorite = Boolean(record.isFavorite)
+  const src = normalizeOptionalString(record.src) ?? normalizeOptionalString(record.assetRemoteUrl)
 
   return {
     ...(record as StoredWork),
     id,
     userId,
     title: normalizeOptionalString(record.title) ?? '',
-    src: normalizeOptionalString(record.src),
+    src,
     assetId: normalizeOptionalString(record.assetId),
     assetRemoteKey: normalizeOptionalString(record.assetRemoteKey),
     assetRemoteUrl: normalizeOptionalString(record.assetRemoteUrl),
     meta: normalizeOptionalString(record.meta) ?? '',
     isFavorite,
-    favorite: isFavorite,
     tags: normalizeWorkTags(record.tags),
   }
 }
@@ -160,10 +163,27 @@ const postgresSchemaSql = `
 
   CREATE TABLE IF NOT EXISTS provider_configs (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    mode TEXT NOT NULL DEFAULT 'custom',
     provider_id TEXT NOT NULL,
+    managed_provider_id TEXT,
     api_url TEXT NOT NULL,
     model TEXT NOT NULL,
     api_key TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+  );
+
+  ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'custom';
+  ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS managed_provider_id TEXT;
+
+  CREATE TABLE IF NOT EXISTS managed_providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    api_url TEXT NOT NULL,
+    api_key TEXT NOT NULL,
+    models_json JSONB NOT NULL,
+    default_model TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
     updated_at TIMESTAMPTZ NOT NULL
   );
 
@@ -229,6 +249,12 @@ const postgresSchemaSql = `
     prompt_text TEXT,
     is_favorite BOOLEAN,
     favorite BOOLEAN,
+    asset_id TEXT,
+    asset_storage TEXT,
+    asset_sync_status TEXT,
+    asset_remote_key TEXT,
+    asset_remote_url TEXT,
+    asset_updated_at BIGINT,
     tags_json JSONB
   );
 
@@ -264,6 +290,7 @@ const postgresSchemaSql = `
     target_id TEXT NOT NULL,
     payload_json JSONB,
     ip TEXT,
+    request_id TEXT,
     created_at TIMESTAMPTZ NOT NULL
   );
 
@@ -312,8 +339,17 @@ async function ensurePostgresSchema(pool: Pool) {
   await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS interrupted_count INTEGER NOT NULL DEFAULT 0`)
   await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS timeout_count INTEGER NOT NULL DEFAULT 0`)
   await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS category TEXT`)
+  await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS name TEXT`)
   await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS tags_json JSONB`)
   await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS favorite BOOLEAN`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_id TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_storage TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_sync_status TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_remote_key TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_remote_url TEXT`)
+  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_updated_at BIGINT`)
+  await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id TEXT`)
   await pool.query(`CREATE INDEX IF NOT EXISTS prompt_templates_user_updated_at_idx ON prompt_templates(user_id, updated_at DESC)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS prompt_templates_user_last_used_at_idx ON prompt_templates(user_id, last_used_at DESC)`)
   })().catch((error) => {
@@ -331,12 +367,13 @@ async function writeCoreTables(pool: Pool, store: DataStore) {
     await pool.query('DELETE FROM quota_profiles')
     await pool.query('DELETE FROM audit_logs')
     await pool.query('DELETE FROM generation_tasks')
+    await pool.query('DELETE FROM managed_providers')
     await pool.query('DELETE FROM provider_configs')
     await pool.query('DELETE FROM sessions')
-    await pool.query('DELETE FROM users')
     await pool.query('DELETE FROM prompt_templates')
     await pool.query('DELETE FROM works')
     await pool.query('DELETE FROM draw_batches')
+    await pool.query('DELETE FROM users')
 
     for (const user of store.users) {
       await pool.query(`INSERT INTO users (id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, [user.id, user.email, user.nickname, user.role, user.passwordHash, user.passwordResetToken ?? null, user.passwordResetExpiresAt ?? null, user.createdAt, user.updatedAt])
@@ -347,7 +384,11 @@ async function writeCoreTables(pool: Pool, store: DataStore) {
     }
 
     for (const config of store.providerConfigs) {
-      await pool.query(`INSERT INTO provider_configs (user_id, provider_id, api_url, model, api_key, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`, [config.userId, config.providerId, config.apiUrl, config.model, config.apiKey, config.updatedAt])
+      await pool.query(`INSERT INTO provider_configs (user_id, mode, provider_id, managed_provider_id, api_url, model, api_key, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [config.userId, config.mode, config.providerId, config.managedProviderId ?? null, config.apiUrl, config.model, config.apiKey, config.updatedAt])
+    }
+
+    for (const provider of store.managedProviders) {
+      await pool.query(`INSERT INTO managed_providers (id, name, description, api_url, api_key, models_json, default_model, enabled, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`, [provider.id, provider.name, provider.description ?? null, provider.apiUrl, provider.apiKey, JSON.stringify(provider.models), provider.defaultModel, provider.enabled, provider.updatedAt])
     }
 
     for (const task of store.generationTasks) {
@@ -360,15 +401,17 @@ async function writeCoreTables(pool: Pool, store: DataStore) {
     }
 
     for (const work of store.works) {
-      await pool.query(`INSERT INTO works (id, user_id, title, src, meta, variation, batch_id, draw_index, task_status, error, retryable, retry_count, created_at, mode, provider_model, size, quality, snapshot_id, generation_snapshot_json, prompt_snippet, prompt_text, is_favorite, favorite, tags_json) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $21, $22, $23, $24::jsonb)`, [work.id, work.userId, work.title, work.src ?? null, work.meta, work.variation ?? null, work.batchId ?? null, work.drawIndex ?? null, work.taskStatus ?? null, work.error ?? null, work.retryable ?? null, work.retryCount ?? null, work.createdAt ?? null, work.mode ?? null, work.providerModel ?? null, work.size ?? null, work.quality ?? null, work.snapshotId ?? null, work.generationSnapshot ? JSON.stringify(work.generationSnapshot) : null, work.promptSnippet ?? null, work.promptText ?? null, work.isFavorite ?? null, work.favorite ?? null, work.tags ? JSON.stringify(work.tags) : null])
+      const isFavorite = work.isFavorite ?? work.favorite ?? false
+      const tags = Array.isArray(work.tags) ? Array.from(new Set(work.tags.map((tag) => tag.trim()).filter(Boolean))) : []
+      await pool.query(`INSERT INTO works (id, user_id, title, src, meta, variation, batch_id, draw_index, task_status, error, retryable, retry_count, created_at, mode, provider_model, size, quality, snapshot_id, generation_snapshot_json, prompt_snippet, prompt_text, is_favorite, favorite, tags_json, asset_id, asset_storage, asset_sync_status, asset_remote_key, asset_remote_url, asset_updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $21, $22, $23, $24::jsonb, $25, $26, $27, $28, $29, $30)`, [work.id, work.userId, work.title, work.src ?? null, work.meta, work.variation ?? null, work.batchId ?? null, work.drawIndex ?? null, work.taskStatus ?? null, work.error ?? null, work.retryable ?? null, work.retryCount ?? null, work.createdAt ?? null, work.mode ?? null, work.providerModel ?? null, work.size ?? null, work.quality ?? null, work.snapshotId ?? null, work.generationSnapshot ? JSON.stringify(work.generationSnapshot) : null, work.promptSnippet ?? null, work.promptText ?? null, isFavorite, isFavorite, tags.length ? JSON.stringify(tags) : null, work.assetId ?? null, work.assetStorage ?? null, work.assetSyncStatus ?? null, work.assetRemoteKey ?? null, work.assetRemoteUrl ?? null, work.assetUpdatedAt ?? null])
     }
 
     for (const batch of store.drawBatches) {
-      await pool.query(`INSERT INTO draw_batches (id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, snapshot_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [batch.id, batch.userId, batch.title, batch.createdAt, batch.strategy, batch.concurrency, batch.count, batch.successCount, batch.failedCount, batch.snapshotId])
+      await pool.query(`INSERT INTO draw_batches (id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, cancelled_count, interrupted_count, timeout_count, snapshot_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, [batch.id, batch.userId, batch.title, batch.createdAt, batch.strategy, batch.concurrency, batch.count, batch.successCount, batch.failedCount, batch.cancelledCount ?? 0, batch.interruptedCount ?? 0, batch.timeoutCount ?? 0, batch.snapshotId])
     }
 
     for (const log of store.auditLogs) {
-      await pool.query(`INSERT INTO audit_logs (id, actor_user_id, actor_role, action, target_type, target_id, payload_json, ip, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`, [log.id, log.actorUserId, log.actorRole, log.action, log.targetType, log.targetId, JSON.stringify(log.payload ?? {}), log.ip ?? null, log.createdAt])
+      await pool.query(`INSERT INTO audit_logs (id, actor_user_id, actor_role, action, target_type, target_id, payload_json, ip, request_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`, [log.id, log.actorUserId, log.actorRole, log.action, log.targetType, log.targetId, JSON.stringify(log.payload ?? {}), log.ip ?? null, log.requestId ?? null, log.createdAt])
     }
 
     for (const profile of store.quotaProfiles) {
@@ -395,10 +438,25 @@ export function createPostgresStoreRepository(options: PostgresStoreRepositoryOp
 
   async function readPostgresStore() {
     await ensurePostgresSchema(pool)
-    const [users, sessions, providerConfigs, generationTasks, promptTemplates, works, drawBatches, auditLogs, quotaProfiles, billingInvoices] = await Promise.all([
+    const [users, sessions, providerConfigs, managedProviders, generationTasks, promptTemplates, works, drawBatches, auditLogs, quotaProfiles, billingInvoices] = await Promise.all([
       authRepository.listUsers(),
       authRepository.listSessions(),
       authRepository.listProviderConfigs(),
+      pool.query(`
+        SELECT id, name, description, api_url, api_key, models_json, default_model, enabled, updated_at
+        FROM managed_providers
+        ORDER BY updated_at DESC
+      `).then((result) => result.rows.map((row) => ({
+        id: String(row.id),
+        name: String(row.name),
+        description: row.description ? String(row.description) : undefined,
+        apiUrl: String(row.api_url),
+        apiKey: String(row.api_key),
+        models: Array.isArray(row.models_json) ? row.models_json.map(String) : [],
+        defaultModel: String(row.default_model),
+        enabled: Boolean(row.enabled),
+        updatedAt: new Date(row.updated_at as string | Date).toISOString(),
+      }))),
       generationTaskRepository.listGenerationTasks(),
       contentRepository.listPromptTemplates(),
       contentRepository.listWorks(),
@@ -412,6 +470,7 @@ export function createPostgresStoreRepository(options: PostgresStoreRepositoryOp
       users,
       sessions,
       providerConfigs,
+      managedProviders,
       generationTasks,
       promptTemplates,
       works,
@@ -444,19 +503,8 @@ export function createPostgresStoreRepository(options: PostgresStoreRepositoryOp
     createId() {
       return randomUUID()
     },
+    async close() {
+      await pool.end()
+    },
   }
 }
-
-function createStoreRepositoryFromEnv() {
-  const backend = (process.env.SERVER_STORE_BACKEND ?? 'json').trim().toLowerCase()
-  if (backend === 'postgres') {
-    const connectionString = process.env.DATABASE_URL?.trim()
-    if (!connectionString) {
-      throw new Error('SERVER_STORE_BACKEND=postgres 时必须提供 DATABASE_URL')
-    }
-    return createPostgresStoreRepository({ connectionString })
-  }
-  return createJsonStoreRepository()
-}
-
-export const storeRepository = createStoreRepositoryFromEnv()

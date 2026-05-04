@@ -1,4 +1,3 @@
-export type PasswordResetMode = 'disabled' | 'debug'
 export type BillingRuntimeMode = 'disabled' | 'mock' | 'real'
 
 function isProductionRuntime() {
@@ -11,41 +10,19 @@ function normalizeEnumValue<T extends string>(value: string | undefined, allowed
   return allowedValues.includes(normalized as T) ? (normalized as T) : fallback
 }
 
-export function getPasswordResetMode(): PasswordResetMode {
-  if (isProductionRuntime()) return 'disabled'
-
-  return normalizeEnumValue(
-    process.env.AUTH_PASSWORD_RESET_MODE,
-    ['disabled', 'debug'] as const,
-    'debug',
-  )
-}
-
-export function getPasswordResetConfig() {
-  const mode = getPasswordResetMode()
-
-  if (mode === 'debug') {
-    return {
-      mode,
-      requestAvailable: true,
-      debugTokenAvailable: true,
-      notice: '当前环境处于开发调试模式。提交邮箱后会返回调试令牌，仅供本地开发使用。',
-    }
-  }
-
-  return {
-    mode,
-    requestAvailable: false,
-    debugTokenAvailable: false,
-    notice: '当前环境未启用找回密码邮件发送，无法发起重置请求。',
-  }
-}
-
 export function getBillingMode(): BillingRuntimeMode {
+  if (isProductionRuntime()) {
+    return normalizeEnumValue(
+      process.env.BILLING_MODE,
+      ['disabled', 'real'] as const,
+      'disabled',
+    )
+  }
+
   return normalizeEnumValue(
     process.env.BILLING_MODE,
     ['disabled', 'mock', 'real'] as const,
-    isProductionRuntime() ? 'disabled' : 'mock',
+    'mock',
   )
 }
 

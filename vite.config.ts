@@ -10,7 +10,7 @@ const rootDir = fileURLToPath(new URL('.', import.meta.url))
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const sub2apiTarget = env.VITE_SUB2API_PROXY_TARGET || 'http://127.0.0.1:18080'
-  const apiTarget = env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:18081'
+  const apiTarget = env.VITE_API_PROXY_TARGET || env.VITE_APP_API_TARGET || 'http://127.0.0.1:18081'
   console.info(`[miastra] /sub2api proxy target: ${sub2apiTarget}`)
   console.info(`[miastra] /api proxy target: ${apiTarget}`)
 

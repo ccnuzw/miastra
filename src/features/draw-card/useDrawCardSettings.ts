@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuthSession } from '@/features/auth/useAuthSession'
 import type { DrawBatch, DrawStrategy, DrawTask, DrawTaskStatus, VariationStrength } from '@/features/draw-card/drawCard.types'
 import { drawStrategyOptions, variationDimensions } from '@/features/draw-card/drawCard.constants'
-import { updateGenerationTask } from '@/features/generation/generation.api'
+import { listGenerationTasks, updateGenerationTask, type GenerationTaskRecord } from '@/features/generation/generation.api'
 import { clampDrawConcurrency, drawStatusMeta } from '@/features/draw-card/drawCard.utils'
 import type { GalleryImage } from '@/features/works/works.types'
-import { readStoredDrawBatches, readStoredDrawTasks, writeStoredDrawBatches, writeStoredDrawTasks } from './drawCard.storage'
+import { readStoredDrawBatches, writeStoredDrawBatches } from './drawCard.storage'
 
 const activeStatuses = new Set<DrawTaskStatus>(['pending', 'running', 'receiving', 'retrying'])
 
@@ -58,6 +58,101 @@ function applyBatchCounts(batches: DrawBatch[], tasks: DrawTask[]) {
   })
 }
 
+function getLatestTaskSlotKey(task: GenerationTaskRecord) {
+  if (task.batchId) return `${task.batchId}:${task.drawIndex ?? task.rootTaskId}`
+  return task.rootTaskId
+}
+
+function getTaskTimestamp(task: GenerationTaskRecord) {
+  return new Date(task.updatedAt).getTime() || new Date(task.createdAt).getTime()
+}
+
+function getDrawTaskStatus(status: GenerationTaskRecord['status']): DrawTaskStatus {
+  if (status === 'succeeded') return 'success'
+  if (status === 'failed') return 'failed'
+  if (status === 'cancelled') return 'cancelled'
+  if (status === 'timeout') return 'timeout'
+  if (status === 'running') return 'running'
+  return 'pending'
+}
+
+function buildLatestGenerationTaskMap(tasks: GenerationTaskRecord[]) {
+  const latest = new Map<string, GenerationTaskRecord>()
+  for (const task of tasks) {
+    if (!task.payload.draw) continue
+    const slotKey = getLatestTaskSlotKey(task)
+    const current = latest.get(slotKey)
+    if (!current) {
+      latest.set(slotKey, task)
+      continue
+    }
+
+    const retryDiff = (task.retryAttempt ?? 0) - (current.retryAttempt ?? 0)
+    if (retryDiff > 0 || (retryDiff === 0 && getTaskTimestamp(task) > getTaskTimestamp(current))) {
+      latest.set(slotKey, task)
+    }
+  }
+  return latest
+}
+
+function toDrawTask(task: GenerationTaskRecord): DrawTask | null {
+  const draw = task.payload.draw
+  if (!draw) return null
+
+  const status = getDrawTaskStatus(task.status)
+  const imageUrl = task.result?.imageUrl?.trim()
+  const image: GalleryImage | undefined = imageUrl ? {
+    id: task.result?.workId ?? task.id,
+    title: task.result?.title ?? task.payload.title,
+    src: imageUrl,
+    meta: task.result?.meta ?? task.payload.meta,
+    variation: task.result?.variation ?? draw.variation,
+    batchId: task.result?.batchId ?? draw.batchId,
+    drawIndex: task.result?.drawIndex ?? draw.drawIndex,
+    taskStatus: status,
+    error: task.errorMessage,
+    retryable: task.retryable,
+    retryCount: task.retryAttempt,
+    snapshotId: task.result?.snapshotId ?? task.payload.snapshotId,
+    generationSnapshot: task.result?.generationSnapshot as GalleryImage['generationSnapshot'],
+    promptSnippet: task.result?.promptSnippet,
+    promptText: task.result?.promptText,
+    mode: task.result?.mode ?? task.payload.mode,
+    providerModel: task.result?.providerModel,
+    size: task.result?.size,
+    quality: task.result?.quality,
+    generationTaskId: task.id,
+  } : undefined
+
+  return {
+    id: task.id,
+    index: draw.drawIndex,
+    title: task.payload.title,
+    prompt: task.payload.requestPrompt,
+    meta: task.payload.meta,
+    variation: draw.variation,
+    batchId: draw.batchId,
+    status,
+    image,
+    error: task.errorMessage,
+    errorCode: task.status === 'timeout' ? 'timeout' : undefined,
+    retryable: task.retryable,
+    retryCount: task.retryAttempt,
+    snapshotId: task.payload.snapshotId,
+    generationTaskId: task.id,
+    startedAt: undefined,
+    finishedAt: undefined,
+    updatedAt: getTaskTimestamp(task),
+  }
+}
+
+function buildDrawTasksFromGenerationTasks(tasks: GenerationTaskRecord[]) {
+  return [...buildLatestGenerationTaskMap(tasks).values()]
+    .map((task) => toDrawTask(task))
+    .filter((task): task is DrawTask => Boolean(task))
+    .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
+}
+
 export function useDrawCardSettings() {
   const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [drawCount, setDrawCount] = useState(5)
@@ -66,7 +161,6 @@ export function useDrawCardSettings() {
   const [drawTasks, setDrawTasks] = useState<DrawTask[]>([])
   const [drawBatches, setDrawBatches] = useState<DrawBatch[]>([])
   const batchesHydratedRef = useRef(false)
-  const tasksHydratedRef = useRef(false)
   const [activeBatchId, setActiveBatchId] = useState<string>('all')
 
   useEffect(() => {
@@ -76,7 +170,6 @@ export function useDrawCardSettings() {
 
     if (!isAuthenticated) {
       batchesHydratedRef.current = false
-      tasksHydratedRef.current = false
       setDrawTasks([])
       setDrawBatches([])
       return () => {
@@ -84,22 +177,24 @@ export function useDrawCardSettings() {
       }
     }
 
-    void Promise.all([readStoredDrawBatches(), readStoredDrawTasks()])
+    void Promise.all([readStoredDrawBatches(), listGenerationTasks()])
       .then(([batches, tasks]) => {
         if (cancelled) return
         const normalizedBatches = batches.map(normalizeBatch)
-        const { nextTasks, interruptedTaskIds } = reconcileInterruptedTasks(tasks)
+        const hydratedTasks = buildDrawTasksFromGenerationTasks(tasks)
+        const { nextTasks, interruptedTaskIds } = reconcileInterruptedTasks(hydratedTasks)
         const nextBatches = applyBatchCounts(normalizedBatches, nextTasks)
         setDrawTasks((current) => (current.length ? current : nextTasks))
         setDrawBatches((current) => (current.length ? current : nextBatches))
         batchesHydratedRef.current = true
-        tasksHydratedRef.current = true
 
         if (interruptedTaskIds.length) {
           nextTasks
-            .filter((task) => interruptedTaskIds.includes(task.id) && task.generationTaskId)
+            .filter((task): task is DrawTask & { generationTaskId: string } => (
+              interruptedTaskIds.includes(task.id) && typeof task.generationTaskId === 'string'
+            ))
             .forEach((task) => {
-              void updateGenerationTask(task.generationTaskId!, {
+              void updateGenerationTask(task.generationTaskId, {
                 status: 'failed',
                 errorMessage: '工作台页面已刷新或会话中断，任务已标记为中断，可手动重试',
               }).catch(() => undefined)
@@ -117,11 +212,6 @@ export function useDrawCardSettings() {
     if (!isAuthenticated || !batchesHydratedRef.current) return
     void writeStoredDrawBatches(drawBatches)
   }, [drawBatches, isAuthenticated])
-
-  useEffect(() => {
-    if (!isAuthenticated || !tasksHydratedRef.current) return
-    void writeStoredDrawTasks(drawTasks)
-  }, [drawTasks, isAuthenticated])
 
   const [variationStrength, setVariationStrength] = useState<VariationStrength>('medium')
   const [enabledVariationDimensions, setEnabledVariationDimensions] = useState<string[]>(variationDimensions.map((item) => item.id))

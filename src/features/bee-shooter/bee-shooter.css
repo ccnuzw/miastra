@@ -53,11 +53,6 @@
   animation: bee-hover 2.6s ease-in-out infinite;
 }
 
-.bee-bee-armored .bee-bee-shell {
-  background: linear-gradient(180deg, #fbbf24 0%, #fb7185 48%, #f97316 100%);
-  box-shadow: inset 0 0 0 1px rgba(255, 250, 240, 0.25), 0 0 18px rgba(251, 113, 133, 0.18);
-}
-
 .bee-bee-wing {
   position: absolute;
   top: 2%;
@@ -89,6 +84,11 @@
     inset 0 0 0 1px rgba(255, 250, 240, 0.28),
     inset 0 -8px 18px rgba(0, 0, 0, 0.28),
     0 0 16px rgba(251, 191, 36, 0.2);
+}
+
+.bee-bee-armored .bee-bee-shell {
+  background: linear-gradient(180deg, #fbbf24 0%, #fb7185 48%, #f97316 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 250, 240, 0.25), 0 0 18px rgba(251, 113, 133, 0.18);
 }
 
 .bee-bee-stripe {

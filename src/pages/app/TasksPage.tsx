@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   cancelGenerationTask,
   listDrawBatches,
@@ -223,7 +223,7 @@ export function TasksPage() {
   const [pendingFocusBatchId, setPendingFocusBatchId] = useState('')
   const [pageVisible, setPageVisible] = useState(() => typeof document === 'undefined' ? true : document.visibilityState === 'visible')
 
-  async function refresh(background = false) {
+  const refresh = useCallback(async (background = false) => {
     if (background) setRefreshing(true)
     else setLoading(true)
 
@@ -247,11 +247,11 @@ export function TasksPage() {
         setRefreshing(false)
       }
     }
-  }
+  }, [])
 
   useEffect(() => {
     void refresh()
-  }, [])
+  }, [refresh])
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -268,7 +268,7 @@ export function TasksPage() {
     if (!hasActiveTasks || !pageVisible) return
     const timer = window.setInterval(() => { void refresh(true) }, activeTaskRefreshIntervalMs)
     return () => window.clearInterval(timer)
-  }, [hasActiveTasks, pageVisible])
+  }, [hasActiveTasks, pageVisible, refresh])
 
   const batchViews = useMemo(() => {
     const batchTaskMap = new Map<string, GenerationTaskRecord[]>()

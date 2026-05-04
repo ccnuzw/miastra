@@ -9,6 +9,7 @@ const emptyStore: DataStore = {
   promptTemplates: [],
   works: [],
   providerConfigs: [],
+  managedProviders: [],
   drawBatches: [],
   generationTasks: [],
   auditLogs: [],
@@ -54,7 +55,9 @@ async function upsertProviderConfig(userId: string) {
   const updatedAt = new Date().toISOString()
   const config = {
     userId,
-    providerId: 'openai',
+    mode: 'custom' as const,
+    providerId: 'custom',
+    managedProviderId: undefined,
     apiUrl: 'https://example.com/v1',
     model: 'gpt-image-1',
     apiKey: 'test-api-key',
@@ -734,62 +737,6 @@ describe('release regression routes', () => {
     expect(rerunTasks.find((task) => task.payload.draw?.drawIndex === 0)?.payload.snapshotId).not.toBe('snapshot-old-1')
     expect(rerunTasks.find((task) => task.payload.draw?.drawIndex === 0)?.payload.snapshotId).not.toBe('snapshot-old-2')
 
-    await app.close()
-  })
-
-  it('roundtrips legacy work tags, favorites and image sources through migration and list endpoints', async () => {
-    const app = await createServer()
-    const registered = await registerUser(app, {
-      email: 'release-works-legacy@example.com',
-      password: '123456',
-      nickname: 'release-works-legacy',
-    })
-
-    const importResponse = await app.inject({
-      method: 'POST',
-      url: '/api/migrations/import-local-works',
-      headers: { cookie: registered.cookie },
-      payload: {
-        works: [
-          {
-            id: 'legacy-work-1',
-            title: '旧作品',
-            meta: 'legacy-meta',
-            src: ' https://example.com/legacy.png ',
-            favorite: true,
-            tags: 'a, b，a',
-          },
-        ],
-      },
-    })
-
-    expect(importResponse.statusCode).toBe(200)
-    expect(importResponse.json()).toMatchObject({
-      data: {
-        imported: 1,
-        total: 1,
-      },
-    })
-
-    const worksResponse = await app.inject({
-      method: 'GET',
-      url: '/api/works',
-      headers: { cookie: registered.cookie },
-    })
-
-    expect(worksResponse.statusCode).toBe(200)
-    expect(worksResponse.json()).toMatchObject({
-      data: [
-        {
-          id: 'legacy-work-1',
-          title: '旧作品',
-          src: 'https://example.com/legacy.png',
-          isFavorite: true,
-          favorite: true,
-          tags: ['a', 'b'],
-        },
-      ],
-    })
     await app.close()
   })
 

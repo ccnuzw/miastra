@@ -28,7 +28,7 @@ describe('filterWorksGallery', () => {
       quality: 'medium',
       batchId: 'batch-b',
       taskStatus: 'failed' as const,
-      favorite: true,
+      isFavorite: true,
       tags: ['city', 'noir'],
     },
     {

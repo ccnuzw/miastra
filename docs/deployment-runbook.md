@@ -1,83 +1,58 @@
-# 部署运行手册
+# 云端部署运行手册
 
-这份手册面向后续维护和交付，目标是把“怎么启动、怎么配置、怎么发布”收敛成一套可直接执行的说明。
+这份手册只描述当前云端项目的交付标准：如何准备环境、初始化数据库、执行发布门禁、部署前端与 Fastify，以及发布后如何验收。
 
-## 交付边界
+## 1. 交付边界
 
-当前仓库分成两部分：
+当前仓库由三部分组成：
 
 - 前端：根目录 React + Vite，构建产物输出到 `dist/`
-- 后端：`server/` 下的 Fastify，构建产物输出到 `server/dist/`
+- API：`server/` 下的 Fastify，构建产物输出到 `server/dist/`
+- 数据：Postgres
 
-当前仓库自带的部署文件只覆盖前端静态站点：
+必须明确的部署边界：
 
-- `Dockerfile`
-- `docker-compose.yml`
-- `docker/nginx/default.conf.template`
+- 仓库内 `Dockerfile` 和 `docker-compose.yml` 只负责前端静态站点容器。
+- Fastify 需要单独构建和启动。
+- 生产入口必须把 `/api` 路由到 Fastify。
+- 如果沿用仓库内 Nginx 容器，`/sub2api` 仍由该容器转发到上游代理路径。
 
-这几个文件会启动一个 Nginx 容器，负责：
+缺少 `/api` 反向代理时，登录、任务、作品、模板、Provider 配置、Billing、Admin 等页面都会失效。
 
-- 提供前端静态资源
-- 代理 `/sub2api`
+## 2. 环境变量
 
-它们不会负责：
+统一以项目根目录 `.env` 为主，示例见 [../.env.example](../.env.example)。
 
-- 启动 Fastify
-- 代理 `/api`
+### 2.1 服务端必填
 
-因此生产环境必须额外保证：
+- `SERVER_STORE_BACKEND=postgres`
+- `DATABASE_URL`
+- `AUTH_JWT_SECRET`
+- `RESET_JWT_SECRET`
 
-- Fastify 服务已独立启动
-- `/api` 已由网关、Ingress、Nginx 或 LB 反向代理到 Fastify
-
-如果漏掉 `/api`，登录、作品、任务、模板、Provider 配置、Billing、Admin 等功能都会失效。
-
-## 环境变量分组
-
-统一以根目录 `.env` 为主，示例见 [../.env.example](../.env.example)。
-
-### 前端开发代理
-
-只在 `npm run dev` 的 Vite 开发服务器里生效：
-
-- `VITE_API_PROXY_TARGET`
-  - 默认 `http://127.0.0.1:18081`
-  - 控制 `/api` 代理到本地 Fastify
-- `VITE_SUB2API_PROXY_TARGET`
-  - 默认 `http://127.0.0.1:18080`
-  - 控制 `/sub2api` 代理到上游 Provider
-
-### 服务端运行
+### 2.2 服务端常用可选项
 
 - `PORT`
   - Fastify 监听端口，默认 `18081`
-- `SERVER_STORE_BACKEND`
-  - `json` 或 `postgres`
-  - 本地默认 `json`
-- `DATABASE_URL`
-  - 仅在 `SERVER_STORE_BACKEND=postgres` 时必填
+- `BILLING_MODE`
+  - `disabled` / `mock` / `real`
+  - 当前交付默认建议 `disabled`
 - `PROVIDER_UPSTREAM_ORIGIN`
-  - 当用户保存的 Provider API URL 留空时，服务端代理会回退到这里
+  - Provider API URL 留空时使用的默认云端上游
 - `GENERATION_WORKER_INTERVAL_MS`
 - `GENERATION_WORKER_CONCURRENCY`
 - `GENERATION_PROXY_ORIGIN`
-  - 当前 generation worker 代码为轻量保留实现，通常无需调整
 
-### 认证与 Billing
+### 2.3 本地开发代理
 
-- `AUTH_JWT_SECRET`
-- `RESET_JWT_SECRET`
-  - 生产环境必须显式设置，且应为强随机值
-- `AUTH_PASSWORD_RESET_MODE`
-  - `disabled` 或 `debug`
-  - 生产环境会强制关闭 `debug` 暴露
-- `BILLING_MODE`
-  - `disabled` / `mock` / `real`
-  - 当前仓库未接入真实支付，生产建议使用 `disabled`
+仅在 `npm run dev` 的 Vite 开发服务器里生效：
 
-### 前端静态容器 / Nginx
+- `VITE_API_PROXY_TARGET`
+- `VITE_SUB2API_PROXY_TARGET`
 
-由 `docker-compose.yml` 使用：
+### 2.4 前端静态容器
+
+仅在使用仓库自带前端 Nginx 镜像时需要：
 
 - `NGINX_PORT`
 - `CLIENT_MAX_BODY_SIZE`
@@ -87,26 +62,54 @@
 - `PROXY_READ_TIMEOUT`
 - `SEND_TIMEOUT`
 
-注意这里的 `SUB2API_PROXY_TARGET` 是给生产 Nginx 用的，不是 Vite 开发服务器使用的 `VITE_SUB2API_PROXY_TARGET`。
+## 3. 初始化新环境
 
-### Postgres Compose
-
-由 `docker-compose.db.yml` 使用：
-
-- `POSTGRES_DB`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_PORT`
-
-## 本地开发
-
-### 默认模式：JSON 存储
+### 3.1 安装依赖
 
 ```bash
-npm install
-npm --prefix server install
+npm ci
+npm --prefix server ci
+```
+
+### 3.2 准备环境变量
+
+```bash
 cp .env.example .env
 ```
+
+至少确认：
+
+- `SERVER_STORE_BACKEND=postgres`
+- `DATABASE_URL` 指向可访问的 Postgres
+- `AUTH_JWT_SECRET` 和 `RESET_JWT_SECRET` 已替换为强随机值
+
+### 3.3 初始化数据库
+
+```bash
+npm run init:db
+```
+
+该命令会完成：
+
+- 建表和补齐核心 schema
+- 初始化配额表
+- 创建或刷新首个管理员账号
+
+默认管理员：
+
+- 账号：`admin`
+- 邮箱：`admin@miastra.local`
+- 密码：`admin123`
+
+如果是开发或测试环境，需要演示数据时再执行：
+
+```bash
+npm --prefix server run db:seed
+```
+
+`db:seed` 会重建示例数据，不应用于正式生产环境。
+
+## 4. 本地开发启动
 
 终端 1：
 
@@ -123,52 +126,12 @@ npm run dev
 本地检查点：
 
 - 前端：`http://127.0.0.1:5173`
-- 服务端健康检查：`http://127.0.0.1:18081/health`
-- 服务端存储检查：`http://127.0.0.1:18081/health/store`
+- 健康检查：`http://127.0.0.1:18081/health`
+- 存储检查：`http://127.0.0.1:18081/health/store`
 
-### 可选模式：Postgres 存储
+## 5. 发布前自动化门禁
 
-启动数据库：
-
-```bash
-docker compose -f docker-compose.db.yml up -d
-```
-
-修改 `.env`：
-
-```env
-SERVER_STORE_BACKEND=postgres
-DATABASE_URL=postgresql://miastra:miastra@127.0.0.1:5432/miastra
-```
-
-初始化数据库：
-
-```bash
-npm --prefix server run db:init
-```
-
-可选导入演示数据：
-
-```bash
-npm --prefix server run db:seed
-```
-
-如果需要重新清空库结构，可再使用：
-
-```bash
-npm --prefix server run db:reset
-```
-
-## 构建与发布前检查
-
-### 构建命令
-
-```bash
-npm run build
-npm run build:server
-```
-
-### 自动化回归入口
+当前标准入口只有三条：
 
 ```bash
 npm run test:smoke
@@ -176,90 +139,99 @@ npm run test:regression
 npm run release:check
 ```
 
-建议用法：
+建议使用方式：
 
 - 日常自测：`npm run test:smoke`
-- 合并前或发版前：`npm run release:check`
-- 仅在定位问题时单独跑：`npm run test:regression`
+- 全量回归或定位问题：`npm run test:regression`
+- 发版前统一门禁：`npm run release:check`
 
-`npm run release:check` 已经包含 `smoke -> regression -> build`，不需要在它前面再重复跑一遍 `test:regression`。
-
-## 生产发布步骤
-
-### 1. 准备依赖与环境变量
-
-安装依赖：
+`npm run release:check` 会顺序执行：
 
 ```bash
-npm ci
-npm --prefix server ci
+test:smoke -> test:regression -> build -> build:server
 ```
 
-准备生产环境至少需要确认：
+服务端测试固定使用 `NODE_ENV=test`、`SERVER_STORE_BACKEND=json`，因此自动化门禁不会依赖外部数据库状态。
 
-- `NODE_ENV=production`
-- `AUTH_JWT_SECRET`、`RESET_JWT_SECRET` 已替换
-- `AUTH_PASSWORD_RESET_MODE=disabled`
-- `BILLING_MODE=disabled` 或显式 `mock`
-- 如果使用 Postgres，`SERVER_STORE_BACKEND=postgres` 且 `DATABASE_URL` 可连通
+## 6. 云端发布步骤
 
-### 2. 执行发布前门禁
+### 6.1 执行门禁
 
 ```bash
 npm run release:check
 ```
 
-通过后再进入发布。
+自动化通过后，再按 [release-regression.md](./release-regression.md) 完成手工 smoke。
 
-### 3. 构建前端静态资源
+### 6.2 构建前端
 
 ```bash
 npm run build
+```
+
+如果沿用仓库内前端镜像：
+
+```bash
+docker build -t miastra-studio:latest .
+```
+
+也可以继续使用：
+
+```bash
 docker compose up -d --build
 ```
 
-默认会把前端站点暴露到本机 `8080` 端口。
+但要注意，这只会启动前端静态站点容器。
 
-### 4. 构建并启动 Fastify
+### 6.3 构建并启动 Fastify
 
 ```bash
 npm run build:server
 NODE_ENV=production npm --prefix server run start
 ```
 
-如果线上不是前台进程，请把这一步接到你们自己的 `systemd`、`pm2`、Supervisor 或容器编排里。
+线上环境可接入你们自己的 `systemd`、`pm2`、容器编排或 PaaS 进程管理。
 
-### 5. 配置反向代理
+### 6.4 配置入口路由
 
-生产入口至少需要满足以下路由：
+至少需要满足以下规则：
 
 - `/` -> 前端静态站点
-- `/sub2api` -> 上游 Provider 代理
-- `/api` -> Fastify 服务
+- `/api` -> Fastify
+- `/sub2api` -> Provider 代理路径（如仍启用）
 
-如果沿用仓库里的前端容器：
+### 6.5 首次上线数据库初始化
 
-- `/` 与 `/sub2api` 由前端 Nginx 容器承接
-- `/api` 仍需额外配置到 Fastify
+新环境第一次上线前，必须在可访问目标数据库的环境执行：
 
-### 6. 发布后健康检查
+```bash
+npm run init:db
+```
+
+数据库已初始化过的环境，不需要在每次发布重复执行。
+
+## 7. 发布后验收
+
+### 7.1 健康检查
 
 ```bash
 curl http://127.0.0.1:18081/health
 curl http://127.0.0.1:18081/health/store
 ```
 
-如果是 Postgres 存储，还要确认 `/health/store` 返回的 `backend` 为 `postgres`。
+确认点：
 
-## 发布后 Smoke Checklist
+- `/health` 返回 `ok`
+- `/health/store` 返回的 `backend` 为 `postgres`
 
-最少确认以下链路：
+### 7.2 最小手工 smoke
 
-- 前端首页可访问，静态资源无 404
-- 注册 / 登录 / 登出正常
-- Provider 配置可保存
-- 未配置 Provider 时，提交任务能收到明确阻断提示
-- 作品墙可读写、筛选、收藏、删除
-- ZIP 导出包含预期文件，`metadata.json` 不含敏感字段
+至少确认以下链路：
 
-完整 checklist 见 [release-regression.md](./release-regression.md)。
+- 登录、登出、会话刷新正常
+- Provider 配置可保存，未配置时提交任务会被明确阻断
+- 任务可进入列表，状态能正常更新
+- 作品页可搜索、收藏、删除和预览
+- ZIP 导出成功，`metadata.json` 不包含敏感字段
+
+完整清单见 [release-regression.md](./release-regression.md)。

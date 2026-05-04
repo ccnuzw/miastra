@@ -1,4 +1,5 @@
 import { getPostgresRepositories, isPostgresStoreBackend, storeRepository } from './store'
+import { isTerminalTaskStatus } from '../generation-tasks/state'
 import type {
   AuthRecord,
   SessionRecord,
@@ -12,9 +13,11 @@ import type {
 
 export type AuthDomainStore = {
   findUserByEmail: (email: string) => Promise<AuthRecord | null>
+  findUserByLoginIdentifier: (identifier: string) => Promise<AuthRecord | null>
   findUserById: (id: string) => Promise<AuthRecord | null>
   createUser: (user: AuthRecord) => Promise<void>
   createSession: (session: SessionRecord) => Promise<void>
+  updateSessionExpiresAt: (sessionId: string, userId: string, expiresAt: string) => Promise<boolean>
   revokeSession: (sessionId: string, revokedAt: string) => Promise<boolean>
   revokeSessionsByUserId: (userId: string, revokedAt: string, excludeSessionId?: string) => Promise<number>
   listSessionsByUserId: (userId: string) => Promise<SessionRecord[]>
@@ -22,6 +25,7 @@ export type AuthDomainStore = {
   findProviderConfigByUserId: (userId: string) => Promise<StoredProviderConfig | null>
   upsertProviderConfig: (config: StoredProviderConfig) => Promise<void>
   findQuotaProfileByUserId: (userId: string) => Promise<StoredQuotaProfile | null>
+  upsertQuotaProfile: (profile: StoredQuotaProfile) => Promise<void>
   updateUserProfile: (userId: string, nickname: string, updatedAt: string) => Promise<AuthRecord | null>
   updatePasswordResetToken: (userId: string, token: string | null, expiresAt: string | null, updatedAt: string) => Promise<void>
   resetUserPasswordAndRevokeSessions: (userId: string, passwordHash: string, updatedAt: string, revokeOthersOnly?: { excludeSessionId: string }) => Promise<void>
@@ -54,7 +58,7 @@ export type GenerationTaskDomainStore = {
   insertGenerationTask: (task: StoredGenerationTask) => Promise<void>
   updateGenerationTask: (taskId: string, patch: Partial<StoredGenerationTask>) => Promise<StoredGenerationTask | null>
   claimNextQueuedGenerationTask: (updatedAt: string, excludedIds?: string[]) => Promise<StoredGenerationTask | null>
-  completeGenerationTaskAndInsertWork: (taskId: string, taskPatch: Partial<StoredGenerationTask>, work: StoredWork) => Promise<void>
+  completeGenerationTaskAndInsertWork: (taskId: string, taskPatch: Partial<StoredGenerationTask>, work: StoredWork) => Promise<boolean>
 }
 
 function toIsoString(value: string | Date | null | undefined) {
@@ -63,7 +67,7 @@ function toIsoString(value: string | Date | null | undefined) {
   return value.toISOString()
 }
 
-function mapAuthUser(row: Record<string, unknown>): AuthRecord {
+function _mapAuthUser(row: Record<string, unknown>): AuthRecord {
   return {
     id: String(row.id),
     email: String(row.email),
@@ -77,7 +81,7 @@ function mapAuthUser(row: Record<string, unknown>): AuthRecord {
   }
 }
 
-function mapSession(row: Record<string, unknown>): SessionRecord {
+function _mapSession(row: Record<string, unknown>): SessionRecord {
   return {
     id: String(row.id),
     userId: String(row.user_id),
@@ -87,10 +91,12 @@ function mapSession(row: Record<string, unknown>): SessionRecord {
   }
 }
 
-function mapProviderConfig(row: Record<string, unknown>): StoredProviderConfig {
+function _mapProviderConfig(row: Record<string, unknown>): StoredProviderConfig {
   return {
     userId: String(row.user_id),
+    mode: row.mode === 'managed' ? 'managed' : 'custom',
     providerId: String(row.provider_id),
+    managedProviderId: row.managed_provider_id ? String(row.managed_provider_id) : undefined,
     apiUrl: String(row.api_url),
     model: String(row.model),
     apiKey: String(row.api_key),
@@ -98,7 +104,7 @@ function mapProviderConfig(row: Record<string, unknown>): StoredProviderConfig {
   }
 }
 
-function mapQuotaProfile(row: Record<string, unknown>): StoredQuotaProfile {
+function _mapQuotaProfile(row: Record<string, unknown>): StoredQuotaProfile {
   return {
     userId: String(row.user_id),
     planName: String(row.plan_name),
@@ -110,12 +116,11 @@ function mapQuotaProfile(row: Record<string, unknown>): StoredQuotaProfile {
   }
 }
 
-function mapPromptTemplate(row: Record<string, unknown>): StoredPromptTemplate {
+function _mapPromptTemplate(row: Record<string, unknown>): StoredPromptTemplate {
   return {
     id: String(row.id),
     userId: String(row.user_id),
     title: row.title ? String(row.title) : undefined,
-    name: row.name ? String(row.name) : undefined,
     content: String(row.content ?? ''),
     category: row.category ? String(row.category) : undefined,
     tags: Array.isArray(row.tags_json) ? row.tags_json.map(String) : undefined,
@@ -125,7 +130,7 @@ function mapPromptTemplate(row: Record<string, unknown>): StoredPromptTemplate {
   }
 }
 
-function mapWork(row: Record<string, unknown>): StoredWork {
+function _mapWork(row: Record<string, unknown>): StoredWork {
   return {
     id: String(row.id),
     userId: String(row.user_id),
@@ -155,12 +160,11 @@ function mapWork(row: Record<string, unknown>): StoredWork {
     promptSnippet: row.prompt_snippet ? String(row.prompt_snippet) : undefined,
     promptText: row.prompt_text ? String(row.prompt_text) : undefined,
     isFavorite: row.is_favorite === null || row.is_favorite === undefined ? undefined : Boolean(row.is_favorite),
-    favorite: row.favorite === null || row.favorite === undefined ? undefined : Boolean(row.favorite),
     tags: Array.isArray(row.tags_json) ? row.tags_json.map(String) : undefined,
   }
 }
 
-function mapDrawBatch(row: Record<string, unknown>): StoredDrawBatch {
+function _mapDrawBatch(row: Record<string, unknown>): StoredDrawBatch {
   return {
     id: String(row.id),
     userId: String(row.user_id),
@@ -178,7 +182,7 @@ function mapDrawBatch(row: Record<string, unknown>): StoredDrawBatch {
   }
 }
 
-function mapGenerationTask(row: Record<string, unknown>): StoredGenerationTask {
+function _mapGenerationTask(row: Record<string, unknown>): StoredGenerationTask {
   const payload = row.payload_json && typeof row.payload_json === 'object'
     ? ('tracking' in (row.payload_json as Record<string, unknown>)
       ? row.payload_json
@@ -198,7 +202,7 @@ function mapGenerationTask(row: Record<string, unknown>): StoredGenerationTask {
   }
 }
 
-function workValues(work: StoredWork) {
+function _workValues(work: StoredWork) {
   return [
     work.id,
     work.userId,
@@ -228,18 +232,16 @@ function workValues(work: StoredWork) {
     work.promptSnippet ?? null,
     work.promptText ?? null,
     work.isFavorite ?? null,
-    work.favorite ?? null,
     work.tags ? JSON.stringify(work.tags) : null,
   ]
 }
 
-function promptTemplateValues(template: StoredPromptTemplate) {
+function _promptTemplateValues(template: StoredPromptTemplate) {
   const tags = Array.isArray(template.tags) ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean))) : []
   return [
     template.id,
     template.userId,
     template.title ?? null,
-    template.name ?? null,
     template.content,
     template.category?.trim() || null,
     tags.length ? JSON.stringify(tags) : null,
@@ -250,18 +252,17 @@ function promptTemplateValues(template: StoredPromptTemplate) {
 }
 
 function normalizePromptTemplate(template: StoredPromptTemplate): StoredPromptTemplate {
-  const title = template.title?.trim() || template.name?.trim() || '未命名模板'
+  const title = template.title?.trim() || '未命名模板'
   const tags = Array.isArray(template.tags) ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean))) : undefined
   return {
     ...template,
     title,
-    name: title,
     category: template.category?.trim() || undefined,
     tags,
   }
 }
 
-function drawBatchValues(batch: StoredDrawBatch) {
+function _drawBatchValues(batch: StoredDrawBatch) {
   return [
     batch.id,
     batch.userId,
@@ -288,9 +289,11 @@ export function getAuthDomainStore(): AuthDomainStore {
     const { auth } = getPostgresRepositories()
     return {
       findUserByEmail: auth.findUserByEmail,
+      findUserByLoginIdentifier: auth.findUserByLoginIdentifier,
       findUserById: auth.findUserById,
       createUser: auth.createUser,
       createSession: auth.createSession,
+      updateSessionExpiresAt: auth.updateSessionExpiresAt,
       revokeSession: auth.revokeSession,
       revokeSessionsByUserId: auth.revokeSessionsByUserId,
       listSessionsByUserId: auth.listSessionsByUserId,
@@ -298,6 +301,7 @@ export function getAuthDomainStore(): AuthDomainStore {
       findProviderConfigByUserId: auth.findProviderConfigByUserId,
       upsertProviderConfig: auth.upsertProviderConfig,
       findQuotaProfileByUserId: auth.findQuotaProfileByUserId,
+      upsertQuotaProfile: auth.upsertQuotaProfile,
       updateUserProfile: auth.updateUserProfile,
       updatePasswordResetToken: auth.updatePasswordResetToken,
       resetUserPasswordAndRevokeSessions: auth.resetUserPasswordAndRevokeSessions,
@@ -308,6 +312,11 @@ export function getAuthDomainStore(): AuthDomainStore {
     async findUserByEmail(email) {
       const store = await getJsonStore().read()
       return store.users.find((user) => user.email === email) ?? null
+    },
+    async findUserByLoginIdentifier(identifier) {
+      const normalized = identifier.trim().toLowerCase()
+      const store = await getJsonStore().read()
+      return store.users.find((user) => user.email.trim().toLowerCase() === normalized || user.nickname.trim().toLowerCase() === normalized) ?? null
     },
     async findUserById(id) {
       const store = await getJsonStore().read()
@@ -322,6 +331,14 @@ export function getAuthDomainStore(): AuthDomainStore {
       const store = await getJsonStore().read()
       store.sessions.push(session)
       await getJsonStore().write(store)
+    },
+    async updateSessionExpiresAt(sessionId, userId, expiresAt) {
+      const store = await getJsonStore().read()
+      const session = store.sessions.find((item) => item.id === sessionId && item.userId === userId && !item.revokedAt)
+      if (!session) return false
+      session.expiresAt = expiresAt
+      await getJsonStore().write(store)
+      return true
     },
     async revokeSession(sessionId, revokedAt) {
       const store = await getJsonStore().read()
@@ -367,6 +384,11 @@ export function getAuthDomainStore(): AuthDomainStore {
     async findQuotaProfileByUserId(userId) {
       const store = await getJsonStore().read()
       return store.quotaProfiles.find((item) => item.userId === userId) ?? null
+    },
+    async upsertQuotaProfile(profile) {
+      const store = await getJsonStore().read()
+      store.quotaProfiles = [...store.quotaProfiles.filter((item) => item.userId !== profile.userId), profile]
+      await getJsonStore().write(store)
     },
     async updateUserProfile(userId, nickname, updatedAt) {
       const store = await getJsonStore().read()
@@ -506,7 +528,7 @@ export function getContentDomainStore(): ContentDomainStore {
         const work = store.works.find((item) => item.userId === userId && item.id === id) ?? null
         if (!work) return null
         work.isFavorite = isFavorite
-        work.favorite = isFavorite
+        work.isFavorite = isFavorite
         return work
       })
     },
@@ -615,6 +637,8 @@ export function getGenerationTaskDomainStore(): GenerationTaskDomainStore {
       const store = await getJsonStore().read()
       const task = store.generationTasks.find((item) => item.id === taskId)
       if (!task) return null
+      const nextStatus = patch.status ?? task.status
+      if (isTerminalTaskStatus(task.status) && nextStatus !== task.status) return task
       task.status = patch.status ?? task.status
       task.progress = patch.progress ?? task.progress
       task.errorMessage = patch.errorMessage ?? task.errorMessage
@@ -638,7 +662,7 @@ export function getGenerationTaskDomainStore(): GenerationTaskDomainStore {
     async completeGenerationTaskAndInsertWork(taskId, taskPatch, work) {
       const store = await getJsonStore().read()
       const task = store.generationTasks.find((item) => item.id === taskId)
-      if (!task) return
+      if (!task || task.status !== 'running') return false
       task.status = taskPatch.status ?? task.status
       task.progress = taskPatch.progress ?? task.progress
       task.errorMessage = taskPatch.errorMessage ?? task.errorMessage
@@ -648,6 +672,7 @@ export function getGenerationTaskDomainStore(): GenerationTaskDomainStore {
       const exists = store.works.some((item) => item.userId === work.userId && item.snapshotId === work.snapshotId)
       if (!exists) store.works.unshift(work)
       await getJsonStore().write(store)
+      return true
     },
   }
 }

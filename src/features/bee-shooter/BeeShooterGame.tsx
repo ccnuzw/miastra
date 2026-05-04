@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -160,10 +161,10 @@ export function BeeShooterGame() {
   })
   const summary = createBeeShooterSnapshot(gameState)
 
-  const commitState = (next: BeeShooterGameState) => {
+  const commitState = useCallback((next: BeeShooterGameState) => {
     gameStateRef.current = next
     setGameState(next)
-  }
+  }, [])
 
   const startOrRestart = () => {
     fireQueuedRef.current = false
@@ -286,7 +287,7 @@ export function BeeShooterGame() {
     return () => {
       window.cancelAnimationFrame(rafId)
     }
-  }, [])
+  }, [commitState])
 
   const overlayTitle =
     gameState.status === 'gameover'

@@ -73,7 +73,7 @@ export function usePromptTemplateActions({
     setTemplateLibraryOpen(false)
     setTemplateFeedback('')
     setStatus('success')
-    setStatusText(`已应用 Prompt 模板：${template.title || template.name || '未命名模板'}`)
+    setStatusText(`已应用 Prompt 模板：${template.title || '未命名模板'}`)
     void Promise.resolve(markTemplateUsed(template.id)).catch(() => undefined)
     window.setTimeout(() => document.getElementById('studio')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
   }
@@ -81,7 +81,7 @@ export function usePromptTemplateActions({
   async function handleDuplicatePromptTemplate(template: PromptTemplateListItem) {
     try {
       await saveTemplate({
-        title: createDuplicatedPromptTemplateTitle(template.title || template.name || '未命名模板'),
+        title: createDuplicatedPromptTemplateTitle(template.title || '未命名模板'),
         content: template.content,
         category: template.category?.trim() || undefined,
         tags: template.tags,

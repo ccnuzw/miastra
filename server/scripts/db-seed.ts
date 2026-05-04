@@ -1,24 +1,19 @@
-import { config as loadEnv } from 'dotenv'
-import { resolve } from 'node:path'
-import { Pool } from 'pg'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
+import { createDatabasePool, loadScriptEnv } from './db-utils'
+import { resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
 
-loadEnv({ path: resolve(__dirname, '../.env') })
-loadEnv({ path: resolve(__dirname, '../../.env'), override: false })
+loadScriptEnv()
 
-async function main() {
-  const connectionString = process.env.DATABASE_URL?.trim()
-  if (!connectionString) {
-    throw new Error('DATABASE_URL 未配置')
-  }
-
-  const pool = new Pool({ connectionString })
+export async function seedDatabase() {
+  const pool = createDatabasePool('数据库种子数据初始化')
   try {
     const now = new Date().toISOString()
     const adminId = randomUUID()
     const userId = randomUUID()
-    const passwordHash = await bcrypt.hash('secret123', 10)
+    const adminPasswordHash = await bcrypt.hash('admin123', 10)
+    const demoPasswordHash = await bcrypt.hash('secret123', 10)
 
     const templateId1 = randomUUID()
     const templateId2 = randomUUID()
@@ -38,13 +33,13 @@ async function main() {
     await pool.query(
       `INSERT INTO users (id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)`,
-      [adminId, 'admin@miastra.local', 'Miastra Admin', 'admin', passwordHash, now, now],
+      [adminId, 'admin@miastra.local', 'admin', 'admin', adminPasswordHash, now, now],
     )
 
     await pool.query(
       `INSERT INTO users (id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)`,
-      [userId, 'demo@miastra.local', 'Demo Creator', 'user', passwordHash, now, now],
+      [userId, 'demo@miastra.local', 'Demo Creator', 'user', demoPasswordHash, now, now],
     )
 
     await pool.query(
@@ -177,7 +172,7 @@ async function main() {
 
     await pool.query('COMMIT')
     console.log('Database seed completed.')
-    console.log('Admin: admin@miastra.local / secret123')
+    console.log('Admin: admin / admin123')
     console.log('User: demo@miastra.local / secret123')
   } catch (error) {
     await pool.query('ROLLBACK')
@@ -187,7 +182,13 @@ async function main() {
   }
 }
 
-void main().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
+async function main() {
+  await seedDatabase()
+}
+
+if (process.argv[1]?.endsWith('db-seed.ts')) {
+  void main().catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })
+}

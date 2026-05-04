@@ -47,7 +47,5 @@ export type GalleryImage = {
   promptSnippet?: string
   promptText?: string
   isFavorite?: boolean
-  /** Legacy persisted key; normalized into isFavorite when gallery is hydrated. */
-  favorite?: boolean
   tags?: string[]
 }

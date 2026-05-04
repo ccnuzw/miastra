@@ -9,13 +9,10 @@ import {
   createGenerationTask,
   updateGenerationTask,
   type CreateGenerationTaskInput,
-  type GenerationTaskRecord,
   type UpdateGenerationTaskInput,
 } from '@/features/generation/generation.api'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
 import { requestGenerationImage } from '@/features/generation/generation.request'
-import { readStoredGenerationRuntimeTasks, writeStoredGenerationRuntimeTasks } from '@/features/generation/generationTask.storage'
-import type { LocalGenerationTaskRecord } from '@/features/generation/generationTask.types'
 import type { GenerationError, GenerationMode, GenerationRequestOptions, GenerationStage, GenerationStatus, GenerationSnapshot } from '@/features/generation/generation.types'
 import { getErrorDisplay } from '@/shared/errors/app-error'
 import { sleep } from '@/shared/utils/sleep'
@@ -70,6 +67,10 @@ function isActiveDrawStatus(status: DrawTask['status']) {
   return status === 'pending' || status === 'running' || status === 'receiving' || status === 'retrying'
 }
 
+function isFinalDrawStatus(status: DrawTask['status']) {
+  return status === 'success' || status === 'failed' || status === 'cancelled' || status === 'timeout' || status === 'interrupted'
+}
+
 function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === 'AbortError'
 }
@@ -88,7 +89,7 @@ function toReferencePayload(referenceImages: ReferenceImage[]) {
   }))
 }
 
-function buildTaskResult(image: GalleryImage): NonNullable<LocalGenerationTaskRecord['result']> {
+function buildTaskResult(image: GalleryImage) {
   return {
     workId: image.id,
     imageUrl: image.src,
@@ -106,20 +107,6 @@ function buildTaskResult(image: GalleryImage): NonNullable<LocalGenerationTaskRe
     variation: image.variation,
     generationSnapshot: image.generationSnapshot as GenerationSnapshot | undefined,
   }
-}
-
-function toLocalTaskStatus(status: UpdateGenerationTaskInput['status']): LocalGenerationTaskRecord['status'] {
-  if (status === 'succeeded') return 'succeeded'
-  if (status === 'queued') return 'queued'
-  if (status === 'pending') return 'queued'
-  if (status === 'running') return 'running'
-  if (status === 'failed') return 'failed'
-  if (status === 'cancelled') return 'cancelled'
-  return 'timeout'
-}
-
-function trimRuntimeTasks(tasks: LocalGenerationTaskRecord[]) {
-  return [...tasks].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30)
 }
 
 function getDrawFailureStatus(error?: GenerationError): DrawTask['status'] {
@@ -182,10 +169,10 @@ export function useGenerationFlow({
   status,
 }: UseGenerationFlowOptions) {
   function validateGenerationInput() {
-    if (!config.model || !config.apiKey || !prompt.trim()) {
+    if (!config.model || !config.apiUrl || !config.apiKey || !prompt.trim()) {
       setStatus('error')
       setStage('error')
-      setStatusText('请先在右上角设置里补全 Model、API Key 和提示词；Provider API URL 可留空走 /sub2api 代理')
+      setStatusText('请先在右上角设置里补全 Provider API URL、Model、API Key 和提示词')
       setSettingsOpen(true)
       return false
     }
@@ -194,27 +181,6 @@ export function useGenerationFlow({
 
   function syncTaskSnapshots(tasks: DrawTask[]) {
     drawTaskSnapshotsRef.current = new Map(tasks.map((task) => [task.id, task]))
-  }
-
-  async function mutateRuntimeTasks(mutator: (tasks: LocalGenerationTaskRecord[]) => LocalGenerationTaskRecord[]) {
-    const tasks = await readStoredGenerationRuntimeTasks()
-    await writeStoredGenerationRuntimeTasks(trimRuntimeTasks(mutator(tasks)))
-  }
-
-  async function upsertRuntimeTask(record: LocalGenerationTaskRecord) {
-    await mutateRuntimeTasks((tasks) => {
-      const nextTasks = tasks.filter((task) => task.id !== record.id)
-      nextTasks.unshift(record)
-      return nextTasks
-    })
-  }
-
-  async function patchRuntimeTask(taskId: string, patch: Partial<LocalGenerationTaskRecord>) {
-    await mutateRuntimeTasks((tasks) => tasks.map((task) => task.id === taskId ? {
-      ...task,
-      ...patch,
-      updatedAt: patch.updatedAt ?? Date.now(),
-    } : task))
   }
 
   function buildGenerationTaskPayload(options: {
@@ -286,7 +252,9 @@ export function useGenerationFlow({
   }
 
   function wakePausedQueue() {
-    pauseResolversRef.current.splice(0).forEach((resolve) => resolve())
+    pauseResolversRef.current.splice(0).forEach((resolve) => {
+      resolve()
+    })
   }
 
   async function waitForQueueResume() {
@@ -337,25 +305,7 @@ export function useGenerationFlow({
       snapshotId,
     })
     const createdTask = await safeCreateGenerationTask(payload)
-    const runtimeTaskId = snapshotId
     const startedAt = Date.now()
-
-    await upsertRuntimeTask({
-      id: runtimeTaskId,
-      mode,
-      title,
-      meta,
-      promptText: requestPrompt,
-      workspacePrompt,
-      requestPrompt,
-      snapshotId,
-      generationTaskId: createdTask?.id,
-      status: 'queued',
-      createdAt: startedAt,
-      updatedAt: startedAt,
-      retryCount: 0,
-      progress: 5,
-    })
 
     startedAtRef.current = startedAt
     setStatus('loading')
@@ -367,9 +317,6 @@ export function useGenerationFlow({
     setPreviewImage(null)
 
     syncRemoteTask(createdTask?.id, { status: 'running', progress: 15 })
-    await patchRuntimeTask(runtimeTaskId, { status: 'running', progress: 15, startedAt })
-
-    let receivingSynced = false
 
     try {
       const nextImage = await requestGeneration({
@@ -381,50 +328,36 @@ export function useGenerationFlow({
         timeoutSec: singleGenerationTimeoutSec,
         snapshotId,
         onReceiveImage: () => {
-          if (receivingSynced) return
-          receivingSynced = true
           syncRemoteTask(createdTask?.id, { status: 'running', progress: 75 })
-          void patchRuntimeTask(runtimeTaskId, { status: 'receiving', progress: 75 })
         },
       })
+      if (cancelRequestedRef.current) {
+        setStatus('idle')
+        setStage('cancelled')
+        setStatusText('已取消当前生成任务')
+        return
+      }
       setGallery((items) => [nextImage, ...items])
       setStatus('success')
       setStage('success')
       setStatusText(nextImage.src ? '生成成功，图片已加入作品区' : '请求成功，未解析到图片，已保留响应')
-      const finishedAt = Date.now()
       const result = buildTaskResult(nextImage)
       syncRemoteTask(createdTask?.id, { status: 'succeeded', progress: 100, result })
-      await patchRuntimeTask(runtimeTaskId, { status: 'succeeded', progress: 100, result, finishedAt })
     } catch (error) {
       if (isAbortError(error) || isGenerationError(error) && error.code === 'abort') {
-        const finishedAt = Date.now()
         setStatus('idle')
         setStage('cancelled')
         setStatusText('已取消当前生成任务')
         syncRemoteTask(createdTask?.id, { status: 'cancelled', errorMessage: '用户已取消当前生成任务' })
-        await patchRuntimeTask(runtimeTaskId, {
-          status: 'cancelled',
-          errorCode: 'abort',
-          errorMessage: '用户已取消当前生成任务',
-          finishedAt,
-        })
         return
       }
       const generationError = isGenerationError(error) ? error : undefined
-      const finishedAt = Date.now()
       const failureStatus = getServerFailureStatus(generationError)
       const errorDisplay = getErrorDisplay(generationError ?? error)
       setStatus('error')
       setStage('error')
       setStatusText(`生成失败：${errorDisplay.title}`)
       syncRemoteTask(createdTask?.id, { status: failureStatus, errorMessage: generationError?.message ?? '未知错误' })
-      await patchRuntimeTask(runtimeTaskId, {
-        status: toLocalTaskStatus(failureStatus),
-        errorCode: generationError?.code ?? 'unknown',
-        errorMessage: generationError?.message ?? '未知错误',
-        retryable: generationError?.retryable ?? true,
-        finishedAt,
-      })
     } finally {
       startedAtRef.current = 0
       abortRef.current = null
@@ -527,6 +460,12 @@ export function useGenerationFlow({
       try {
         const image = await requestGeneration(buildDrawRequestOptions(task, attempt, options.total, options.concurrency, options.workspacePrompt, options.drawMode, options.batchSnapshotId, controller))
         taskControllersRef.current.delete(task.id)
+        const latestAfterRequest = drawTaskSnapshotsRef.current.get(task.id) ?? task
+        if (controller.signal.aborted || cancelRequestedRef.current || (isFinalDrawStatus(latestAfterRequest.status) && latestAfterRequest.status !== 'success')) {
+          return latestAfterRequest.status === 'pending' || latestAfterRequest.status === 'running' || latestAfterRequest.status === 'receiving' || latestAfterRequest.status === 'retrying'
+            ? 'cancelled' as const
+            : latestAfterRequest.status
+        }
         const finishedAt = Date.now()
         patchTask(task.id, {
           status: 'success',
@@ -889,7 +828,9 @@ export function useGenerationFlow({
     setDrawQueuePaused(false)
     wakePausedQueue()
     abortRef.current?.abort()
-    taskControllersRef.current.forEach((controller) => controller.abort())
+    taskControllersRef.current.forEach((controller) => {
+      controller.abort()
+    })
     taskControllersRef.current.clear()
     setDrawTasks((items) => {
       const finishedAt = Date.now()

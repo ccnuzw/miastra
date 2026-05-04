@@ -1,5 +1,4 @@
 import { storeRepository } from '../lib/store'
-import type { StoredBillingInvoice, StoredQuotaProfile } from '../auth/types'
 import { applyBillingPlan, billingPlans, createBillingInvoice, createDefaultQuotaProfile, getBillingPlan, type BillingMode } from './plans'
 
 export function listBillingPlans() {

@@ -51,10 +51,24 @@ export type StoredWork = {
 
 export type StoredProviderConfig = {
   userId: string
+  mode: 'managed' | 'custom'
   providerId: string
+  managedProviderId?: string
   apiUrl: string
   model: string
   apiKey: string
+  updatedAt: string
+}
+
+export type StoredManagedProvider = {
+  id: string
+  name: string
+  description?: string
+  apiUrl: string
+  apiKey: string
+  models: string[]
+  defaultModel: string
+  enabled: boolean
   updatedAt: string
 }
 
@@ -196,6 +210,7 @@ export type AuditLogRecord = {
   targetId: string
   payload: unknown
   ip?: string
+  requestId?: string
   createdAt: string
 }
 
@@ -205,6 +220,7 @@ export type DataStore = {
   promptTemplates: StoredPromptTemplate[]
   works: StoredWork[]
   providerConfigs: StoredProviderConfig[]
+  managedProviders: StoredManagedProvider[]
   drawBatches: StoredDrawBatch[]
   generationTasks: StoredGenerationTask[]
   auditLogs: AuditLogRecord[]

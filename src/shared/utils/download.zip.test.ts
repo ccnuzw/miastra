@@ -48,7 +48,7 @@ describe('createWorksZipBlob', () => {
     })
     expect(result.blob).toBeInstanceOf(Blob)
 
-    const zip = await JSZip.loadAsync(await result.blob!.arrayBuffer())
+    const zip = await JSZip.loadAsync(await result.blob?.arrayBuffer())
     expect(Object.keys(zip.files).sort()).toEqual([
       'images/',
       'images/001-a-b-c.png',
@@ -56,7 +56,12 @@ describe('createWorksZipBlob', () => {
       'metadata.json',
     ])
 
-    const metadata = JSON.parse(await zip.file('metadata.json')!.async('string'))
+    const metadataFile = zip.file('metadata.json')
+    expect(metadataFile).toBeDefined()
+    if (!metadataFile) {
+      throw new Error('metadata.json should exist in archive')
+    }
+    const metadata = JSON.parse(await metadataFile.async('string'))
     expect(metadata).toMatchObject({
       requestedCount: 3,
       imageCount: 2,

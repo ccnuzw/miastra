@@ -1,15 +1,23 @@
 import { apiRequest } from '../../shared/http/client'
 import { defaultConfig } from './provider.constants'
-import type { ProviderConfig } from './provider.types'
+import type { ProviderConfigPayload } from './provider.types'
+import { normalizeProviderConfig } from './provider.utils'
 
-export async function readStoredConfig(): Promise<ProviderConfig> {
-  const stored = await apiRequest<ProviderConfig | null>('/api/provider-config')
-  return stored ?? defaultConfig
+export async function readStoredConfig(): Promise<ProviderConfigPayload> {
+  const stored = await apiRequest<ProviderConfigPayload | null>('/api/provider-config')
+  return {
+    config: normalizeProviderConfig(stored?.config ?? defaultConfig),
+    managedProviders: stored?.managedProviders ?? [],
+  }
 }
 
-export async function writeStoredConfig(config: ProviderConfig) {
-  return await apiRequest<ProviderConfig>('/api/provider-config', {
+export async function writeStoredConfig(config: ProviderConfigPayload['config']) {
+  const saved = await apiRequest<ProviderConfigPayload>('/api/provider-config', {
     method: 'PUT',
     body: config,
   })
+  return {
+    config: normalizeProviderConfig(saved.config),
+    managedProviders: saved.managedProviders ?? [],
+  }
 }

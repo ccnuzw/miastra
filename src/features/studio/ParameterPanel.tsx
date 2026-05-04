@@ -51,7 +51,7 @@ export function ParameterPanel(props: ParameterPanelProps) {
               </button>
             ))}
           </div>
-          <p className="resolution-note">当前实际请求尺寸：{props.size}，需远端模型或兼容层支持该尺寸。</p>
+          <p className="resolution-note">当前实际请求尺寸：{props.size}，需远端模型直接支持该尺寸。</p>
         </div>
 
         <div className="field-block parameter-card generation-card">

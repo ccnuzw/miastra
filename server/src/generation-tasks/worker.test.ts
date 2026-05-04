@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DataStore, StoredGenerationTask } from '../auth/types'
+import { getGenerationTaskDomainStore } from '../lib/domain-store'
 import { storeRepository } from '../lib/store'
 
 const emptyStore: DataStore = {
@@ -8,6 +9,7 @@ const emptyStore: DataStore = {
   promptTemplates: [],
   works: [],
   providerConfigs: [],
+  managedProviders: [],
   drawBatches: [],
   generationTasks: [],
   auditLogs: [],
@@ -93,7 +95,9 @@ describe('generation task worker', () => {
     })
     store.providerConfigs.push({
       userId: 'user-1',
-      providerId: 'openai',
+      mode: 'custom',
+      providerId: 'custom',
+      managedProviderId: undefined,
       apiUrl: 'https://example.com/v1',
       model: 'gpt-image-1',
       apiKey: 'test-key',
@@ -126,5 +130,65 @@ describe('generation task worker', () => {
       promptText: 'studio portrait request',
       mode: 'text2image',
     })
+  })
+
+  it('keeps terminal tasks immutable when a late completion arrives', async () => {
+    const store = await storeRepository.read()
+    store.users.push({
+      id: 'user-1',
+      email: 'worker@example.com',
+      nickname: 'worker',
+      role: 'user',
+      passwordHash: 'hash',
+      createdAt: '2026-05-03T10:00:00.000Z',
+      updatedAt: '2026-05-03T10:00:00.000Z',
+      passwordResetToken: null,
+      passwordResetExpiresAt: null,
+    })
+    store.generationTasks.push(buildGenerationTask({ status: 'cancelled', progress: 100 }))
+    await storeRepository.write(store)
+
+    const generationStore = getGenerationTaskDomainStore()
+    const updated = await generationStore.updateGenerationTask('worker-task-1', {
+      status: 'succeeded',
+      progress: 100,
+      result: {
+        workId: 'work-late',
+        imageUrl: 'https://example.com/late.png',
+      },
+    })
+    expect(updated).toMatchObject({
+      status: 'cancelled',
+      progress: 100,
+    })
+
+    const applied = await generationStore.completeGenerationTaskAndInsertWork('worker-task-1', {
+      status: 'succeeded',
+      progress: 100,
+      updatedAt: '2026-05-03T10:10:00.000Z',
+      result: {
+        workId: 'work-late',
+        imageUrl: 'https://example.com/late.png',
+      },
+    }, {
+      id: 'work-late',
+      userId: 'user-1',
+      title: 'Worker 任务',
+      src: 'https://example.com/late.png',
+      meta: '自动执行验证',
+      createdAt: 0,
+      isFavorite: false,
+      tags: [],
+    })
+
+    expect(applied).toBe(false)
+
+    const latest = await storeRepository.read()
+    expect(latest.generationTasks[0]).toMatchObject({
+      status: 'cancelled',
+      progress: 100,
+    })
+    expect(latest.generationTasks[0].result).toBeUndefined()
+    expect(latest.works).toHaveLength(0)
   })
 })

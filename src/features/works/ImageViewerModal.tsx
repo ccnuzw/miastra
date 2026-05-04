@@ -93,8 +93,18 @@ function ReferencePreviewGrid({ references }: { references?: GenerationReference
 
   return (
     <div className="viewer-reference-grid">
-      {references.sources.map((item, index) => (
-        <div key={`${item.name}-${index}`} className="viewer-reference-card">
+      {references.sources.map((item) => (
+        <div
+          key={[
+            item.source,
+            item.workId,
+            item.assetId,
+            item.assetRemoteKey,
+            item.src,
+            item.name,
+          ].filter(Boolean).join(':')}
+          className="viewer-reference-card"
+        >
           <div className="viewer-reference-preview">
             {item.src ? <img src={item.src} alt={item.name} /> : <span>无预览</span>}
           </div>
@@ -148,16 +158,21 @@ export function ImageViewerModal({
     { label: '流式', value: snapshot?.stream },
     { label: '创建时间', value: formatMaybeDate(snapshot?.createdAt ?? image.createdAt) },
     { label: '快照', value: snapshot?.id ?? image.snapshotId },
-    { label: '参数来源', value: snapshot ? 'generationSnapshot' : 'legacy fields' },
+    { label: '参数来源', value: snapshot ? 'generationSnapshot' : '云端字段' },
   ]
   const referenceRows = buildReferenceRows(references)
-  const isLegacy = !snapshot
   const hasReusableParameters = Boolean(workspacePrompt || requestPromptText || snapshot || image.providerModel || image.size || image.quality || image.mode)
   const hasReferenceHint = Boolean(references?.count || mode?.includes('image2image'))
 
   return createPortal(
-    <div className="modal-backdrop image-viewer-backdrop" role="dialog" aria-modal="true" aria-label="图片放大预览" onClick={onClose}>
-      <div className="image-viewer-card" onClick={(event) => event.stopPropagation()}>
+    <div className="modal-backdrop image-viewer-backdrop" role="dialog" aria-modal="true" aria-label="图片放大预览">
+      <button
+        type="button"
+        className="absolute inset-0"
+        aria-label="关闭预览"
+        onClick={onClose}
+      />
+      <div className="image-viewer-card">
         <div className="image-viewer-header">
           <div className="min-w-0">
             <p className="eyebrow">Preview</p>
@@ -174,19 +189,18 @@ export function ImageViewerModal({
             <button type="button" className="icon-button" onClick={onClose} aria-label="关闭预览">
               <X className="h-4 w-4" />
             </button>
-            </div>
           </div>
-          <div className="image-viewer-layout">
-            <div className="image-viewer-body">
-              <img src={image.src} alt={image.title} />
-            </div>
-            <aside className="viewer-parameters-panel" aria-label="生成参数详情">
+        </div>
+        <div className="image-viewer-layout">
+          <div className="image-viewer-body">
+            <img src={image.src} alt={image.title} />
+          </div>
+          <aside className="viewer-parameters-panel" aria-label="生成参数详情">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="eyebrow">Parameters</p>
                 <h3 className="mt-2 font-display text-xl">生成参数</h3>
               </div>
-              {isLegacy && <span className="viewer-legacy-badge">Legacy</span>}
             </div>
 
             <section className="viewer-parameter-section">
@@ -222,7 +236,7 @@ export function ImageViewerModal({
                 <p className="viewer-section-title">参考图</p>
                 <ParameterGrid rows={referenceRows} />
                 <ReferencePreviewGrid references={references} />
-                <p className="viewer-reference-note">{references?.note ? `${references.note}；可恢复项会在当前会话中自动回填。` : '参考图文件未随作品快照保存；复用或再次生成前需重新提供参考图文件。'}</p>
+                <p className="viewer-reference-note">{references?.note ? `${references.note}；可恢复项会在当前会话中自动补齐。` : '参考图文件未随作品快照保存；复用或再次生成前需重新提供参考图文件。'}</p>
               </section>
             )}
             {hasReferenceHint && referenceRows.length === 0 && (
@@ -256,7 +270,7 @@ export function ImageViewerModal({
                 再次生成
               </button>
             </div>
-            <p className="text-xs leading-5 text-porcelain-100/45">再次生成会先回填旧参数；为避免状态异步读取旧值，请确认工作区参数后点击主生成按钮。</p>
+            <p className="text-xs leading-5 text-porcelain-100/45">再次生成会先恢复当前参数；请确认工作区参数后点击主生成按钮。</p>
           </aside>
         </div>
       </div>

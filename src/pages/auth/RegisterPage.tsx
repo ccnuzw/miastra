@@ -22,7 +22,7 @@ function buildRedirectTo(state: unknown) {
 export function RegisterPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { refresh } = useAuthSession()
+  const { setUser } = useAuthSession()
   const [nickname, setNickname] = useState('New User')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -35,8 +35,8 @@ export function RegisterPage() {
     setSubmitting(true)
     setError(null)
     try {
-      await register({ nickname, email, password })
-      await refresh()
+      const nextUser = await register({ nickname, email, password })
+      setUser(nextUser)
       navigate(redirectTo, { replace: true })
     } catch (nextError) {
       setError(nextError)

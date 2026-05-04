@@ -5,7 +5,8 @@ import { consumeQuota } from '../billing/ledger'
 import { getQuotaExceededMessage } from '../runtime-config'
 import { storeRepository } from '../lib/store'
 import { fail } from '../lib/http'
-import { detectProviderCapabilities, mapProviderJsonBody, normalizeProviderConfigInput, resolveProviderRequestTarget } from '../provider-config/provider.utils'
+import { findStoredProviderConfigByUserId, resolveEffectiveProviderConfig } from '../provider-config/provider.service'
+import { joinProviderUrl } from '../provider-config/provider.utils'
 
 function toFetchHeaders(request: FastifyRequest) {
   const headers = new Headers()
@@ -13,7 +14,9 @@ function toFetchHeaders(request: FastifyRequest) {
     if (!value) continue
     if (key === 'host' || key === 'content-length' || key === 'cookie') continue
     if (Array.isArray(value)) {
-      value.forEach((item) => headers.append(key, item))
+      value.forEach((item) => {
+        headers.append(key, item)
+      })
     } else {
       headers.set(key, value)
     }
@@ -80,16 +83,11 @@ function classifyUpstreamResponseError(params: {
     || params.status === 405
     || /not found|no route|cannot post|unknown url/.test(normalizedDetail)
   ) {
-    if (isEditPath) {
-      return {
-        code: 'PROVIDER_COMPATIBILITY_ERROR',
-        message: '当前 Provider 未开放标准 `/v1/images/edits` 图生图接口，请改用兼容代理或直连地址。',
-        statusCode: 409,
-      }
-    }
     return {
-      code: 'PROVIDER_URL_INVALID',
-      message: 'Provider API URL、代理路径或 `/v1` 前缀不可用，请检查配置中的基础地址。',
+      code: isEditPath ? 'PROVIDER_UNSUPPORTED' : 'PROVIDER_URL_INVALID',
+      message: isEditPath
+        ? '当前上游未开放标准 `/v1/images/edits` 图生图接口，请更换支持该接口的云端服务。'
+        : 'Provider API URL 或基础路径不可用，请检查云端基址是否正确。',
       statusCode: 409,
     }
   }
@@ -97,11 +95,11 @@ function classifyUpstreamResponseError(params: {
   if (
     params.status === 415
     || params.status === 422
-    || /unsupported|not support|unknown parameter|invalid parameter|schema|multipart|content-type|兼容/.test(normalizedDetail)
+    || /unsupported|not support|unknown parameter|invalid parameter|schema|multipart|content-type/.test(normalizedDetail)
   ) {
     return {
-      code: 'PROVIDER_COMPATIBILITY_ERROR',
-      message: '当前 Provider 与标准 OpenAI Images 接口或参数不兼容，请检查代理兼容层或改用兼容服务。',
+      code: 'PROVIDER_UNSUPPORTED',
+      message: '当前上游不支持这次请求的图片接口或参数，请检查模型和云端能力。',
       statusCode: 409,
     }
   }
@@ -130,10 +128,9 @@ function classifyUpstreamResponseError(params: {
   }
 }
 
-function classifyFetchFailure(error: unknown, config: { apiUrl: string; providerId: string; model: string }) {
+function classifyFetchFailure(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   const normalizedMessage = message.toLowerCase()
-  const capabilities = detectProviderCapabilities(config)
 
   if (/failed to parse url|invalid url|only absolute urls/.test(normalizedMessage)) {
     return {
@@ -146,9 +143,7 @@ function classifyFetchFailure(error: unknown, config: { apiUrl: string; provider
   if (/enotfound|econnrefused|ehostunreach|getaddrinfo|fetch failed/.test(normalizedMessage)) {
     return {
       code: 'PROVIDER_URL_INVALID',
-      message: capabilities.family === 'sub2api'
-        ? '无法连接到 `/sub2api` 上游，请检查 `PROVIDER_UPSTREAM_ORIGIN` 或代理服务是否已启动。'
-        : '无法连接到当前 Provider API URL，请检查地址、端口、反向代理和网络连通性。',
+      message: '无法连接到当前上游服务，请检查 API URL 和网络连通性。',
       statusCode: 409,
     }
   }
@@ -162,19 +157,24 @@ function classifyFetchFailure(error: unknown, config: { apiUrl: string; provider
 
 async function resolveProviderRequestTargetForUser(userId: string, request: FastifyRequest) {
   const store = await storeRepository.read()
-  const config = store.providerConfigs.find((item) => item.userId === userId) ?? null
-  if (!config) return null
-
-  const normalized = normalizeProviderConfigInput(config)
-  if (!normalized.model || !normalized.apiKey) return null
+  const config = findStoredProviderConfigByUserId(store, userId)
+  const resolved = resolveEffectiveProviderConfig({ store, config })
+  if (resolved.error || !resolved.config) {
+    return {
+      error: resolved.error ?? {
+        code: 'PROVIDER_CONFIG_REQUIRED',
+        message: '请先选择一个 Provider，或填写自定义 Provider 配置。',
+      },
+    }
+  }
 
   const targetPath = request.url.replace(/^\/api\/provider-proxy/, '')
-  const target = resolveProviderRequestTarget(normalized, targetPath)
   return {
-    config: normalized,
-    apiKey: normalized.apiKey,
+    baseUrl: resolved.config.apiUrl,
+    config: resolved.config,
+    apiKey: resolved.config.apiKey,
     targetPath,
-    targetUrl: target.targetUrl,
+    targetUrl: joinProviderUrl(resolved.config.apiUrl, targetPath),
   }
 }
 
@@ -197,7 +197,6 @@ async function forwardProviderRequest(
   request: FastifyRequest,
   targetUrl: string,
   apiKey: string,
-  config: { providerId: string; apiUrl: string; model: string },
 ) {
   const headers = toFetchHeaders(request)
   headers.set('authorization', `Bearer ${apiKey}`)
@@ -211,8 +210,9 @@ async function forwardProviderRequest(
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     const contentType = String(request.headers['content-type'] ?? '')
     if (contentType.includes('application/json') || contentType.includes('text/plain')) {
-      const body = typeof request.body === 'object' && request.body ? request.body as Record<string, unknown> : {}
-      init.body = JSON.stringify(mapProviderJsonBody(body, config))
+      init.body = typeof request.body === 'string'
+        ? request.body
+        : JSON.stringify(request.body ?? {})
       headers.set('content-type', 'application/json')
     } else {
       init.body = request.raw as unknown as BodyInit
@@ -228,9 +228,16 @@ async function handleProviderProxy(request: FastifyRequest, reply: FastifyReply)
   if (!user) return
 
   const provider = await resolveProviderRequestTargetForUser(user.id, request)
-  if (!provider) {
+  if (!provider || 'error' in provider) {
     reply.code(409)
-    return fail('PROVIDER_CONFIG_REQUIRED', '请先在设置中保存 Provider API Key 与 Model 后再提交任务')
+    const error = provider && 'error' in provider
+      ? provider.error
+      : { code: 'PROVIDER_CONFIG_REQUIRED', message: '请先在设置中保存 Provider API Key 与 Model 后再提交任务' }
+    return fail(error.code, error.message)
+  }
+  if (!provider.baseUrl) {
+    reply.code(409)
+    return fail('PROVIDER_URL_INVALID', '当前未设置 Provider API URL，且服务端也未配置 PROVIDER_UPSTREAM_ORIGIN。请填写完整云端基址，或让服务端配置默认上游。')
   }
 
   const shouldChargeQuota = String(request.headers['x-miastra-charge-quota'] ?? '1') !== '0'
@@ -242,7 +249,7 @@ async function handleProviderProxy(request: FastifyRequest, reply: FastifyReply)
   }
 
   try {
-    const upstreamResponse = await forwardProviderRequest(request, provider.targetUrl, provider.apiKey, provider.config)
+    const upstreamResponse = await forwardProviderRequest(request, provider.targetUrl, provider.apiKey)
     if (!upstreamResponse.ok) {
       const text = await upstreamResponse.text()
       const classified = classifyUpstreamResponseError({
@@ -270,7 +277,7 @@ async function handleProviderProxy(request: FastifyRequest, reply: FastifyReply)
 
     return reply.send(Readable.fromWeb(upstreamResponse.body))
   } catch (error) {
-    const classified = classifyFetchFailure(error, provider.config)
+    const classified = classifyFetchFailure(error)
     return providerErrorResponse(reply, classified.statusCode, classified.code, classified.message)
   }
 }

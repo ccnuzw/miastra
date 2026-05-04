@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Header } from '@/components/Header'
 import { useAuthSession } from '@/features/auth/useAuthSession'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
@@ -75,19 +75,19 @@ export function BillingPage() {
   const [quota, setQuota] = useState<QuotaProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [message, setMessage] = useState('')
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
 
     if (!isAuthenticated) {
       try {
         const nextConfig = await fetchBillingConfig()
         setConfig(nextConfig)
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : String(nextError))
+        setError(nextError)
       } finally {
         setPlans([])
         setInvoices([])
@@ -109,16 +109,16 @@ export function BillingPage() {
       setInvoices(nextInvoices)
       setQuota(nextQuota)
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setError(nextError)
     } finally {
       setLoading(false)
     }
-  }
+  }, [isAuthenticated])
 
   useEffect(() => {
     if (authLoading) return
     void refresh()
-  }, [authLoading, isAuthenticated])
+  }, [authLoading, refresh])
 
   async function handleCheckout(planId: string, mode: 'upgrade' | 'renew') {
     if (!config?.checkoutEnabled) {
@@ -127,7 +127,7 @@ export function BillingPage() {
     }
 
     setBusy(planId)
-    setError('')
+    setError(null)
     setMessage('')
     try {
       const result = await checkout(planId, mode)
@@ -135,7 +135,7 @@ export function BillingPage() {
       setInvoices((items) => [result.invoice, ...items])
       setMessage(mode === 'renew' ? '已写入演示续费账单并恢复额度，不会产生真实扣款。' : '已写入演示升级账单并更新额度，不会产生真实扣款。')
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setError(nextError)
     } finally {
       setBusy('')
     }

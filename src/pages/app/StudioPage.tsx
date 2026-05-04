@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { useDrawCardSettings } from '@/features/draw-card/useDrawCardSettings'
 import { useGenerationFlow } from '@/features/generation/useGenerationFlow'
 import { useGenerationRuntime } from '@/features/generation/useGenerationRuntime'
@@ -89,7 +89,7 @@ export function StudioPage() {
   const activePreview = runtime.previewImage ?? runtime.livePreview
   const isGenerating = runtime.status === 'loading'
 
-  function applyWorkReplay(item: GalleryImage, autoGenerate = false) {
+  const applyWorkReplay = useCallback((item: GalleryImage, autoGenerate = false) => {
     const snapshot = item.generationSnapshot
     const workspacePrompt = snapshot?.workspacePrompt || snapshot?.prompt || item.promptText || item.promptSnippet || item.title
     const requestPrompt = snapshot?.requestPrompt || snapshot?.prompt || item.promptText || item.promptSnippet || item.title
@@ -121,13 +121,18 @@ export function StudioPage() {
 
     runtime.setStatus('success')
     runtime.setStatusText(autoGenerate && canRestoreAllReferences
-      ? `已回填作品参数，正在复跑：${requestPrompt}`
+      ? `已恢复作品参数，正在复跑：${requestPrompt}`
       : expectedReferenceCount > referenceImages.length
-        ? `已回填作品参数，但参考图未完整保存，请先补齐参考图后再复跑`
-        : `已回填作品参数，可以直接再次生成`)
+        ? `已恢复作品参数，但参考图未完整保存，请先补齐参考图后再复跑`
+        : `已恢复作品参数，可以直接再次生成`)
 
     return autoGenerate && canRestoreAllReferences
-  }
+  }, [
+    draw,
+    reference,
+    runtime,
+    studio,
+  ])
 
   useEffect(() => {
     const replay = consumeWorkReplayPayload()
@@ -137,7 +142,7 @@ export function StudioPage() {
     window.setTimeout(() => {
       document.getElementById('studio-form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     }, 0)
-  }, [])
+  }, [applyWorkReplay])
 
   function handleGenerateStrategy(value: typeof draw.drawStrategy) {
     const next = draw.applyDrawStrategy(value)
@@ -190,7 +195,7 @@ export function StudioPage() {
               <p className="mt-2 text-sm text-porcelain-100/60">提示词、参数、参考图、抽卡、作品和模板都集中在这里。</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="status-pill">{provider.activePreset.name}</span>
+              <span className="status-pill">{provider.connectionLabel}</span>
               <span className="status-pill">{provider.config.model || '未配置模型'}</span>
               <button type="button" className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-4 py-2 text-sm font-semibold text-signal-cyan transition hover:border-signal-cyan/50 hover:bg-signal-cyan/[0.16]" onClick={() => provider.setSettingsOpen(true)}>
                 编辑配置
@@ -340,9 +345,10 @@ export function StudioPage() {
         <StudioOverlayHost
           providerModal={{
             open: provider.settingsOpen,
+            config: provider.config,
             draftConfig: provider.draftConfig,
+            managedProviders: provider.managedProviders,
             onDraftConfigChange: provider.setDraftConfig,
-            onProviderChange: provider.handleProviderChange,
             onSave: () => void provider.saveProviderConfig(),
             onClose: () => provider.setSettingsOpen(false),
           }}

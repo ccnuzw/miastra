@@ -63,7 +63,7 @@ const ImageWallTile = memo(function ImageWallTile({
   onRetry,
 }: ImageWallTileProps) {
   const [tagDraft, setTagDraft] = useState('')
-  const isFavorite = Boolean(item.isFavorite ?? item.favorite)
+  const isFavorite = Boolean(item.isFavorite)
   const tags = item.tags ?? []
   const canRetry = item.taskStatus === 'failed' && item.retryable !== false && onRetry
 
@@ -79,14 +79,10 @@ const ImageWallTile = memo(function ImageWallTile({
   return (
     <div
       className={`wall-tile ${selected ? 'wall-tile-selected' : ''}`}
-      onClick={() => onPreview(item)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') onPreview(item)
-      }}
-      role="button"
-      tabIndex={0}
     >
-      {item.src && <img src={item.src} alt={item.title} />}
+      <button type="button" className="wall-preview-hitbox" onClick={() => onPreview(item)} aria-label={`预览作品 ${item.title}`}>
+        {item.src ? <img src={item.src} alt={item.title} /> : null}
+      </button>
       <button
         type="button"
         className={`tile-select wall-select ${selected ? 'tile-select-active' : ''}`}
@@ -108,7 +104,7 @@ const ImageWallTile = memo(function ImageWallTile({
             <p className="mt-1 text-[11px] font-semibold text-signal-cyan/80">{[item.providerModel, item.size, item.quality].filter(Boolean).join(' · ')}</p>
           )}
           {item.error && <p className="mt-1 text-[11px] font-semibold text-signal-amber/85">失败原因：{item.error}</p>}
-          <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {tags.map((tag) => (
               <button
                 key={tag}
@@ -254,7 +250,7 @@ export function ImageWallModal({
                 <button type="button" onClick={onDownloadSelected} className="bulk-ghost">下载 ZIP</button>
                 <button type="button" onClick={onClearSelection} className="bulk-ghost"><X className="h-3.5 w-3.5" />取消</button>
                 <button type="button" onClick={onRemoveSelected} className="bulk-danger"><Trash2 className="h-3.5 w-3.5" />删除</button>
-                <label className="bulk-metadata-toggle" onClick={(event) => event.stopPropagation()}>
+                <label className="bulk-metadata-toggle">
                   <input
                     type="checkbox"
                     checked={includeMetadata}

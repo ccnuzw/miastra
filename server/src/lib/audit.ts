@@ -1,5 +1,5 @@
 import type { AuditLogRecord, DataStore } from '../auth/types'
-import { storeRepository } from './store'
+import { getPostgresRepositories, isPostgresStoreBackend, storeRepository } from './store'
 
 export type AppendAuditLogInput = {
   actorUserId: string
@@ -9,6 +9,7 @@ export type AppendAuditLogInput = {
   targetId: string
   payload?: unknown
   ip?: string
+  requestId?: string
   createdAt?: string
 }
 
@@ -22,6 +23,7 @@ export function createAuditLogRecord(input: AppendAuditLogInput): AuditLogRecord
     targetId: input.targetId,
     payload: input.payload ?? {},
     ip: input.ip,
+    requestId: input.requestId,
     createdAt: input.createdAt ?? new Date().toISOString(),
   }
 }
@@ -33,7 +35,14 @@ export function appendAuditLogToStore(store: DataStore, input: AppendAuditLogInp
 }
 
 export async function appendAuditLog(input: AppendAuditLogInput) {
+  const log = createAuditLogRecord(input)
+  if (isPostgresStoreBackend()) {
+    await getPostgresRepositories().audit.insertAuditLog(log)
+    return log
+  }
+
   await storeRepository.mutate((store) => {
-    appendAuditLogToStore(store, input)
+    store.auditLogs = [...(store.auditLogs ?? []), log]
   })
+  return log
 }

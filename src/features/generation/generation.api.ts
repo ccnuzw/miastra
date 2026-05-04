@@ -1,4 +1,6 @@
 import { apiRequest } from '@/shared/http/client'
+import type { DrawStrategy, VariationStrength } from '@/features/draw-card/drawCard.types'
+import type { GenerationMode } from './generation.types'
 import { editEndpoint, generationEndpoint } from './generation.constants'
 import { extractGenerationError, extractImageSrc, readGenerationResponse, responseDebugHeaders } from './generation.parser'
 
@@ -20,7 +22,7 @@ export type GenerationTaskRecord = {
   updatedAt: string
   errorMessage?: string
   payload: {
-    mode: string
+    mode: GenerationMode
     title: string
     meta: string
     promptText: string
@@ -41,13 +43,13 @@ export type GenerationTaskRecord = {
     }>
     draw?: {
       count: number
-      strategy: 'linear' | 'smart' | 'turbo'
+      strategy: DrawStrategy
       concurrency: number
       delayMs: number
       retries: number
       timeoutSec: number
       safeMode: boolean
-      variationStrength: 'low' | 'medium' | 'high'
+      variationStrength: VariationStrength
       dimensions: string[]
       batchId: string
       batchSnapshotId?: string
@@ -66,7 +68,7 @@ export type GenerationTaskRecord = {
     quality?: string
     providerModel?: string
     snapshotId?: string
-    mode?: string
+    mode?: GenerationMode
     batchId?: string
     drawIndex?: number
     variation?: string

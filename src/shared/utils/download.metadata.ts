@@ -9,6 +9,10 @@ import type {
 } from './download.types'
 import { removeUndefinedAndSensitiveFields, sanitizeGenerationSnapshot } from './download.types'
 
+function resolveImageSrc(item: Pick<GalleryImage, 'src' | 'assetRemoteUrl'>) {
+  return item.src || item.assetRemoteUrl
+}
+
 export function getImageSourceType(src?: string): ImageSourceType | undefined {
   if (!src) return undefined
   if (src.startsWith('data:')) return 'data-url'
@@ -28,11 +32,12 @@ export function buildFailure(
   reason: DownloadWorksZipFailureReason,
   message: string,
 ): DownloadWorksZipFailure {
+  const src = resolveImageSrc(item)
   return {
     id: item.id,
     title: item.title,
     index,
-    sourceType: getImageSourceType(item.src),
+    sourceType: getImageSourceType(src),
     reason,
     message,
   }
@@ -81,7 +86,7 @@ export function buildMetadata(
         snapshotId: item.snapshotId,
         promptSnippet: item.promptSnippet,
         promptText: item.promptText,
-        isFavorite: item.isFavorite ?? item.favorite,
+        isFavorite: item.isFavorite,
         tags: item.tags,
         generationSnapshot: sanitizeGenerationSnapshot(item.generationSnapshot),
       }) as ExportedWorkMetadata

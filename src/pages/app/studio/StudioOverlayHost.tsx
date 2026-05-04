@@ -4,14 +4,15 @@ import { PromptTemplateLibrary } from '@/features/prompt-templates/PromptTemplat
 import { ProviderModal } from '@/features/provider/ProviderModal'
 import type { PromptTemplateListItem } from '@/features/prompt-templates/PromptTemplateLibrary'
 import type { GalleryImage } from '@/features/works/works.types'
-import type { ProviderConfig } from '@/features/provider/provider.types'
+import type { ManagedProviderOption, ProviderConfig } from '@/features/provider/provider.types'
 
 type StudioOverlayHostProps = {
   providerModal: {
     open: boolean
+    config: ProviderConfig
     draftConfig: ProviderConfig
+    managedProviders: ManagedProviderOption[]
     onDraftConfigChange: (config: ProviderConfig) => void
-    onProviderChange: (providerId: string) => void
     onSave: () => void
     onClose: () => void
   }
@@ -76,9 +77,10 @@ export function StudioOverlayHost({ providerModal, templateLibrary, viewer, wall
     <>
       <ProviderModal
         open={providerModal.open}
+        config={providerModal.config}
         draftConfig={providerModal.draftConfig}
+        managedProviders={providerModal.managedProviders}
         onDraftConfigChange={providerModal.onDraftConfigChange}
-        onProviderChange={providerModal.onProviderChange}
         onSave={providerModal.onSave}
         onClose={providerModal.onClose}
       />

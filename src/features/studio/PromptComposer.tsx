@@ -36,7 +36,7 @@ export function PromptComposer({
           <Wand2 className="h-4 w-4" />
           Prompt
         </span>
-        <div className="prompt-template-entry-group" aria-label="Prompt 模板操作">
+        <div className="prompt-template-entry-group">
           <button
             type="button"
             className="settings-button prompt-template-entry"

@@ -9,6 +9,7 @@ type AuditLogRecord = {
   targetId: string
   payload: unknown
   ip?: string
+  requestId?: string
   createdAt: string
 }
 
@@ -30,6 +31,7 @@ export function AdminLogsPanel({ logs, busyId, onRevokeOtherSessions }: AdminLog
           <div key={log.id} className="rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.45] p-3">
             <p>{log.action} · {log.targetType} / {log.targetId}</p>
             <p className="mt-1 text-xs text-porcelain-100/45">{log.actorNickname ?? log.actorEmail ?? log.actorUserId} · {log.actorRole} · {new Date(log.createdAt).toLocaleString()}</p>
+            {log.requestId ? <p className="mt-1 break-all text-[11px] text-porcelain-100/35">请求 ID：{log.requestId}</p> : null}
             <p className="mt-2 break-all text-xs text-porcelain-100/45">{formatAuditPayload(log.payload)}</p>
           </div>
         )) : <p className="text-sm text-porcelain-100/60">当前还没有审计日志。</p>}

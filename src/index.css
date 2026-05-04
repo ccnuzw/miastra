@@ -21,7 +21,7 @@
     min-height: 100vh;
     margin: 0;
     background-color: #07080a;
-    font-family: 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+    font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
   }
 
   input,
@@ -77,6 +77,38 @@
 
   .progress-card {
     @apply rounded-[1.75rem] border border-porcelain-50/10 bg-ink-950/[0.55] p-4 shadow-card;
+  }
+
+  .admin-table-shell {
+    @apply overflow-hidden rounded-[1.75rem] border border-porcelain-50/10 bg-ink-950/[0.55] shadow-card;
+  }
+
+  .admin-table-scroll {
+    @apply overflow-x-auto;
+  }
+
+  .admin-table {
+    @apply min-w-full border-collapse text-left text-sm text-porcelain-100/70;
+  }
+
+  .admin-table thead th {
+    @apply border-b border-porcelain-50/10 bg-ink-950/[0.82] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-porcelain-100/40;
+  }
+
+  .admin-table tbody tr {
+    @apply border-b border-porcelain-50/10 transition hover:bg-signal-cyan/[0.05];
+  }
+
+  .admin-table tbody tr:last-child {
+    @apply border-b-0;
+  }
+
+  .admin-table td {
+    @apply px-4 py-3 align-top;
+  }
+
+  .admin-table-row-active {
+    @apply bg-signal-cyan/[0.08];
   }
 
   .progress-fill {
@@ -160,7 +192,6 @@
     @apply border-signal-cyan/35 bg-signal-cyan/10 text-signal-cyan;
   }
 
-
   .parameter-panel {
     @apply grid gap-4 rounded-[2rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-4;
   }
@@ -228,7 +259,11 @@
   .detail-slider::-webkit-slider-runnable-track {
     height: 12px;
     border-radius: 999px;
-    background: linear-gradient(90deg, rgb(94 234 212) var(--detail-value), rgb(255 250 240 / 0.12) var(--detail-value));
+    background: linear-gradient(
+      90deg,
+      rgb(94 234 212) var(--detail-value),
+      rgb(255 250 240 / 0.12) var(--detail-value)
+    );
   }
 
   .detail-slider::-webkit-slider-thumb {
@@ -239,7 +274,9 @@
     border-radius: 999px;
     border: 3px solid rgb(255 250 240);
     background: rgb(7 8 10);
-    box-shadow: 0 0 0 1px rgb(94 234 212 / 0.5), 0 0 26px rgb(94 234 212 / 0.35);
+    box-shadow:
+      0 0 0 1px rgb(94 234 212 / 0.5),
+      0 0 26px rgb(94 234 212 / 0.35);
   }
 
   .detail-slider::-moz-range-track {
@@ -583,7 +620,6 @@
     @apply mt-6 flex min-h-[62vh] items-center justify-center rounded-[1.7rem] border border-dashed border-porcelain-50/15 bg-porcelain-50/[0.035] text-sm font-semibold text-porcelain-100/45;
   }
 
-
   .image-viewer-backdrop {
     @apply z-[120];
   }
@@ -610,10 +646,6 @@
 
   .viewer-parameters-panel {
     @apply flex min-h-0 flex-col gap-4 overflow-auto rounded-[1.6rem] border border-porcelain-50/10 bg-ink-900/[0.72] p-4;
-  }
-
-  .viewer-legacy-badge {
-    @apply rounded-full border border-signal-amber/25 bg-signal-amber/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-signal-amber;
   }
 
   .viewer-parameter-section {
@@ -821,7 +853,9 @@
     background-image:
       radial-gradient(circle at 20% 20%, rgba(255, 250, 240, 0.08) 0 1px, transparent 1px),
       radial-gradient(circle at 80% 40%, rgba(94, 234, 212, 0.08) 0 1px, transparent 1px);
-    background-size: 22px 22px, 34px 34px;
+    background-size:
+      22px 22px,
+      34px 34px;
     opacity: 0.22;
     mix-blend-mode: screen;
   }
@@ -834,7 +868,12 @@
     background:
       radial-gradient(circle at 10% 90%, rgba(56, 189, 248, 0.15), transparent 28%),
       radial-gradient(circle at 90% 35%, rgba(251, 191, 36, 0.12), transparent 24%),
-      linear-gradient(120deg, transparent 0 35%, rgba(255, 250, 240, 0.035) 35% 36%, transparent 36% 100%);
+      linear-gradient(
+        120deg,
+        transparent 0 35%,
+        rgba(255, 250, 240, 0.035) 35% 36%,
+        transparent 36% 100%
+      );
   }
 }
 
@@ -934,7 +973,6 @@
   .concurrency-chip-active {
     @apply border-signal-cyan/70 bg-signal-cyan/15 text-signal-cyan;
   }
-
 
   .draw-controls-grid {
     @apply grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4;
@@ -1155,16 +1193,13 @@
   .tile-select {
     @apply absolute right-3 top-3 z-20 grid h-7 w-7 place-items-center rounded-full border border-porcelain-50/15 bg-ink-950/70 text-signal-cyan shadow-card backdrop-blur-md transition hover:border-signal-cyan/60;
   }
-
 }
-
 
 @layer components {
   .tile-select-left {
     @apply left-3 right-auto;
   }
 }
-
 
 @layer components {
   .copy-toast {

@@ -1,4 +1,4 @@
-import { Bolt, Check, CheckCircle2, ClipboardCopy, Download, Eye, ImagePlus, Loader2, Star, Tag, Trash2 } from 'lucide-react'
+import { Bolt, Check, CheckCircle2, ClipboardCopy, Download, Eye, ImagePlus, Loader2, RefreshCw, Star, Tag, Trash2 } from 'lucide-react'
 import { useState, type FormEvent, type MouseEvent } from 'react'
 import { drawTaskStatusText } from '@/features/draw-card/drawCard.constants'
 import type { GalleryImage } from './works.types'
@@ -35,16 +35,18 @@ export function WorkTile({
   const hasImage = Boolean(item.src)
   const hasTask = Boolean(item.taskStatus)
   const promptText = item.promptText || item.promptSnippet || item.meta
-  const isFavorite = Boolean(item.isFavorite ?? item.favorite)
+  const isFavorite = Boolean(item.isFavorite)
   const assetSyncText = item.assetSyncStatus === 'synced'
     ? '已同步'
     : item.assetSyncStatus === 'pending-sync'
       ? '待同步'
       : item.assetSyncStatus === 'local-only'
-        ? '仅本地'
+        ? '待同步'
         : ''
   const [copyState, setCopyState] = useState<'idle' | 'success' | 'error'>('idle')
   const [tagDraft, setTagDraft] = useState('')
+  const tags = item.tags ?? []
+  const canRetry = Boolean(onRetry && item.taskStatus === 'failed' && item.retryable !== false)
 
   async function handleCopyPrompt(event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation()
@@ -72,14 +74,11 @@ export function WorkTile({
       className={`sample-tile ${mode === 'rail' ? 'rail-tile' : 'grid-tile'} ${hasImage ? 'sample-tile-active' : hasTask ? 'sample-tile-task' : 'sample-tile-empty'} ${selected ? 'sample-tile-selected' : ''}`}
     >
       {item.src ? (
-        <div
+        <button
+          type="button"
           className="tile-image-zone"
-          role="button"
-          tabIndex={0}
           onClick={() => onPreview(item)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') onPreview(item)
-          }}
+          aria-label={`预览作品 ${item.title}`}
         >
           <img src={item.src} alt={item.title} className="tile-image" />
           <div className="tile-image-overlay">
@@ -90,7 +89,7 @@ export function WorkTile({
               {isFavorite && <span className="variation-badge text-signal-amber"><Star className="h-3 w-3 fill-current" /> 收藏</span>}
             </div>
           </div>
-        </div>
+        </button>
       ) : hasTask ? (
         <div className="task-slot-body">
           <div className="flex items-center justify-between gap-2">
@@ -106,14 +105,14 @@ export function WorkTile({
       ) : <div className="empty-work-slot" aria-hidden="true"><ImagePlus className="h-5 w-5" /></div>}
 
       {hasImage && (
-        <div className="tile-toolbar" onClick={(event) => event.stopPropagation()}>
+        <div className="tile-toolbar">
           <div className="tile-toolbar-main">
-            <div className="tile-actions" aria-label="作品操作">
+            <div className="tile-actions" role="toolbar" aria-label="作品操作">
               {onToggleSelect && (
                 <button
                   type="button"
                   className={`tile-action ${selected ? 'tile-action-success' : ''}`}
-                  onClick={(event) => { event.stopPropagation(); onToggleSelect(item.id) }}
+                  onClick={() => onToggleSelect(item.id)}
                   aria-label={selected ? '取消选择作品' : '选择作品'}
                 >
                   <Check className="h-3.5 w-3.5" />
@@ -123,25 +122,30 @@ export function WorkTile({
                 <button
                   type="button"
                   className={`tile-action ${isFavorite ? 'tile-action-success text-signal-amber' : ''}`}
-                  onClick={(event) => { event.stopPropagation(); onToggleFavorite(item.id) }}
+                  onClick={() => onToggleFavorite(item.id)}
                   aria-label={isFavorite ? '取消收藏作品' : '收藏作品'}
                 >
                   <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-current' : ''}`} />
                 </button>
               )}
-              <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onPreview(item) }} aria-label="放大预览">
+              <button type="button" className="tile-action" onClick={() => onPreview(item)} aria-label="放大预览">
                 <Eye className="h-3.5 w-3.5" />
               </button>
               <button type="button" className={`tile-action ${copyState === 'success' ? 'tile-action-success' : copyState === 'error' ? 'tile-action-danger' : ''}`} onClick={handleCopyPrompt} aria-label="复制提示词">
                 {copyState === 'success' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ClipboardCopy className="h-3.5 w-3.5" />}
               </button>
-              <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onDownload(item) }} aria-label="下载图片">
+              <button type="button" className="tile-action" onClick={() => onDownload(item)} aria-label="下载图片">
                 <Download className="h-3.5 w-3.5" />
               </button>
-              <button type="button" className="tile-action" onClick={(event) => { event.stopPropagation(); onPushReference?.(item) }} aria-label="推送到输入框" disabled={!onPushReference}>
+              {canRetry && (
+                <button type="button" className="tile-action" onClick={() => onRetry?.(item)} aria-label="重试失败项">
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <button type="button" className="tile-action" onClick={() => onPushReference?.(item)} aria-label="推送到输入框" disabled={!onPushReference}>
                 <ImagePlus className="h-3.5 w-3.5" />
               </button>
-              <button type="button" className="tile-action tile-action-danger" onClick={(event) => { event.stopPropagation(); onRemove(item.id) }} aria-label="移除图片">
+              <button type="button" className="tile-action tile-action-danger" onClick={() => onRemove(item.id)} aria-label="移除图片">
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -160,6 +164,22 @@ export function WorkTile({
               </form>
             )}
           </div>
+          {tags.length > 0 && onRemoveTag && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {tags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full border border-signal-cyan/20 bg-signal-cyan/10 px-2 py-1 text-[10px] font-bold text-signal-cyan transition hover:border-signal-coral/45 hover:text-signal-coral"
+                  onClick={() => onRemoveTag(item.id, tag)}
+                  aria-label={`删除标签 ${tag}`}
+                >
+                  #{tag}
+                  <Tag className="h-3 w-3" />
+                </button>
+              ))}
+            </div>
+          )}
           {copyState !== 'idle' && (
             <p className={`tile-toolbar-status ${copyState === 'success' ? 'tile-toolbar-status-success' : 'tile-toolbar-status-error'}`}>
               {copyState === 'success' ? '提示词已复制' : '复制失败'}

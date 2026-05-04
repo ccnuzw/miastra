@@ -35,8 +35,7 @@ const workSchema = z.object({
   promptSnippet: z.string().optional(),
   promptText: z.string().optional(),
   isFavorite: z.boolean().optional(),
-  favorite: z.boolean().optional(),
-  tags: z.union([z.array(z.string()), z.string()]).optional(),
+  tags: z.array(z.string()).optional(),
 })
 
 const worksReplaceSchema = z.object({
@@ -70,12 +69,12 @@ function normalizeTags(tags: string[] | string | undefined): string[] {
 }
 
 function toStoredWork(userId: string, work: z.infer<typeof workSchema>): StoredWork {
-  const isFavorite = Boolean(work.isFavorite ?? work.favorite)
+  const src = work.src ?? work.assetRemoteUrl
   return {
     id: work.id,
     userId,
     title: work.title,
-    src: work.src,
+    src,
     assetId: work.assetId,
     assetStorage: work.assetStorage,
     assetSyncStatus: work.assetSyncStatus,
@@ -99,8 +98,7 @@ function toStoredWork(userId: string, work: z.infer<typeof workSchema>): StoredW
     generationSnapshot: work.generationSnapshot,
     promptSnippet: work.promptSnippet,
     promptText: work.promptText,
-    isFavorite,
-    favorite: isFavorite,
+    isFavorite: Boolean(work.isFavorite),
     tags: normalizeTags(work.tags),
   }
 }

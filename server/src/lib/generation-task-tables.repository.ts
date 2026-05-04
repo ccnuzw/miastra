@@ -1,5 +1,6 @@
 import type { Pool } from 'pg'
 import type { StoredGenerationTask, StoredWork } from '../auth/types'
+import { isTerminalTaskStatus } from '../generation-tasks/state'
 
 export type GenerationTaskTablesRepository = {
   listGenerationTasks: () => Promise<StoredGenerationTask[]>
@@ -10,7 +11,7 @@ export type GenerationTaskTablesRepository = {
   updateGenerationTask: (taskId: string, patch: Partial<StoredGenerationTask>) => Promise<StoredGenerationTask | null>
   listQueuedGenerationTasks: (limit: number, excludedIds?: string[]) => Promise<StoredGenerationTask[]>
   claimNextQueuedGenerationTask: (updatedAt: string, excludedIds?: string[]) => Promise<StoredGenerationTask | null>
-  completeGenerationTaskAndInsertWork: (taskId: string, taskPatch: Partial<StoredGenerationTask>, work: StoredWork) => Promise<void>
+  completeGenerationTaskAndInsertWork: (taskId: string, taskPatch: Partial<StoredGenerationTask>, work: StoredWork) => Promise<boolean>
 }
 
 async function ensureWorkAssetColumns(pool: Pool) {
@@ -92,7 +93,6 @@ function mapWorkValues(work: StoredWork) {
     work.promptSnippet ?? null,
     work.promptText ?? null,
     work.isFavorite ?? null,
-    work.favorite ?? null,
     tags.length ? JSON.stringify(tags) : null,
   ]
 }
@@ -141,8 +141,17 @@ export function createPostgresGenerationTaskTablesRepository(pool: Pool): Genera
       `, [task.id, task.userId, task.status, task.progress ?? null, task.errorMessage ?? null, JSON.stringify(task.payload), task.result ? JSON.stringify(task.result) : null, task.createdAt, task.updatedAt])
     },
     async updateGenerationTask(taskId, patch) {
-      const current = await this.findGenerationTaskById(taskId)
+      const currentResult = await pool.query(`
+        SELECT id, user_id, status, progress, error_message, payload_json, result_json, created_at, updated_at
+        FROM generation_tasks
+        WHERE id = $1
+        LIMIT 1
+      `, [taskId])
+      const currentRow = currentResult.rows[0]
+      const current = currentRow ? mapGenerationTaskRow(currentRow) : null
       if (!current) return null
+      const nextStatus = patch.status ?? current.status
+      if (isTerminalTaskStatus(current.status) && nextStatus !== current.status) return current
       const next = {
         ...current,
         ...patch,
@@ -207,16 +216,20 @@ export function createPostgresGenerationTaskTablesRepository(pool: Pool): Genera
         const currentRow = currentResult.rows[0]
         if (!currentRow) {
           await client.query('ROLLBACK')
-          return
+          return false
         }
         const current = mapGenerationTaskRow(currentRow)
+        if (current.status !== 'running') {
+          await client.query('ROLLBACK')
+          return false
+        }
         const next = {
           ...current,
           ...taskPatch,
           payload: taskPatch.payload ?? current.payload,
           result: taskPatch.result ?? current.result,
         }
-        await client.query(`
+        const updateResult = await client.query(`
           UPDATE generation_tasks
           SET status = $2,
               progress = $3,
@@ -224,14 +237,20 @@ export function createPostgresGenerationTaskTablesRepository(pool: Pool): Genera
               payload_json = $5::jsonb,
               result_json = $6::jsonb,
               updated_at = $7
-          WHERE id = $1
+          WHERE id = $1 AND status = 'running'
+          RETURNING id
         `, [taskId, next.status, next.progress ?? null, next.errorMessage ?? null, JSON.stringify(next.payload), next.result ? JSON.stringify(next.result) : null, next.updatedAt])
+        if (!updateResult.rows[0]) {
+          await client.query('ROLLBACK')
+          return false
+        }
         await client.query(`
-          INSERT INTO works (id, user_id, title, src, asset_id, asset_storage, asset_sync_status, asset_remote_key, asset_remote_url, asset_updated_at, meta, variation, batch_id, draw_index, task_status, error, retryable, retry_count, created_at, mode, provider_model, size, quality, snapshot_id, generation_snapshot_json, prompt_snippet, prompt_text, is_favorite, favorite, tags_json)
+          INSERT INTO works (id, user_id, title, src, asset_id, asset_storage, asset_sync_status, asset_remote_key, asset_remote_url, asset_updated_at, meta, variation, batch_id, draw_index, task_status, error, retryable, retry_count, created_at, mode, provider_model, size, quality, snapshot_id, generation_snapshot_json, prompt_snippet, prompt_text, is_favorite, tags_json)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb, $26, $27, $28, $29, $30::jsonb)
           ON CONFLICT (id) DO NOTHING
         `, mapWorkValues(work))
         await client.query('COMMIT')
+        return true
       } catch (error) {
         await client.query('ROLLBACK')
         throw error

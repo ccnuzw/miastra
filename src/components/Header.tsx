@@ -11,7 +11,7 @@ export function Header() {
           </span>
           <span className="flex flex-col leading-none">
             <span className="font-display text-xl tracking-tight text-porcelain-50">Miastra Studio</span>
-            <span className="mt-1 text-[0.62rem] uppercase tracking-[0.34em] text-porcelain-100/50">Sub2API Image Lab</span>
+            <span className="mt-1 text-[0.62rem] uppercase tracking-[0.34em] text-porcelain-100/50">Cloud Image Studio</span>
           </span>
         </a>
       </div>

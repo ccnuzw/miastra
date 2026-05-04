@@ -5,7 +5,6 @@ import {
   addTagToStoredWorks,
   deleteStoredWork,
   deleteStoredWorks,
-  importLegacyWorks,
   normalizeGallery,
   normalizeGalleryImage,
   readStoredGallery,
@@ -59,7 +58,7 @@ export function filterWorksGallery(items: GalleryImage[], filters: WorksGalleryF
 
   return items.filter((item) => {
     if (batchId && item.batchId !== batchId) return false
-    if (favoritesOnly && !(item.isFavorite ?? item.favorite)) return false
+    if (favoritesOnly && !item.isFavorite) return false
     if (tag && !(item.tags ?? []).includes(tag)) return false
     if (queryTerms.length) {
       const text = getSearchText(item)
@@ -118,28 +117,21 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
   useEffect(() => {
     if (authLoading) return
 
-    let cancelled = false
+    let _cancelled = false
 
     if (!isAuthenticated) {
       setGalleryState([])
       setError(null)
       setLoading(false)
       return () => {
-        cancelled = true
+        _cancelled = true
       }
     }
 
-    void importLegacyWorks().then(() => {
-      if (cancelled) return
-      void loadGallery()
-    }).catch((nextError) => {
-      if (cancelled) return
-      setError(nextError)
-      setLoading(false)
-    })
+    void loadGallery()
 
     return () => {
-      cancelled = true
+      _cancelled = true
     }
   }, [authLoading, isAuthenticated, loadGallery])
 
@@ -247,7 +239,9 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
 
     const versions = beginMutation(ids)
     const targetIds = new Set(ids)
-    ids.forEach((id) => onRemoveImage?.(id))
+    ids.forEach((id) => {
+      onRemoveImage?.(id)
+    })
     setGallery((items) => items.filter((item) => !targetIds.has(item.id)))
     setViewerImage((current) => current && targetIds.has(current.id) ? null : current)
     setSelectedWorkIds([])
@@ -263,7 +257,7 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
     const currentWork = galleryRef.current.find((item) => item.id === id)
     if (!currentWork) return
 
-    const nextFavorite = !(currentWork.isFavorite ?? currentWork.favorite)
+    const nextFavorite = !currentWork.isFavorite
     const versions = beginMutation([id])
     updateWork(id, (item) => ({ ...item, isFavorite: nextFavorite }))
 

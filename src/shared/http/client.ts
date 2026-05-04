@@ -18,7 +18,7 @@ export async function apiRequest<T>(path: string, init?: Omit<RequestInit, 'body
 
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
-    throw createAppErrorFromApi(payload, response.status)
+    throw createAppErrorFromApi(payload, response.status, response.headers?.get?.('x-request-id') ?? undefined)
   }
 
   return (payload && typeof payload === 'object' && 'data' in payload ? payload.data : payload) as T

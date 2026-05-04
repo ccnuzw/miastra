@@ -7,8 +7,7 @@ import { getContentDomainStore } from '../lib/domain-store'
 
 const templateSchema = z.object({
   id: z.string().optional(),
-  title: z.string().optional(),
-  name: z.string().optional(),
+  title: z.string().trim().min(1),
   content: z.string(),
   category: z.string().optional(),
   tags: z.array(z.string()).optional(),
@@ -46,8 +45,7 @@ export async function registerPromptTemplateRoutes(app: FastifyInstance) {
     const normalized = {
       id,
       userId: user.id,
-      title: parsed.data.title?.trim() || parsed.data.name?.trim() || '未命名模板',
-      name: parsed.data.title?.trim() || parsed.data.name?.trim() || '未命名模板',
+      title: parsed.data.title,
       content: parsed.data.content,
       category: parsed.data.category !== undefined ? parsed.data.category.trim() || undefined : existingTemplate?.category,
       tags: parsed.data.tags !== undefined ? normalizeTemplateTags(parsed.data.tags) : existingTemplate?.tags,
@@ -63,7 +61,15 @@ export async function registerPromptTemplateRoutes(app: FastifyInstance) {
     } catch (error) {
       if (error instanceof Error && error.message === '模板 ID 已被占用') {
         reply.code(409)
-        return fail('INVALID_OPERATION', error.message)
+        return {
+          error: {
+            code: 'INVALID_OPERATION',
+            message: error.message,
+            category: 'data',
+            retryable: false,
+            action: 'refresh',
+          },
+        }
       }
 
       throw error

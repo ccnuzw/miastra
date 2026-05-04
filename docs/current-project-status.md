@@ -1,57 +1,76 @@
-# Miastra Studio 当前项目分析
+# Miastra Studio 当前项目状态
 
-## 一句话判断
-项目处于“早期但已可用的 MVP 阶段”。
+## 项目结论
 
-## 当前开发进展
-- 截至 2026-05-01，项目版本为 0.1.0。
-- 首次提交时间：2026-04-28。
-- 主线最新开发集中在 2026-04-29。
-- 总提交数：9。
-- 主要开发者：1 位。
-- `npm run build` 可成功通过。
-- 目前没有测试脚本，也没有测试文件。
+截至 2026-05-03，Miastra Studio 已进入“云端交付可用”阶段。
 
-## 这两天的开发节奏
-1. 2026-04-28：搭基础项目，并补 Docker / Nginx / 代理部署。
-2. 2026-04-28：加“多图支持”，更准确地说是多参考图 / 图生图增强。
-3. 2026-04-29：做 Studio workflow upgrades：Prompt 模板库、Provider 连接测试、作品参数快照、ZIP 导出 metadata、图片墙与作品管理增强。
-4. 2026-04-29：做生成队列控制：暂停 / 恢复、单任务取消、失败重试、整批取消。
+当前判断依据：
 
-## 当前功能清单
-- 生图核心：文生图、图生图、OpenAI Images API 兼容
-- Provider 配置：API URL / Model / API Key、本地保存、测试连接、`/sub2api` 代理
-- 创作工作台：Prompt、负面提示词、画幅、分辨率、质量、细节强度、流式生成、风格 token
-- 参考图：上传参考图、从作品区推送参考图、最多 4 张
-- 抽卡 / 批量生成：并发、延迟、超时、自动重试、安全模式、变化强度 / 维度、快捷预设
-- 队列控制：暂停、继续、取消全部、取消单任务、重试失败项、状态可视化
-- 作品管理：Rail、图片墙、预览、收藏、标签、搜索筛选、批量选择、删除
-- 作品复用：查看参数快照、回填旧参数、再次生成、批次信息保留
-- 导出：单图下载、ZIP 下载、`metadata.json`
-- 本地持久化：Provider 在 localStorage，作品 / 模板在 IndexedDB
-- 部署：Vite、Docker、Docker Compose、Nginx 代理
+- 前端、Fastify API、Postgres 存储已经形成完整运行闭环
+- 初始化、启动、测试、发布入口已统一到仓库文档和脚本
+- 发布前自动化门禁已经明确为 `test:smoke`、`test:regression`、`release:check`
 
-## 当前阶段判断
-### 已完成得较好
-- 主流程完整
-- 体验思路清晰
-- 批量工作流突出
+## 当前交付形态
 
-### 尚未完成
-- 无后端业务层
-- 无用户系统
-- 无云端存储
-- 无团队协作
-- 无自动化测试
-- 安全性仍偏前端本地密钥
+- 前端：React + Vite
+- API：Fastify
+- 持久化：Postgres
+- 发布边界：前端静态站点与 Fastify 分离部署
 
-## 将来的发展方向
-1. 从个人工作台到正式产品：后端代理、用户系统、云存储、数据库、对象存储、多设备同步。
-2. 强化 AI 图片工作流：模板变量、风格包、历史版本对比、批次复盘、断点续跑、配方管理。
-3. 资产库能力：标签体系升级、收藏夹 / 项目集、批量整理、搜索增强、工程元数据导出。
-4. Provider 兼容性增强：更多服务商、能力探测、参数映射、错误提示优化。
-5. 工程化：单元测试、CI/CD、错误监控、性能监控、文档 / roadmap。
-6. 实验方向：bee-shooter 模块更像实验原型，而非主线产品能力。
+当前项目已经按云端交付标准定义和维护。
 
-## 最后总结
-Miastra Studio 是一个面向个人创作者、已具备完整生图主流程的本地化 AI 图片创作工作台，正在从可用 MVP 走向稳定可复用的创作工具。
+## 已交付能力
+
+- 账号与会话
+  - 注册、登录、登出、会话识别、撤销其他会话
+- Provider 配置
+  - API URL、Model、API Key 保存
+  - 默认上游回退
+  - `/sub2api` 辅助代理
+- 创作与任务
+  - 文生图、图生图、多参考图
+  - 队列创建、状态流转、取消、重试
+- 作品管理
+  - 作品墙、搜索、标签、收藏、批量选择、删除
+  - 参数快照和批次信息回看
+- 导出
+  - 单图导出
+  - ZIP 导出
+  - `metadata.json` 脱敏输出
+- 运维与发布
+  - 数据库初始化脚本
+  - 健康检查与存储检查
+  - smoke / regression / release 自动化门禁
+
+## 当前交付标准
+
+新成员只看仓库文档，应能完成以下动作：
+
+- 按 `.env.example` 准备环境变量
+- 执行 `npm run init:db`
+- 启动前端和 Fastify
+- 执行 `npm run test:smoke`
+- 执行 `npm run test:regression`
+- 执行 `npm run release:check`
+- 按部署手册发布前端和 API
+
+## 已知边界
+
+- 仓库内 `Dockerfile` 和 `docker-compose.yml` 只负责前端静态站点，不负责 Fastify。
+- 生产环境必须额外提供 `/api` 到 Fastify 的反向代理。
+- 生产环境必须显式配置 `AUTH_JWT_SECRET`、`RESET_JWT_SECRET` 和 `DATABASE_URL`。
+- 自动化发布门禁当前不包含 `lint`、`format:check`、`typecheck`、`typecheck:server`。
+
+## 当前推荐阅读顺序
+
+1. [../README.md](../README.md)
+2. [deployment-runbook.md](./deployment-runbook.md)
+3. [release-regression.md](./release-regression.md)
+4. [architecture-overview.md](./architecture-overview.md)
+5. [api-overview.md](./api-overview.md)
+6. [data-model.md](./data-model.md)
+7. [development-workflow.md](./development-workflow.md)
+8. [testing-strategy.md](./testing-strategy.md)
+9. [troubleshooting.md](./troubleshooting.md)
+
+看完以上文档，已经足够完成初始化、启动、联调、测试和发布。

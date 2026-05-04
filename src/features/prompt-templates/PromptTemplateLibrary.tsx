@@ -6,7 +6,6 @@ import { ErrorNotice } from '@/shared/errors/ErrorNotice'
 export type PromptTemplateListItem = {
   id: string
   title?: string
-  name?: string
   content: string
   category?: string
   tags?: string[]
@@ -47,11 +46,11 @@ function getPromptPreview(content: string) {
 }
 
 function getTemplateTitle(template: PromptTemplateListItem) {
-  return template.title || template.name || '未命名模板'
+  return template.title || '未命名模板'
 }
 
 function getTemplateSearchText(template: PromptTemplateListItem) {
-  return `${template.title ?? ''} ${template.name ?? ''} ${template.content ?? ''} ${template.category ?? ''} ${template.tags?.join(' ') ?? ''}`.toLowerCase()
+  return `${template.title ?? ''} ${template.content ?? ''} ${template.category ?? ''} ${template.tags?.join(' ') ?? ''}`.toLowerCase()
 }
 
 function getTemplateCategory(template: PromptTemplateListItem) {
@@ -170,7 +169,7 @@ export function PromptTemplateLibrary({
                   type="search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="按标题、名称、分类、标签或内容搜索"
+                  placeholder="按标题、分类、标签或内容搜索"
                   className="prompt-template-search-input"
                 />
                 {searchQuery.length > 0 && (

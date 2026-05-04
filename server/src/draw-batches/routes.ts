@@ -3,10 +3,11 @@ import type { FastifyInstance } from 'fastify'
 import { requireAuthenticatedUser } from '../auth/routes'
 import type { StoredGenerationTask } from '../auth/types'
 import { fail, ok } from '../lib/http'
-import { getAuthDomainStore, getContentDomainStore, getGenerationTaskDomainStore } from '../lib/domain-store'
-import { createId } from '../lib/store'
+import { getContentDomainStore, getGenerationTaskDomainStore } from '../lib/domain-store'
+import { createId, storeRepository } from '../lib/store'
 import type { StoredDrawBatch } from '../auth/types'
 import { getTaskBatchId, getTaskRootTaskId, sortTaskAttemptsDesc, summarizeBatchTasks } from '../generation-tasks/state'
+import { findStoredProviderConfigByUserId, resolveEffectiveProviderConfig } from '../provider-config/provider.service'
 
 const drawBatchSchema = z.object({
   id: z.string(),
@@ -111,10 +112,12 @@ export async function registerDrawBatchRoutes(app: FastifyInstance) {
       return fail('BATCH_NOT_FOUND', '批次不存在')
     }
 
-    const providerConfig = await getAuthDomainStore().findProviderConfigByUserId(user.id)
-    if (!providerConfig?.apiKey.trim()) {
+    const store = await storeRepository.read()
+    const providerConfig = findStoredProviderConfigByUserId(store, user.id)
+    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: providerConfig })
+    if (resolvedProvider.error) {
       reply.code(409)
-      return fail('PROVIDER_CONFIG_REQUIRED', '请先在设置中保存 Provider API Key 后再复跑批次')
+      return fail(resolvedProvider.error.code, resolvedProvider.error.message)
     }
 
     const batchTasks = (await generationStore.listGenerationTasksByUserId(user.id))

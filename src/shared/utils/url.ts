@@ -31,6 +31,5 @@ export function isLocalFrontend() {
 }
 
 export function resolveImageApiUrl(base: string, endpoint: string) {
-  if (!base.trim()) return joinUrl('/sub2api', endpoint)
   return joinUrl(base, endpoint)
 }

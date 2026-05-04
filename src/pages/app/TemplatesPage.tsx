@@ -21,7 +21,7 @@ export function TemplatesPage() {
     if (!editingId) return
     const current = templates.find((item) => item.id === editingId)
     if (current) {
-      setTitle(current.title || current.name || '')
+      setTitle(current.title || '')
       setContent(current.content || '')
       setCategory(current.category || '')
       setTagsText((current.tags ?? []).join(', '))
@@ -37,7 +37,7 @@ export function TemplatesPage() {
     })
     .filter((template) => {
       if (categoryFilter !== '全部分类' && (template.category?.trim() || '未分类') !== categoryFilter) return false
-      const haystack = `${template.title ?? ''} ${template.name ?? ''} ${template.content ?? ''} ${template.category ?? ''} ${(template.tags ?? []).join(' ')}`.toLowerCase()
+      const haystack = `${template.title ?? ''} ${template.content ?? ''} ${template.category ?? ''} ${(template.tags ?? []).join(' ')}`.toLowerCase()
       return haystack.includes(searchQuery.trim().toLowerCase())
     })
 
@@ -82,7 +82,7 @@ export function TemplatesPage() {
     setMessage('')
     try {
       await saveTemplate({
-        title: createDuplicatedPromptTemplateTitle(template.title || template.name || '未命名模板'),
+        title: createDuplicatedPromptTemplateTitle(template.title || '未命名模板'),
         content: template.content,
         category: template.category?.trim() || undefined,
         tags: template.tags,
@@ -203,7 +203,7 @@ export function TemplatesPage() {
             <article key={template.id} className="progress-card">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 className="truncate text-lg font-semibold text-porcelain-50">{template.title || template.name || '未命名模板'}</h2>
+                  <h2 className="truncate text-lg font-semibold text-porcelain-50">{template.title || '未命名模板'}</h2>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="prompt-template-chip">{template.category?.trim() || '未分类'}</span>
                     {(template.tags ?? []).map((tag) => <span key={tag} className="prompt-template-chip prompt-template-chip-tag">{tag}</span>)}

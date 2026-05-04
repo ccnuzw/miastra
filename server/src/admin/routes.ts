@@ -1,14 +1,24 @@
-import { z } from 'zod'
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { requireRole, resolveAuthenticatedContext } from '../auth/routes'
-import { fail, ok } from '../lib/http'
-import { storeRepository } from '../lib/store'
+import type { AuditLogRecord, AuthRecord, StoredGenerationTask, StoredWork } from '../auth/types'
 import { cancelGenerationTaskProcessing } from '../generation-tasks/worker'
 import { appendAuditLogToStore } from '../lib/audit'
-import type { AuditLogRecord, AuthRecord, StoredGenerationTask, StoredWork } from '../auth/types'
+import { fail, ok } from '../lib/http'
+import { storeRepository } from '../lib/store'
+import {
+  normalizeManagedProvider,
+  normalizeManagedProviderModels,
+  validateManagedProvider,
+} from '../provider-config/provider.service'
+import { validateProviderApiUrl } from '../provider-config/provider.utils'
+import {
+  backendAdminRoles,
+  getAdminPolicies,
+  getAdminUserManagement,
+  getAssignableAdminRoles,
+} from './policy'
 
-const adminRoleSchema = z.enum(['operator', 'admin'])
-const adminOnlyRoleSchema = z.enum(['admin'])
 const roleSchema = z.enum(['user', 'operator', 'admin'])
 const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -19,15 +29,40 @@ const usersQuerySchema = paginationSchema.extend({
   role: roleSchema.optional(),
 })
 const tasksQuerySchema = paginationSchema.extend({
-  status: z.enum(['pending', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout']).optional(),
+  status: z
+    .enum(['pending', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'])
+    .optional(),
+})
+const auditQuerySchema = paginationSchema.extend({
+  actorRole: z.enum(['user', 'operator', 'admin']).optional(),
+  action: z.string().trim().optional(),
+  targetType: z.string().trim().optional(),
+})
+const bulkUserSessionsSchema = z.object({
+  userIds: z.array(z.string().trim().min(1)).min(1).max(100),
+})
+const bulkTaskCancelSchema = z.object({
+  taskIds: z.array(z.string().trim().min(1)).min(1).max(100),
+})
+const bulkWorkDeleteSchema = z.object({
+  workIds: z.array(z.string().trim().min(1)).min(1).max(100),
 })
 const updateUserRoleSchema = z.object({
   role: roleSchema,
 })
+const managedProviderSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string().trim().optional(),
+  apiUrl: z.string().trim(),
+  apiKey: z.string().trim(),
+  models: z.array(z.string().trim().min(1)).min(1),
+  defaultModel: z.string().trim().min(1),
+  enabled: z.boolean(),
+})
 
 export async function registerAdminRoutes(app: FastifyInstance) {
   app.get('/api/admin/dashboard', async (request, reply) => {
-    const user = await requireRole(request, reply, adminRoleSchema.options)
+    const user = await requireRole(request, reply, backendAdminRoles)
     if (!user) return
 
     const store = await storeRepository.read()
@@ -38,10 +73,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return accumulator
     }, {})
 
-    const taskStatusBreakdown = store.generationTasks.reduce<Record<string, number>>((accumulator, item) => {
-      accumulator[item.status] = (accumulator[item.status] ?? 0) + 1
-      return accumulator
-    }, {})
+    const taskStatusBreakdown = store.generationTasks.reduce<Record<string, number>>(
+      (accumulator, item) => {
+        accumulator[item.status] = (accumulator[item.status] ?? 0) + 1
+        return accumulator
+      },
+      {},
+    )
 
     const users = [...store.users]
       .sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
@@ -94,7 +132,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/admin/users', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const parsed = usersQuerySchema.safeParse(request.query)
@@ -109,7 +147,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .filter((item) => !parsed.data.role || item.role === parsed.data.role)
       .filter((item) => {
         if (!keyword) return true
-        return item.nickname.toLowerCase().includes(keyword) || item.email.toLowerCase().includes(keyword)
+        return (
+          item.nickname.toLowerCase().includes(keyword) ||
+          item.email.toLowerCase().includes(keyword)
+        )
       })
       .sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
       .map((item) => toAdminUser(item, store, actor))
@@ -118,7 +159,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/admin/users/:id', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const id = z.string().safeParse((request.params as { id?: string }).id)
@@ -138,7 +179,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   })
 
   app.post('/api/admin/users/:id/role', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const id = z.string().safeParse((request.params as { id?: string }).id)
@@ -161,8 +202,28 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
 
     if (!management.canChangeRole || !management.assignableRoles.includes(parsed.data.role)) {
+      appendAuditLogToStore(store, {
+        actorUserId: actor.id,
+        actorRole: actor.role,
+        action: 'admin.user.role.update_denied',
+        targetType: 'user',
+        targetId: target.id,
+        payload: {
+          currentRole: target.role,
+          requestedRole: parsed.data.role,
+          isSelf: management.isSelf,
+          reason: management.reason,
+          assignableRoles: management.assignableRoles,
+        },
+        ip: request.ip,
+        requestId: request.id,
+      })
+      await storeRepository.write(store)
       reply.code(management.isSelf ? 409 : 403)
-      return fail(management.isSelf ? 'INVALID_OPERATION' : 'FORBIDDEN', management.reason ?? '当前账号没有修改该用户角色的权限')
+      return fail(
+        management.isSelf ? 'INVALID_OPERATION' : 'FORBIDDEN',
+        management.reason ?? '当前账号没有修改该用户角色的权限',
+      )
     }
 
     const previousRole = target.role
@@ -176,13 +237,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       targetId: target.id,
       payload: { fromRole: previousRole, toRole: parsed.data.role },
       ip: request.ip,
+      requestId: request.id,
     })
     await storeRepository.write(store)
     return ok(toAdminUser(target, store, actor))
   })
 
   app.post('/api/admin/users/:id/revoke-sessions', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const id = z.string().safeParse((request.params as { id?: string }).id)
@@ -200,8 +262,25 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
     const management = getAdminUserManagement(actor, target)
     if (!management.canRevokeSessions) {
+      appendAuditLogToStore(store, {
+        actorUserId: actor.id,
+        actorRole: actor.role,
+        action: 'admin.user.sessions.revoke_denied',
+        targetType: 'user',
+        targetId: target.id,
+        payload: {
+          isSelf: management.isSelf,
+          reason: management.reason,
+        },
+        ip: request.ip,
+        requestId: request.id,
+      })
+      await storeRepository.write(store)
       reply.code(management.isSelf ? 409 : 403)
-      return fail(management.isSelf ? 'INVALID_OPERATION' : 'FORBIDDEN', management.reason ?? '当前账号没有撤销该用户会话的权限')
+      return fail(
+        management.isSelf ? 'INVALID_OPERATION' : 'FORBIDDEN',
+        management.reason ?? '当前账号没有撤销该用户会话的权限',
+      )
     }
 
     const context = await resolveAuthenticatedContext(request)
@@ -226,14 +305,90 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         preservedSessionId: currentSessionId,
       },
       ip: request.ip,
+      requestId: request.id,
       createdAt: revokedAt,
     })
     await storeRepository.write(store)
     return ok({ success: true, revoked })
   })
 
+  app.post('/api/admin/users/revoke-sessions-bulk', async (request, reply) => {
+    const actor = await requireRole(request, reply, backendAdminRoles)
+    if (!actor) return
+
+    const parsed = bulkUserSessionsSchema.safeParse(request.body)
+    if (!parsed.success) {
+      reply.code(400)
+      return fail('INVALID_INPUT', '批量撤销参数不正确')
+    }
+
+    const store = await storeRepository.read()
+    const context = await resolveAuthenticatedContext(request)
+    const currentSessionId = context?.session.id
+    const revokedAt = new Date().toISOString()
+    const succeeded: Array<{ id: string; revoked: number }> = []
+    const skipped: Array<{ id: string; reason: string }> = []
+    let revokedCount = 0
+
+    for (const userId of uniqueIds(parsed.data.userIds)) {
+      const target = store.users.find((item) => item.id === userId)
+      if (!target) {
+        skipped.push({ id: userId, reason: 'USER_NOT_FOUND' })
+        continue
+      }
+
+      const management = getAdminUserManagement(actor, target)
+      if (!management.canRevokeSessions) {
+        skipped.push({ id: userId, reason: management.reason ?? 'FORBIDDEN' })
+        continue
+      }
+
+      const preservedSessionId = management.isSelf ? currentSessionId : undefined
+      let revoked = 0
+      store.sessions.forEach((session) => {
+        if (
+          session.userId === target.id &&
+          !session.revokedAt &&
+          session.id !== preservedSessionId
+        ) {
+          session.revokedAt = revokedAt
+          revoked += 1
+        }
+      })
+
+      appendAuditLogToStore(store, {
+        actorUserId: actor.id,
+        actorRole: actor.role,
+        action: 'session.revoked.bulk.batch',
+        targetType: 'user',
+        targetId: target.id,
+        payload: {
+          revoked,
+          scope: management.isSelf ? 'other-sessions' : 'all-sessions',
+          preservedSessionId,
+          batchSize: parsed.data.userIds.length,
+        },
+        ip: request.ip,
+        requestId: request.id,
+        createdAt: revokedAt,
+      })
+
+      succeeded.push({ id: userId, revoked })
+      revokedCount += revoked
+    }
+
+    await storeRepository.write(store)
+    return ok({
+      success: true,
+      processedCount: parsed.data.userIds.length,
+      revokedCount,
+      succeeded,
+      skipped,
+    })
+  })
+
   app.get('/api/admin/works', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const parsed = paginationSchema.safeParse(request.query)
@@ -249,7 +404,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .filter((item) => {
         if (!keyword) return true
         const owner = userMap.get(item.userId)
-        return [item.title, item.meta, owner?.email, owner?.nickname, item.promptText, item.promptSnippet]
+        return [
+          item.title,
+          item.meta,
+          owner?.email,
+          owner?.nickname,
+          item.promptText,
+          item.promptSnippet,
+        ]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(keyword))
       })
@@ -260,7 +422,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/admin/works/:id', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const id = z.string().safeParse((request.params as { id?: string }).id)
@@ -281,7 +443,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   })
 
   app.delete('/api/admin/works/:id', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const id = z.string().safeParse((request.params as { id?: string }).id)
@@ -305,13 +467,62 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       targetId: id.data,
       payload: { scope: 'admin' },
       ip: request.ip,
+      requestId: request.id,
     })
     await storeRepository.write(store)
     return ok({ success: true })
   })
 
+  app.post('/api/admin/works/delete-bulk', async (request, reply) => {
+    const actor = await requireRole(request, reply, backendAdminRoles)
+    if (!actor) return
+
+    const parsed = bulkWorkDeleteSchema.safeParse(request.body)
+    if (!parsed.success) {
+      reply.code(400)
+      return fail('INVALID_INPUT', '批量删除作品参数不正确')
+    }
+
+    const store = await storeRepository.read()
+    const succeeded: Array<{ id: string }> = []
+    const skipped: Array<{ id: string; reason: string }> = []
+
+    for (const workId of uniqueIds(parsed.data.workIds)) {
+      const existing = store.works.find((item) => item.id === workId || item.snapshotId === workId)
+      if (!existing) {
+        skipped.push({ id: workId, reason: 'WORK_NOT_FOUND' })
+        continue
+      }
+
+      store.works = store.works.filter((item) => item.id !== workId && item.snapshotId !== workId)
+      appendAuditLogToStore(store, {
+        actorUserId: actor.id,
+        actorRole: actor.role,
+        action: 'work.deleted.batch',
+        targetType: 'work',
+        targetId: workId,
+        payload: {
+          scope: 'admin',
+          batchSize: parsed.data.workIds.length,
+        },
+        ip: request.ip,
+        requestId: request.id,
+      })
+      succeeded.push({ id: workId })
+    }
+
+    await storeRepository.write(store)
+    return ok({
+      success: true,
+      processedCount: parsed.data.workIds.length,
+      deletedCount: succeeded.length,
+      succeeded,
+      skipped,
+    })
+  })
+
   app.get('/api/admin/tasks', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const parsed = tasksQuerySchema.safeParse(request.query)
@@ -328,7 +539,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .filter((item) => {
         if (!keyword) return true
         const owner = userMap.get(item.userId)
-        return [item.payload.title, item.payload.promptText, item.payload.meta, owner?.email, owner?.nickname]
+        return [
+          item.payload.title,
+          item.payload.promptText,
+          item.payload.meta,
+          owner?.email,
+          owner?.nickname,
+        ]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(keyword))
       })
@@ -339,7 +556,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/admin/tasks/:id', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const id = z.string().safeParse((request.params as { id?: string }).id)
@@ -360,7 +577,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   })
 
   app.post('/api/admin/tasks/:id/cancel', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
     const id = z.string().safeParse((request.params as { id?: string }).id)
@@ -375,7 +592,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       reply.code(404)
       return fail('TASK_NOT_FOUND', '任务不存在')
     }
-    if (task.status === 'succeeded' || task.status === 'failed' || task.status === 'timeout' || task.status === 'cancelled') {
+    if (
+      task.status === 'succeeded' ||
+      task.status === 'failed' ||
+      task.status === 'timeout' ||
+      task.status === 'cancelled'
+    ) {
       reply.code(409)
       return fail('TASK_NOT_CANCELLABLE', '任务已结束，无法取消')
     }
@@ -397,16 +619,240 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       targetId: task.id,
       payload: { status: latestTask.status },
       ip: request.ip,
+      requestId: request.id,
     })
     await storeRepository.write(latestStore)
     return ok(attachTaskOwner(latestTask, userMap))
   })
 
-  app.get('/api/admin/roles', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+  app.post('/api/admin/tasks/cancel-bulk', async (request, reply) => {
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
-    const roles: Array<'user' | 'operator' | 'admin'> = actor.role === 'admin' ? ['user', 'operator', 'admin'] : ['user', 'operator']
+    const parsed = bulkTaskCancelSchema.safeParse(request.body)
+    if (!parsed.success) {
+      reply.code(400)
+      return fail('INVALID_INPUT', '批量取消任务参数不正确')
+    }
+
+    const succeeded: Array<{ id: string }> = []
+    const skipped: Array<{ id: string; reason: string }> = []
+
+    for (const taskId of uniqueIds(parsed.data.taskIds)) {
+      const store = await storeRepository.read()
+      const task = store.generationTasks.find((item) => item.id === taskId)
+      if (!task) {
+        skipped.push({ id: taskId, reason: 'TASK_NOT_FOUND' })
+        continue
+      }
+      if (
+        task.status === 'succeeded' ||
+        task.status === 'failed' ||
+        task.status === 'timeout' ||
+        task.status === 'cancelled'
+      ) {
+        skipped.push({ id: taskId, reason: 'TASK_NOT_CANCELLABLE' })
+        continue
+      }
+
+      await cancelGenerationTaskProcessing(task.id)
+      const latestStore = await storeRepository.read()
+      const latestTask = latestStore.generationTasks.find((item) => item.id === task.id)
+      if (!latestTask) {
+        skipped.push({ id: taskId, reason: 'TASK_NOT_FOUND' })
+        continue
+      }
+
+      appendAuditLogToStore(latestStore, {
+        actorUserId: actor.id,
+        actorRole: actor.role,
+        action: 'task.cancelled.batch',
+        targetType: 'generation_task',
+        targetId: task.id,
+        payload: {
+          status: latestTask.status,
+          batchSize: parsed.data.taskIds.length,
+        },
+        ip: request.ip,
+        requestId: request.id,
+      })
+      await storeRepository.write(latestStore)
+      succeeded.push({ id: taskId })
+    }
+
+    return ok({
+      success: true,
+      processedCount: parsed.data.taskIds.length,
+      succeeded,
+      skipped,
+    })
+  })
+
+  app.get('/api/admin/providers', async (request, reply) => {
+    const actor = await requireRole(request, reply, backendAdminRoles)
+    if (!actor) return
+
+    const store = await storeRepository.read()
+    const providers = [...store.managedProviders]
+      .map(normalizeManagedProvider)
+      .sort((left, right) => Number(new Date(right.updatedAt)) - Number(new Date(left.updatedAt)))
+    return ok({ items: providers })
+  })
+
+  app.put('/api/admin/providers/:id', async (request, reply) => {
+    const actor = await requireRole(request, reply, backendAdminRoles)
+    if (!actor) return
+
+    const id = z
+      .string()
+      .trim()
+      .min(1)
+      .safeParse((request.params as { id?: string }).id)
+    const parsed = managedProviderSchema.safeParse(request.body)
+    if (!id.success || !parsed.success) {
+      reply.code(400)
+      return fail('INVALID_INPUT', 'Provider 配置格式不正确')
+    }
+
+    const providerId = id.data
+    if (!/^[a-z0-9._-]+$/i.test(providerId)) {
+      reply.code(400)
+      return fail('INVALID_INPUT', 'Provider ID 只允许字母、数字、点、下划线和中划线')
+    }
+
+    const normalized = normalizeManagedProvider({
+      id: providerId,
+      name: parsed.data.name,
+      description: parsed.data.description,
+      apiUrl: parsed.data.apiUrl,
+      apiKey: parsed.data.apiKey,
+      models: normalizeManagedProviderModels(parsed.data.models, parsed.data.defaultModel),
+      defaultModel: parsed.data.defaultModel,
+      enabled: parsed.data.enabled,
+      updatedAt: new Date().toISOString(),
+    })
+    const validationError = validateManagedProvider(normalized)
+    if (validationError) {
+      reply.code(validationError.code === 'INVALID_INPUT' ? 400 : 409)
+      return fail(validationError.code, validationError.message)
+    }
+    const apiUrlError = validateProviderApiUrl(normalized.apiUrl)
+    if (apiUrlError) {
+      reply.code(400)
+      return fail(apiUrlError.code, apiUrlError.message)
+    }
+
+    const store = await storeRepository.read()
+    const existing = store.managedProviders.find((item) => item.id === providerId)
+    store.managedProviders = [
+      ...store.managedProviders.filter((item) => item.id !== providerId),
+      normalized,
+    ]
+    appendAuditLogToStore(store, {
+      actorUserId: actor.id,
+      actorRole: actor.role,
+      action: existing ? 'provider.managed.updated' : 'provider.managed.created',
+      targetType: 'managed_provider',
+      targetId: providerId,
+      payload: {
+        name: normalized.name,
+        enabled: normalized.enabled,
+        models: normalized.models,
+        hasApiKey: Boolean(normalized.apiKey),
+      },
+      ip: request.ip,
+      requestId: request.id,
+    })
+    await storeRepository.write(store)
+    return ok(normalized)
+  })
+
+  app.delete('/api/admin/providers/:id', async (request, reply) => {
+    const actor = await requireRole(request, reply, backendAdminRoles)
+    if (!actor) return
+
+    const id = z
+      .string()
+      .trim()
+      .min(1)
+      .safeParse((request.params as { id?: string }).id)
+    if (!id.success) {
+      reply.code(400)
+      return fail('INVALID_INPUT', 'Provider ID 不正确')
+    }
+
+    const store = await storeRepository.read()
+    const existing = store.managedProviders.find((item) => item.id === id.data)
+    if (!existing) {
+      reply.code(404)
+      return fail('PROVIDER_CONFIG_REQUIRED', '要删除的 Provider 不存在')
+    }
+    store.managedProviders = store.managedProviders.filter((item) => item.id !== id.data)
+    appendAuditLogToStore(store, {
+      actorUserId: actor.id,
+      actorRole: actor.role,
+      action: 'provider.managed.deleted',
+      targetType: 'managed_provider',
+      targetId: id.data,
+      payload: { name: existing.name },
+      ip: request.ip,
+      requestId: request.id,
+    })
+    await storeRepository.write(store)
+    return ok({ success: true })
+  })
+
+  app.get('/api/admin/audit', async (request, reply) => {
+    const actor = await requireRole(request, reply, backendAdminRoles)
+    if (!actor) return
+
+    const parsed = auditQuerySchema.safeParse(request.query)
+    if (!parsed.success) {
+      reply.code(400)
+      return fail('INVALID_INPUT', '审计查询参数不正确')
+    }
+
+    const store = await storeRepository.read()
+    const userMap = new Map<string, AuthRecord>(store.users.map((item) => [item.id, item]))
+    const keyword = parsed.data.query?.toLowerCase() ?? ''
+    const actionKeyword = parsed.data.action?.toLowerCase() ?? ''
+    const targetTypeKeyword = parsed.data.targetType?.toLowerCase() ?? ''
+    const filtered = [
+      ...((store as typeof store & { auditLogs?: AuditLogRecord[] }).auditLogs ?? []),
+    ]
+      .map((item) => attachAuditActor(item, userMap))
+      .filter((item) => !parsed.data.actorRole || item.actorRole === parsed.data.actorRole)
+      .filter((item) => !actionKeyword || item.action.toLowerCase().includes(actionKeyword))
+      .filter(
+        (item) => !targetTypeKeyword || item.targetType.toLowerCase().includes(targetTypeKeyword),
+      )
+      .filter((item) => {
+        if (!keyword) return true
+        const payloadText =
+          typeof item.payload === 'string' ? item.payload : JSON.stringify(item.payload ?? {})
+        return [
+          item.actorEmail,
+          item.actorNickname,
+          item.actorUserId,
+          item.action,
+          item.targetType,
+          item.targetId,
+          item.requestId,
+          payloadText,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(keyword))
+      })
+      .sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
+
+    return ok(paginate(filtered, parsed.data.page, parsed.data.limit))
+  })
+
+  app.get('/api/admin/roles', async (request, reply) => {
+    const actor = await requireRole(request, reply, backendAdminRoles)
+    if (!actor) return
+
+    const roles = getAssignableAdminRoles(actor)
     return ok({
       actorRole: actor.role,
       roles: roles.map((role) => ({
@@ -417,19 +863,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/admin/policies', async (request, reply) => {
-    const actor = await requireRole(request, reply, adminRoleSchema.options)
+    const actor = await requireRole(request, reply, backendAdminRoles)
     if (!actor) return
 
-    return ok({
-      actorRole: actor.role,
-      canAssignAdmin: actor.role === adminOnlyRoleSchema.enum.admin,
-      canManageAdmins: actor.role === adminOnlyRoleSchema.enum.admin,
-      operatorScope: actor.role === adminOnlyRoleSchema.enum.admin ? 'all-backend-users' : 'users-only',
-      selfProtection: {
-        keepCurrentAdminAccess: true,
-        keepCurrentSessionOnBulkRevoke: true,
-      },
-    })
+    return ok(getAdminPolicies(actor))
   })
 }
 
@@ -447,8 +884,14 @@ function paginate<T>(items: T[], page: number, limit: number) {
   }
 }
 
-function toAdminUser(user: AuthRecord, store: Awaited<ReturnType<typeof storeRepository.read>>, actor: AuthRecord) {
-  const activeSessionCount = store.sessions.filter((session) => session.userId === user.id && !session.revokedAt).length
+function toAdminUser(
+  user: AuthRecord,
+  store: Awaited<ReturnType<typeof storeRepository.read>>,
+  actor: AuthRecord,
+) {
+  const activeSessionCount = store.sessions.filter(
+    (session) => session.userId === user.id && !session.revokedAt,
+  ).length
   const workCount = store.works.filter((work) => work.userId === user.id).length
   const taskCount = store.generationTasks.filter((task) => task.userId === user.id).length
   const management = getAdminUserManagement(actor, user)
@@ -503,46 +946,6 @@ function attachAuditActor(log: AuditLogRecord, userMap: Map<string, AuthRecord>)
   }
 }
 
-function getAdminUserManagement(actor: AuthRecord, target: AuthRecord) {
-  if (actor.id === target.id) {
-    return {
-      isSelf: true,
-      canChangeRole: false,
-      canRevokeSessions: true,
-      assignableRoles: [actor.role] as AuthRecord['role'][],
-      reason: '不能移除自己当前的后台权限',
-    }
-  }
-
-  if (actor.role === 'admin') {
-    return {
-      isSelf: false,
-      canChangeRole: true,
-      canRevokeSessions: true,
-      assignableRoles: ['user', 'operator', 'admin'] as AuthRecord['role'][],
-      reason: undefined,
-    }
-  }
-
-  if (target.role === 'user') {
-    return {
-      isSelf: false,
-      canChangeRole: true,
-      canRevokeSessions: true,
-      assignableRoles: ['user', 'operator'] as AuthRecord['role'][],
-      reason: undefined,
-    }
-  }
-
-  return {
-    isSelf: false,
-    canChangeRole: false,
-    canRevokeSessions: false,
-    assignableRoles: [] as AuthRecord['role'][],
-    reason: 'operator 只能管理普通用户，不能操作其他后台账号',
-  }
-}
-
 function toRoleLabel(role: AuthRecord['role']) {
   switch (role) {
     case 'admin':
@@ -552,4 +955,8 @@ function toRoleLabel(role: AuthRecord['role']) {
     default:
       return '普通用户'
   }
+}
+
+function uniqueIds(ids: string[]) {
+  return Array.from(new Set(ids))
 }

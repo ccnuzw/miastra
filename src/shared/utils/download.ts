@@ -15,11 +15,16 @@ const defaultImageDirectory = 'images'
 const defaultMetadataFilename = 'metadata.json'
 const defaultFetchConcurrency = 4
 
+function resolveImageSrc(item: Pick<GalleryImage, 'src' | 'assetRemoteUrl'>) {
+  return item.src || item.assetRemoteUrl
+}
+
 export function downloadImage(item: GalleryImage) {
-  if (!item.src) return
-  const extension = inferImageExtension(item.src)
+  const src = resolveImageSrc(item)
+  if (!src) return
+  const extension = inferImageExtension(src)
   const baseName = sanitizeFileName(stripKnownImageExtension(item.title || 'generated-image'))
-  downloadFileUrl(item.src, `${baseName}.${extension}`)
+  downloadFileUrl(src, `${baseName}.${extension}`)
 }
 
 export async function downloadWorksZip(
@@ -74,7 +79,8 @@ export async function createWorksZipBlob(
   const usedImagePaths = new Set<string>()
   const padLength = Math.max(3, String(Math.max(works.length, 1)).length)
   const fetchResults = await mapWithConcurrency(works, defaultFetchConcurrency, async (item, index) => {
-    if (!item.src) {
+    const src = resolveImageSrc(item)
+    if (!src) {
       return {
         index,
         item,
@@ -83,7 +89,7 @@ export async function createWorksZipBlob(
     }
 
     try {
-      const blob = await fetchImageBlob(item.src, options.fetchOptions)
+      const blob = await fetchImageBlob(src, options.fetchOptions)
       return {
         index,
         item,
@@ -106,8 +112,9 @@ export async function createWorksZipBlob(
         failures.push(result.failure)
         return
       }
-      if (!result.blob || !result.item.src) return
-      const extension = inferImageExtension(result.item.src, result.blob.type)
+      const src = resolveImageSrc(result.item)
+      if (!result.blob || !src) return
+      const extension = inferImageExtension(src, result.blob.type)
       const fileName = makeUniqueImageFileName(result.item, result.index, extension, padLength, usedImagePaths)
       imagesFolder.file(fileName, result.blob)
       exportedRecords.push({ item: result.item, index: result.index, fileName: `${imageDirectory}/${fileName}` })

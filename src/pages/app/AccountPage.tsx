@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Header } from '@/components/Header'
 import { useAuthSession } from '@/features/auth/useAuthSession'
 import { apiRequest } from '@/shared/http/client'
@@ -66,7 +66,7 @@ async function updatePassword(input: { currentPassword: string; nextPassword: st
 }
 
 async function revokeSession(id: string) {
-  return apiRequest<{ success: true }>('/api/auth/sessions/' + id + '/revoke', { method: 'POST' })
+  return apiRequest<{ success: true }>(`/api/auth/sessions/${id}/revoke`, { method: 'POST' })
 }
 
 async function revokeOtherSessions() {
@@ -83,10 +83,10 @@ export function AccountPage() {
   const [nextPassword, setNextPassword] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [message, setMessage] = useState('')
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (!isAuthenticated) {
       setMe(null)
       setSessions([])
@@ -97,7 +97,7 @@ export function AccountPage() {
     }
 
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const [nextMe, nextSessions, nextQuota, nextInvoices] = await Promise.all([fetchMe(), fetchSessions(), fetchQuota(), fetchInvoices()])
       setMe(nextMe)
@@ -105,21 +105,21 @@ export function AccountPage() {
       setQuota(nextQuota)
       setInvoices(nextInvoices)
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setError(nextError)
     } finally {
       setLoading(false)
     }
-  }
+  }, [isAuthenticated])
 
   useEffect(() => {
     if (authLoading) return
     void refresh()
-  }, [authLoading, isAuthenticated])
+  }, [authLoading, refresh])
 
   async function handlePasswordSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy('password')
-    setError('')
+    setError(null)
     setMessage('')
     try {
       await updatePassword({ currentPassword, nextPassword })
@@ -128,7 +128,7 @@ export function AccountPage() {
       setMessage('密码已更新。')
       await refresh()
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setError(nextError)
     } finally {
       setBusy('')
     }
@@ -136,12 +136,12 @@ export function AccountPage() {
 
   async function handleRevoke(id: string) {
     setBusy(id)
-    setError('')
+    setError(null)
     try {
       await revokeSession(id)
       await refresh()
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setError(nextError)
     } finally {
       setBusy('')
     }
@@ -149,12 +149,12 @@ export function AccountPage() {
 
   async function handleRevokeOthers() {
     setBusy('others')
-    setError('')
+    setError(null)
     try {
       await revokeOtherSessions()
       await refresh()
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      setError(nextError)
     } finally {
       setBusy('')
     }
@@ -171,7 +171,9 @@ export function AccountPage() {
               <h1 className="mt-3 text-3xl font-semibold tracking-tight">账户</h1>
               <p className="mt-2 text-sm text-porcelain-100/60">查看账号、会话、套餐配额与最近账单，并修改密码。</p>
             </div>
-            <button type="button" className="rounded-full border border-porcelain-50/10 bg-ink-950/[0.65] px-4 py-2 text-sm font-semibold text-porcelain-50 transition hover:border-signal-cyan/50 hover:text-signal-cyan" onClick={() => void refresh()}>刷新</button>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" className="rounded-full border border-porcelain-50/10 bg-ink-950/[0.65] px-4 py-2 text-sm font-semibold text-porcelain-50 transition hover:border-signal-cyan/50 hover:text-signal-cyan" onClick={() => void refresh()}>刷新</button>
+            </div>
           </div>
 
           {loading ? <p className="mt-6 text-sm text-porcelain-100/60">正在加载账户信息…</p> : null}

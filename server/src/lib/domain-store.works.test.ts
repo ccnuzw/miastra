@@ -10,6 +10,7 @@ function createEmptyStore(): DataStore {
     promptTemplates: [],
     works: [],
     providerConfigs: [],
+    managedProviders: [],
     drawBatches: [],
     generationTasks: [],
     auditLogs: [],
@@ -45,7 +46,6 @@ describe('content domain store incremental works mutations', () => {
       title: '作品 1',
       meta: 'meta',
       isFavorite: false,
-      favorite: false,
       tags: ['old'],
     })
 
@@ -54,7 +54,6 @@ describe('content domain store incremental works mutations', () => {
     await expect(content.updateWorkFavoriteForUser('user-1', 'work-1', true)).resolves.toMatchObject({
       id: 'work-1',
       isFavorite: true,
-      favorite: true,
     })
     await expect(content.replaceWorkTagsForUser('user-1', 'work-1', ['x', ' ', 'x', 'y'])).resolves.toMatchObject({
       id: 'work-1',
@@ -63,7 +62,6 @@ describe('content domain store incremental works mutations', () => {
     expect(store.works).toMatchObject([{
       id: 'work-1',
       isFavorite: true,
-      favorite: true,
       tags: ['x', 'y'],
     }])
   })

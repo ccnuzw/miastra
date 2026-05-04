@@ -11,6 +11,7 @@ const emptyStore = {
   promptTemplates: [],
   works: [],
   providerConfigs: [],
+  managedProviders: [],
   drawBatches: [],
   generationTasks: [],
   auditLogs: [],
@@ -19,11 +20,9 @@ const emptyStore = {
 }
 
 const originalNodeEnv = process.env.NODE_ENV
-const originalPasswordResetMode = process.env.AUTH_PASSWORD_RESET_MODE
 
 beforeEach(async () => {
   await storeRepository.write(structuredClone(emptyStore))
-  delete process.env.AUTH_PASSWORD_RESET_MODE
   process.env.NODE_ENV = 'test'
 })
 
@@ -32,9 +31,6 @@ afterEach(async () => {
 
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV
   else process.env.NODE_ENV = originalNodeEnv
-
-  if (originalPasswordResetMode === undefined) delete process.env.AUTH_PASSWORD_RESET_MODE
-  else process.env.AUTH_PASSWORD_RESET_MODE = originalPasswordResetMode
 })
 
 describe('admin permissions and audit logs', () => {
@@ -165,6 +161,16 @@ describe('admin permissions and audit logs', () => {
     const store = await storeRepository.read()
     expect(store.auditLogs).toEqual(expect.arrayContaining([
       expect.objectContaining({
+        action: 'admin.user.role.update_denied',
+        actorUserId: admin.user.id,
+        targetId: admin.user.id,
+        payload: expect.objectContaining({
+          currentRole: 'admin',
+          requestedRole: 'operator',
+          isSelf: true,
+        }),
+      }),
+      expect.objectContaining({
         action: 'session.revoked.bulk',
         actorUserId: admin.user.id,
         targetId: admin.user.id,
@@ -178,8 +184,56 @@ describe('admin permissions and audit logs', () => {
     await app.close()
   })
 
+  it('writes audit logs for denied operator management of backend accounts', async () => {
+    const app = await createAdminAuditTestServer()
+
+    const operator = await registerUser(app, 'operator2@example.com', 'operator-two')
+    const peerOperator = await registerUser(app, 'peer2@example.com', 'peer-two')
+
+    await setUserRole(operator.user.id, 'operator')
+    await setUserRole(peerOperator.user.id, 'operator')
+
+    const changeRoleResponse = await app.inject({
+      method: 'POST',
+      url: `/api/admin/users/${peerOperator.user.id}/role`,
+      cookies: { miastra_auth: operator.cookie },
+      payload: { role: 'user' },
+    })
+    expect(changeRoleResponse.statusCode).toBe(403)
+
+    const revokeResponse = await app.inject({
+      method: 'POST',
+      url: `/api/admin/users/${peerOperator.user.id}/revoke-sessions`,
+      cookies: { miastra_auth: operator.cookie },
+    })
+    expect(revokeResponse.statusCode).toBe(403)
+
+    const store = await storeRepository.read()
+    expect(store.auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: 'admin.user.role.update_denied',
+        actorUserId: operator.user.id,
+        targetId: peerOperator.user.id,
+        payload: expect.objectContaining({
+          currentRole: 'operator',
+          requestedRole: 'user',
+          isSelf: false,
+        }),
+      }),
+      expect.objectContaining({
+        action: 'admin.user.sessions.revoke_denied',
+        actorUserId: operator.user.id,
+        targetId: peerOperator.user.id,
+        payload: expect.objectContaining({
+          isSelf: false,
+        }),
+      }),
+    ]))
+
+    await app.close()
+  })
+
   it('writes audit logs for session revocation and password reset flow', async () => {
-    process.env.AUTH_PASSWORD_RESET_MODE = 'debug'
     const app = await createAdminAuditTestServer()
 
     const user = await registerUser(app, 'audit@example.com', 'audit-user')
@@ -206,7 +260,8 @@ describe('admin permissions and audit logs', () => {
     })
 
     expect(forgotResponse.statusCode).toBe(200)
-    const resetToken = forgotResponse.json().data.debugResetToken as string
+    const resetToken = (await storeRepository.read()).users.find((item) => item.email === 'audit@example.com')?.passwordResetToken
+    expect(resetToken).toEqual(expect.any(String))
 
     const resetResponse = await app.inject({
       method: 'POST',

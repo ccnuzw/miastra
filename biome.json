@@ -7,8 +7,17 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["src/**/*", "server/src/**/*", "*.{ts,tsx,js,jsx,json,md}"],
-    "experimentalScannerIgnores": ["node_modules/**", "dist/**", "server/node_modules/**", "server/dist/**", "package-lock.json", "server/package-lock.json"]
+    "includes": [
+      "src/**/*",
+      "server/src/**/*",
+      "*.{ts,tsx,js,jsx,json,md}",
+      "!!**/node_modules",
+      "!!**/dist",
+      "!!**/server/node_modules",
+      "!!**/server/dist",
+      "!!**/package-lock.json",
+      "!!**/server/package-lock.json"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -28,10 +37,18 @@
       "trailingCommas": "none"
     }
   },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "recommended": true,
+      "suspicious": {
+        "noUnknownAtRules": "off"
+      }
     }
   }
 }

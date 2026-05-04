@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuthSession } from '@/features/auth/useAuthSession'
 import { apiRequest } from '@/shared/http/client'
-import { deleteBrowserValue, readBrowserValue } from '@/shared/storage/browserDatabase'
 import type { PromptTemplateListItem } from './PromptTemplateLibrary'
 import { normalizePromptTemplateTags } from './promptTemplate.utils'
-
-export const promptTemplatesStorageKey = 'new-pic:prompt-templates:v1'
 
 type SavePromptTemplateInput = {
   id?: string
@@ -15,20 +12,12 @@ type SavePromptTemplateInput = {
   tags?: string[]
 }
 
-type ImportLocalTemplatesResult = {
-  imported: number
-  total: number
-}
-
-let importLegacyTemplatesInFlight: Promise<ImportLocalTemplatesResult> | null = null
-
 export function normalizeTemplate(template: PromptTemplateListItem): PromptTemplateListItem {
   const now = Date.now()
-  const title = template.title?.trim() || template.name?.trim() || '未命名模板'
+  const title = template.title?.trim() || '未命名模板'
   return {
     id: template.id || crypto.randomUUID(),
     title,
-    name: title,
     content: template.content ?? '',
     category: template.category?.trim() || undefined,
     tags: normalizePromptTemplateTags(template.tags),
@@ -75,29 +64,6 @@ async function markPromptTemplateUsed(templateId: string) {
   }))
 }
 
-async function runImportLegacyPromptTemplates() {
-  const legacyTemplates = normalizeTemplates(await readBrowserValue<PromptTemplateListItem[]>(promptTemplatesStorageKey, []))
-  if (!legacyTemplates.length) return { imported: 0, total: 0 }
-
-  const result = await apiRequest<ImportLocalTemplatesResult>('/api/migrations/import-local-templates', {
-    method: 'POST',
-    body: { templates: legacyTemplates },
-  })
-
-  await deleteBrowserValue(promptTemplatesStorageKey)
-  return result
-}
-
-export async function importLegacyPromptTemplates() {
-  if (!importLegacyTemplatesInFlight) {
-    importLegacyTemplatesInFlight = runImportLegacyPromptTemplates().finally(() => {
-      importLegacyTemplatesInFlight = null
-    })
-  }
-
-  return importLegacyTemplatesInFlight
-}
-
 export function usePromptTemplates() {
   const { isAuthenticated, loading: authLoading } = useAuthSession()
   const [templates, setTemplates] = useState<PromptTemplateListItem[]>([])
@@ -134,7 +100,6 @@ export function usePromptTemplates() {
       return []
     }
 
-    await importLegacyPromptTemplates()
     return await refresh()
   }, [isAuthenticated, refresh])
 

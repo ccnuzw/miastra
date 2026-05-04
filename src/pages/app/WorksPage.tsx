@@ -26,13 +26,13 @@ export function WorksPage() {
   }
 
   function renderWorkCard(work: GalleryImage) {
-    const isFavorite = Boolean(work.isFavorite ?? work.favorite)
+    const isFavorite = Boolean(work.isFavorite)
     const assetSyncLabel = work.assetSyncStatus === 'synced'
       ? '已同步'
       : work.assetSyncStatus === 'pending-sync'
         ? '待同步'
         : work.assetSyncStatus === 'local-only'
-          ? '仅本地'
+          ? '待同步'
           : null
     return (
       <article key={work.id} className="progress-card">

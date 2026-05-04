@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterWorksGallery } from './useWorksGallery'
+import { filterWorksGallery, mergeGalleryWithLocalChanges } from './useWorksGallery'
 
 describe('filterWorksGallery', () => {
   const gallery = [
@@ -70,5 +70,36 @@ describe('filterWorksGallery', () => {
       tag: 'all',
       searchQuery: '',
     })).toEqual(gallery)
+  })
+
+  it('keeps newer local works when a stale server gallery response arrives', () => {
+    const merged = mergeGalleryWithLocalChanges([
+      {
+        id: 'work-1',
+        title: '封面人像',
+        meta: '暖色杂志风格',
+      },
+    ], [
+      {
+        id: 'work-local',
+        title: '刚生成的新图',
+        meta: '本地新图',
+        src: 'https://example.com/generated.png',
+      },
+    ])
+
+    expect(merged).toHaveLength(2)
+    expect(merged[0]).toMatchObject({
+      id: 'work-local',
+      title: '刚生成的新图',
+      meta: '本地新图',
+      src: 'https://example.com/generated.png',
+      assetId: 'work:work-local:primary',
+    })
+    expect(merged[1]).toMatchObject({
+      id: 'work-1',
+      title: '封面人像',
+      meta: '暖色杂志风格',
+    })
   })
 })

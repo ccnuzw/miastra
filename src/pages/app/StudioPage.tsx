@@ -41,6 +41,7 @@ export function StudioPage() {
 
   const generation = useGenerationFlow({
     config: provider.config,
+    providerLoading: provider.loading,
     requestUrl: provider.requestUrl,
     editRequestUrl: provider.editRequestUrl,
     prompt: studio.prompt,
@@ -186,7 +187,7 @@ export function StudioPage() {
 
   return (
     <>
-      <main id="studio" className="mx-auto flex min-h-screen w-full max-w-screen-xl px-4 pb-10 pt-32 md:px-8">
+      <main id="studio" className="app-page-shell app-page-shell-wide">
         <section className="panel-shell w-full">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -196,22 +197,24 @@ export function StudioPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="status-pill">{provider.connectionLabel}</span>
-              <span className="status-pill">{provider.config.model || '未配置模型'}</span>
+              <span className="status-pill">{provider.loading ? '正在恢复已保存配置' : (provider.config.model || '未配置模型')}</span>
               <button type="button" className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-4 py-2 text-sm font-semibold text-signal-cyan transition hover:border-signal-cyan/50 hover:bg-signal-cyan/[0.16]" onClick={() => provider.setSettingsOpen(true)}>
                 编辑配置
               </button>
             </div>
           </div>
 
-          <div className="mt-8 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-            <form id="studio-form" className="space-y-6" onSubmit={generation.handleGenerate}>
+          <div className="studio-workspace">
+            <form id="studio-form" className="studio-form-column" onSubmit={generation.handleGenerate}>
               <StudioEditorColumn
                 promptProps={{
                   prompt: studio.prompt,
+                  negativePrompt: studio.negativePrompt,
                   referenceImages: reference.referenceImages,
                   hasReferenceImage: reference.hasReferenceImage,
                   inputRef: reference.referenceInputRef,
                   onPromptChange: studio.setPrompt,
+                  onNegativePromptChange: studio.setNegativePrompt,
                   onReferenceUpload: reference.handleReferenceUpload,
                   onRemoveReference: reference.handleRemoveReferenceImage,
                   onSaveTemplate: templateActions.handleSaveCurrentPromptTemplate,
@@ -225,15 +228,15 @@ export function StudioPage() {
                   resolutionTier: studio.resolutionTier,
                   quality: studio.quality,
                   stream: studio.stream,
-                  detailStrength: studio.detailStrength,
-                  detailTone: studio.detailTone,
-                  negativePrompt: studio.negativePrompt,
                   onAspectChange: studio.setAspectLabel,
                   onResolutionChange: studio.setResolutionTier,
                   onQualityChange: studio.setQuality,
                   onStreamChange: studio.setStream,
+                }}
+                advancedProps={{
+                  detailStrength: studio.detailStrength,
+                  detailTone: studio.detailTone,
                   onDetailStrengthChange: studio.setDetailStrength,
-                  onNegativePromptChange: studio.setNegativePrompt,
                 }}
                 styleTokenProps={{
                   selectedIds: studio.selectedStyleTokenIds,
@@ -274,10 +277,10 @@ export function StudioPage() {
               />
 
               <div className="flex flex-wrap items-center gap-3">
-                <button type="submit" className="generate-button" disabled={isGenerating}>
-                  {isGenerating ? '生成中…' : '开始生成'}
+                <button type="submit" className="generate-button" disabled={isGenerating || provider.loading}>
+                  {provider.loading ? '恢复配置中…' : isGenerating ? '生成中…' : '开始生成'}
                 </button>
-                <button type="button" className="settings-button" onClick={provider.saveProviderConfig}>
+                <button type="button" className="settings-button" onClick={provider.saveProviderConfig} disabled={provider.loading}>
                   保存配置
                 </button>
                 <button type="button" className="settings-button" onClick={() => templateActions.setTemplateLibraryOpen(true)}>
@@ -286,22 +289,24 @@ export function StudioPage() {
               </div>
             </form>
 
-            <StudioGenerationColumn
-              activePreview={activePreview}
-              onPreview={works.setViewerImage}
-              responseText={runtime.responseText}
-              responseCollapsed={runtime.responseCollapsed}
-              responseSummary={runtime.responseSummary}
-              onToggleResponse={() => runtime.setResponseCollapsed(!runtime.responseCollapsed)}
-              onClearResponse={() => runtime.setResponseText('')}
-              statusText={runtime.statusText}
-              stage={runtime.stage}
-              progressValue={runtime.progressValue}
-              onCancel={generation.handleCancelGeneration}
-            />
+            <div className="studio-preview-column">
+              <StudioGenerationColumn
+                activePreview={activePreview}
+                onPreview={works.setViewerImage}
+                responseText={runtime.responseText}
+                responseCollapsed={runtime.responseCollapsed}
+                responseSummary={runtime.responseSummary}
+                onToggleResponse={() => runtime.setResponseCollapsed(!runtime.responseCollapsed)}
+                onClearResponse={() => runtime.setResponseText('')}
+                statusText={runtime.statusText}
+                stage={runtime.stage}
+                progressValue={runtime.progressValue}
+                onCancel={generation.handleCancelGeneration}
+              />
+            </div>
           </div>
 
-          <div className="mt-8 space-y-6">
+          <div className="studio-works-column">
             <StudioWorksColumn
               items={works.filteredGallery}
               totalCount={works.gallery.length}
@@ -348,6 +353,7 @@ export function StudioPage() {
             config: provider.config,
             draftConfig: provider.draftConfig,
             managedProviders: provider.managedProviders,
+            providerPolicy: provider.providerPolicy,
             onDraftConfigChange: provider.setDraftConfig,
             onSave: () => void provider.saveProviderConfig(),
             onClose: () => provider.setSettingsOpen(false),

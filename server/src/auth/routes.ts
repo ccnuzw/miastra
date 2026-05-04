@@ -1,13 +1,13 @@
-import { z } from 'zod'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import bcrypt from 'bcryptjs'
-import { createId } from '../lib/store'
-import { fail, ok } from '../lib/http'
-import { appendAuditLog } from '../lib/audit'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { z } from 'zod'
 import { createDefaultQuotaProfile } from '../billing/plans'
+import { appendAuditLog } from '../lib/audit'
 import { getAuthDomainStore } from '../lib/domain-store'
-import type { AuthRecord } from './types'
+import { fail, ok } from '../lib/http'
+import { createId } from '../lib/store'
 import { signAuthToken, signResetToken, verifyAuthToken, verifyResetToken } from './token'
+import type { AuthRecord } from './types'
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -46,7 +46,16 @@ const sessionRefreshThresholdMs = 24 * 60 * 60 * 1000
 const authContextCacheTtlMs = 2_000
 
 type CachedAuthContext = {
-  context: { user: AuthRecord, session: { id: string, userId: string, createdAt: string, expiresAt: string, revokedAt: string | null } }
+  context: {
+    user: AuthRecord
+    session: {
+      id: string
+      userId: string
+      createdAt: string
+      expiresAt: string
+      revokedAt: string | null
+    }
+  }
   cachedAt: number
 }
 
@@ -66,7 +75,11 @@ function getCachedAuthContext(sessionId: string, userId: string) {
   return cached.context
 }
 
-function setCachedAuthContext(sessionId: string, userId: string, context: CachedAuthContext['context']) {
+function setCachedAuthContext(
+  sessionId: string,
+  userId: string,
+  context: CachedAuthContext['context'],
+) {
   authContextCache.set(getAuthContextCacheKey(sessionId, userId), {
     context,
     cachedAt: Date.now(),
@@ -87,6 +100,24 @@ function clearCachedAuthContextsForUser(userId: string) {
 
 function shouldRefreshSession(expiresAt: string) {
   return new Date(expiresAt).getTime() - Date.now() <= sessionRefreshThresholdMs
+}
+
+function getUserAccessRestriction(user: AuthRecord) {
+  if (user.status === 'frozen') {
+    return {
+      code: 'USER_FROZEN',
+      message: user.statusReason?.trim() || '账号已冻结，请联系管理员',
+    }
+  }
+
+  if (user.status === 'disabled') {
+    return {
+      code: 'USER_DISABLED',
+      message: user.statusReason?.trim() || '账号已停用，请联系管理员',
+    }
+  }
+
+  return null
 }
 
 export async function registerAuthRoutes(app: FastifyInstance) {
@@ -111,6 +142,14 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       email,
       nickname: parsed.data.nickname.trim(),
       role: 'user',
+      status: 'active',
+      statusReason: null,
+      statusUpdatedAt: now,
+      statusUpdatedBy: null,
+      allowManagedProviders: true,
+      allowCustomProvider: true,
+      allowedManagedProviderIds: [],
+      allowedModels: [],
       passwordHash: await bcrypt.hash(parsed.data.password, 10),
       passwordResetToken: null,
       passwordResetExpiresAt: null,
@@ -158,6 +197,12 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     if (!user) {
       reply.code(401)
       return fail('INVALID_CREDENTIALS', '邮箱或密码错误')
+    }
+
+    const restriction = getUserAccessRestriction(user)
+    if (restriction) {
+      reply.code(403)
+      return fail(restriction.code, restriction.message)
     }
 
     const passwordMatches = await bcrypt.compare(parsed.data.password, user.passwordHash)
@@ -216,8 +261,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
             createdAt: revokedAt,
           })
         }
-      } catch {
-      }
+      } catch {}
     }
 
     clearAuthCookie(reply)
@@ -312,7 +356,12 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 
     const nextPasswordHash = await bcrypt.hash(parsed.data.nextPassword, 10)
     const updatedAt = new Date().toISOString()
-    await authStore.resetUserPasswordAndRevokeSessions(context.user.id, nextPasswordHash, updatedAt, { excludeSessionId: context.session.id })
+    await authStore.resetUserPasswordAndRevokeSessions(
+      context.user.id,
+      nextPasswordHash,
+      updatedAt,
+      { excludeSessionId: context.session.id },
+    )
     clearCachedAuthContextsForUser(user.id)
     await appendAuditLog({
       actorUserId: user.id,
@@ -427,10 +476,12 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     const authStore = getAuthDomainStore()
     const sessions = await authStore.listSessionsByUserId(context.user.id)
     sessions.sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
-    return ok(sessions.map((session) => ({
-      ...session,
-      current: session.id === context.session.id,
-    })))
+    return ok(
+      sessions.map((session) => ({
+        ...session,
+        current: session.id === context.session.id,
+      })),
+    )
   })
 
   app.post('/api/auth/sessions/:id/revoke', async (request, reply) => {
@@ -478,7 +529,11 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 
     const revokedAt = new Date().toISOString()
     const authStore = getAuthDomainStore()
-    const revoked = await authStore.revokeSessionsByUserId(context.user.id, revokedAt, context.session.id)
+    const revoked = await authStore.revokeSessionsByUserId(
+      context.user.id,
+      revokedAt,
+      context.session.id,
+    )
     clearCachedAuthContextsForUser(context.user.id)
     await appendAuditLog({
       actorUserId: context.user.id,
@@ -512,11 +567,27 @@ export async function resolveAuthenticatedContext(request: FastifyRequest, reply
   const cachedContext = getCachedAuthContext(sessionId, userId)
   if (cachedContext) return cachedContext
   const context = await getAuthDomainStore().findAuthContext(sessionId, userId)
-  if (!context || context.session.revokedAt || new Date(context.session.expiresAt).getTime() <= Date.now()) {
+  if (
+    !context ||
+    context.session.revokedAt ||
+    new Date(context.session.expiresAt).getTime() <= Date.now()
+  ) {
     clearCachedAuthContext(sessionId, userId)
     clearAuthCookie(reply)
     return null
   }
+
+  const restriction = getUserAccessRestriction(context.user)
+  if (restriction) {
+    clearCachedAuthContext(sessionId, userId)
+    clearAuthCookie(reply)
+    if (reply && !reply.sent) {
+      reply.code(403)
+      reply.send(fail(restriction.code, restriction.message))
+    }
+    return null
+  }
+
   setCachedAuthContext(sessionId, userId, context)
   return context
 }
@@ -529,6 +600,7 @@ export async function resolveAuthenticatedUser(request: FastifyRequest) {
 export async function requireAuthenticatedContext(request: FastifyRequest, reply: FastifyReply) {
   const context = await resolveAuthenticatedContext(request, reply)
   if (!context) {
+    if (reply.sent) return null
     reply.code(401)
     reply.send(fail('UNAUTHORIZED', '请先登录'))
     return null

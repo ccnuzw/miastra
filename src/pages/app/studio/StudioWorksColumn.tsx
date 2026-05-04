@@ -1,6 +1,13 @@
+import { useMemo } from 'react'
 import { WorksRail } from '@/features/works/WorksRail'
 import type { DrawBatch } from '@/features/draw-card/drawCard.types'
 import type { GalleryImage } from '@/features/works/works.types'
+
+const studioWorksDisplayLimit = 12
+
+function getWorkSortTimestamp(item: GalleryImage) {
+  return item.createdAt ?? item.assetUpdatedAt ?? 0
+}
 
 type StudioWorksColumnProps = {
   items: GalleryImage[]
@@ -39,9 +46,15 @@ type StudioWorksColumnProps = {
 }
 
 export function StudioWorksColumn(props: StudioWorksColumnProps) {
+  const limitedItems = useMemo(() => (
+    [...props.items]
+      .sort((left, right) => getWorkSortTimestamp(right) - getWorkSortTimestamp(left))
+      .slice(0, studioWorksDisplayLimit)
+  ), [props.items])
+
   return (
     <div className="space-y-6">
-      <WorksRail {...props} />
+      <WorksRail {...props} items={limitedItems} />
     </div>
   )
 }

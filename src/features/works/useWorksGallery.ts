@@ -50,6 +50,18 @@ function getSearchText(item: GalleryImage) {
   ].filter(Boolean).join(' ').toLowerCase()
 }
 
+export function mergeGalleryWithLocalChanges(serverItems: GalleryImage[], localItems: GalleryImage[]) {
+  const merged = normalizeGallery(localItems)
+  const knownIds = new Set(merged.map((item) => item.id))
+
+  for (const item of normalizeGallery(serverItems)) {
+    if (knownIds.has(item.id)) continue
+    merged.push(item)
+  }
+
+  return merged
+}
+
 export function filterWorksGallery(items: GalleryImage[], filters: WorksGalleryFilters = {}) {
   const batchId = filters.batchId && filters.batchId !== 'all' ? filters.batchId : undefined
   const queryTerms = (filters.searchQuery ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean)
@@ -74,6 +86,7 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const galleryRef = useRef<GalleryImage[]>([])
+  const galleryVersionRef = useRef(0)
   const mutationVersionRef = useRef<Record<string, number>>({})
   const [wallOpen, setWallOpen] = useState(false)
   const [viewerImage, setViewerImage] = useState<GalleryImage | null>(null)
@@ -83,6 +96,7 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
   const [favoritesOnly, setFavoritesOnly] = useState(false)
 
   const setGallery: Dispatch<SetStateAction<GalleryImage[]>> = (value) => {
+    galleryVersionRef.current += 1
     setGalleryState((current) => normalizeGallery(typeof value === 'function'
       ? (value as (previous: GalleryImage[]) => GalleryImage[])(current)
       : value))
@@ -98,9 +112,14 @@ export function useWorksGallery({ onRemoveImage, batchId }: UseWorksGalleryOptio
 
     setLoading(true)
     if (options.clearError !== false) setError(null)
+    const versionAtStart = galleryVersionRef.current
     try {
       const items = await readStoredGallery()
-      setGalleryState(items)
+      setGalleryState((current) => (
+        galleryVersionRef.current === versionAtStart
+          ? items
+          : mergeGalleryWithLocalChanges(items, current)
+      ))
       return items
     } catch (nextError) {
       setError(nextError)

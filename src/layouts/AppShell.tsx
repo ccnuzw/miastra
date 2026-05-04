@@ -22,7 +22,7 @@ export function AppShell() {
   return (
     <div className="min-h-screen bg-ink-950 text-porcelain-50">
       <header className="fixed left-0 right-0 top-0 z-[60] border-b border-porcelain-50/10 bg-ink-950/[0.7] backdrop-blur-2xl">
-        <div className="mx-auto flex w-full max-w-screen-xl flex-wrap items-center justify-between gap-4 px-4 py-4 md:px-8">
+        <div className="app-topbar-shell flex flex-wrap items-center justify-between gap-4">
           <Link
             to="/app/studio"
             className="group flex items-center gap-3"

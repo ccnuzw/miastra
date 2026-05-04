@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuthSession } from '@/features/auth/useAuthSession'
 import { defaultConfig, providerConnectionLabel } from '@/features/provider/provider.constants'
+import { loadWithRetry } from '@/features/provider/provider.loader'
 import { readStoredConfig, writeStoredConfig } from '@/features/provider/provider.storage'
 import { normalizeProviderConfig, providerEditRequestUrl, providerGenerationRequestUrl } from '@/features/provider/provider.utils'
-import type { ManagedProviderOption, ProviderConfig } from '@/features/provider/provider.types'
+import type { ManagedProviderOption, ProviderConfig, ProviderPolicy } from '@/features/provider/provider.types'
 
 type UseProviderConfigOptions = {
   onSaved?: () => void
@@ -17,11 +18,18 @@ function resolveProviderDisplayName(config: ProviderConfig, managedProviders: Ma
 }
 
 export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
-  const { isAuthenticated, loading: authLoading } = useAuthSession()
+  const { user, isAuthenticated, loading: authLoading } = useAuthSession()
   const [config, setConfig] = useState<ProviderConfig>(defaultConfig)
   const [draftConfig, setDraftConfig] = useState<ProviderConfig>(defaultConfig)
   const [managedProviders, setManagedProviders] = useState<ManagedProviderOption[]>([])
+  const [providerPolicy, setProviderPolicy] = useState<ProviderPolicy>({
+    allowManagedProviders: true,
+    allowCustomProvider: true,
+    allowedManagedProviderIds: [],
+    allowedModels: [],
+  })
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   const requestUrl = providerGenerationRequestUrl
   const editRequestUrl = providerEditRequestUrl
@@ -33,52 +41,65 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
       cancelled = true
     }
 
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !user) {
       setConfig(defaultConfig)
       setDraftConfig(defaultConfig)
       setManagedProviders([])
+      setProviderPolicy({
+        allowManagedProviders: true,
+        allowCustomProvider: true,
+        allowedManagedProviderIds: [],
+        allowedModels: [],
+      })
+      setLoading(false)
+      setSettingsOpen(false)
       return () => {
         cancelled = true
       }
     }
 
-    void readStoredConfig()
+    setLoading(true)
+
+    void loadWithRetry(() => readStoredConfig())
       .then((stored) => {
         if (cancelled) return
         setConfig(stored.config)
         setDraftConfig(stored.config)
         setManagedProviders(stored.managedProviders)
+        setProviderPolicy(stored.providerPolicy)
+        setLoading(false)
       })
       .catch(() => {
         if (cancelled) return
-        setConfig(defaultConfig)
-        setDraftConfig(defaultConfig)
-        setManagedProviders([])
+        setLoading(false)
       })
 
     return () => {
       cancelled = true
     }
-  }, [authLoading, isAuthenticated])
+  }, [authLoading, isAuthenticated, user])
 
   useEffect(() => {
     if (!settingsOpen) setDraftConfig(config)
   }, [config, settingsOpen])
 
   async function saveProviderConfig() {
+    if (!user) throw new Error('当前未登录，无法保存 Provider 配置。')
     const normalized = normalizeProviderConfig(draftConfig)
     const saved = await writeStoredConfig(normalized)
     setConfig(saved.config)
     setDraftConfig(saved.config)
     setManagedProviders(saved.managedProviders)
+    setProviderPolicy(saved.providerPolicy)
     setSettingsOpen(false)
     onSaved?.()
   }
 
   const connectionLabel = useMemo(() => {
+    if (loading) return `${providerConnectionLabel} · 恢复中`
     if (config.mode === 'managed') return `${providerConnectionLabel} · ${resolveProviderDisplayName(config, managedProviders)}`
     return `${providerConnectionLabel} · 自定义`
-  }, [config, managedProviders])
+  }, [config, loading, managedProviders])
 
   const selectedManagedProvider = useMemo(
     () => managedProviders.find((item) => item.id === draftConfig.managedProviderId) ?? null,
@@ -89,8 +110,10 @@ export function useProviderConfig({ onSaved }: UseProviderConfigOptions = {}) {
     config,
     draftConfig,
     managedProviders,
+    providerPolicy,
     selectedManagedProvider,
     settingsOpen,
+    loading,
     connectionLabel,
     providerDisplayName: resolveProviderDisplayName(config, managedProviders),
     requestUrl,

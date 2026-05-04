@@ -1,5 +1,7 @@
-import { Eye, ImageOff, RotateCcw, Trash2 } from 'lucide-react'
+import { Eye, HardDriveUpload, ImageOff, RotateCcw, Trash2 } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { AdminActiveFilters } from '@/features/admin/AdminActiveFilters'
+import { useAdminConfirm } from '@/features/admin/AdminConfirmDialog'
 import { AdminDetailDrawer } from '@/features/admin/AdminDetailDrawer'
 import { AdminPageHeader } from '@/features/admin/AdminPageHeader'
 import { AdminPagination } from '@/features/admin/AdminPagination'
@@ -10,6 +12,8 @@ import {
   deleteAdminWorksBulk,
   fetchAdminWorkById,
   fetchAdminWorks,
+  retryAdminWorkAsset,
+  retryAdminWorksAssetBulk,
 } from '@/features/admin/admin.api'
 import {
   formatAdminDateTime,
@@ -18,12 +22,21 @@ import {
 } from '@/features/admin/admin.utils'
 import { useAdminSearchParams } from '@/features/admin/useAdminSearchParams'
 import { useAdminSelection } from '@/features/admin/useAdminSelection'
+import { getAssetSyncLabel } from '@/features/works/works.asset'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
+
+function getAssetStatusTone(status?: AdminWorkRecord['assetSyncStatus']) {
+  if (status === 'synced') return 'border-signal-cyan/25 bg-signal-cyan/10 text-signal-cyan'
+  if (status === 'pending-sync') return 'border-amber-300/25 bg-amber-300/10 text-amber-50'
+  if (status === 'local-only') return 'border-porcelain-50/10 bg-ink-950/[0.72] text-porcelain-100/70'
+  return 'border-porcelain-50/10 bg-ink-950/[0.72] text-porcelain-100/55'
+}
 
 export function AdminWorksPage() {
   const { searchParams, updateSearchParams } = useAdminSearchParams()
   const page = parsePositivePage(searchParams.get('page'))
   const appliedQuery = searchParams.get('query') ?? ''
+  const userIdFilter = searchParams.get('userId') ?? ''
   const selectedWorkId = searchParams.get('selected') ?? ''
 
   const [works, setWorks] = useState<AdminWorkRecord[]>([])
@@ -34,10 +47,13 @@ export function AdminWorksPage() {
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [busyId, setBusyId] = useState('')
+  const [retryBusyId, setRetryBusyId] = useState('')
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkRetryBusy, setBulkRetryBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [message, setMessage] = useState('')
   const selection = useAdminSelection()
+  const { confirm, confirmDialog } = useAdminConfirm()
 
   useEffect(() => {
     setSearchInput(appliedQuery)
@@ -51,20 +67,17 @@ export function AdminWorksPage() {
         page,
         limit: 12,
         query: appliedQuery || undefined,
+        userId: userIdFilter || undefined,
       })
       setWorks(result.items)
       setTotal(result.total)
       setTotalPages(result.totalPages)
-
-      if (selectedWorkId) {
-        setSelectedWork(await fetchAdminWorkById(selectedWorkId))
-      }
     } catch (nextError) {
       setError(nextError)
     } finally {
       setLoading(false)
     }
-  }, [appliedQuery, page, selectedWorkId])
+  }, [appliedQuery, page, userIdFilter])
 
   useEffect(() => {
     void refresh()
@@ -89,9 +102,54 @@ export function AdminWorksPage() {
     [pageIds, selection.selectedIdSet],
   )
   const allSelectedOnPage = pageIds.length > 0 && selectedOnPageCount === pageIds.length
+  const workSummary = useMemo(() => {
+    return {
+      currentPage: works.length,
+      withoutPreview: works.filter((item) => !item.src).length,
+      withoutModel: works.filter((item) => !item.providerModel).length,
+      pendingAssetCount: works.filter((item) => item.assetSyncStatus === 'pending-sync').length,
+      authorCount: new Set(works.map((item) => item.userId)).size,
+    }
+  }, [works])
+  const activeFilters = useMemo(
+    () =>
+      [
+        ...(appliedQuery
+          ? [{
+              key: 'query',
+              label: `关键词：${appliedQuery}`,
+              onRemove: () =>
+                updateSearchParams({
+                  page: '1',
+                  query: undefined,
+                  selected: undefined,
+                }),
+            }]
+          : []),
+        ...(userIdFilter
+          ? [{
+              key: 'userId',
+              label: `用户：${userIdFilter}`,
+              onRemove: () =>
+                updateSearchParams({
+                  page: '1',
+                  userId: undefined,
+                  selected: undefined,
+                }),
+            }]
+          : []),
+      ],
+    [appliedQuery, updateSearchParams, userIdFilter],
+  )
 
   async function handleDeleteWork(workId: string) {
-    if (!window.confirm('确定要删除这个作品吗？此操作不可撤销。')) return
+    const approved = await confirm({
+      title: '删除作品',
+      description: '该作品会从后台记录中移除，此操作不可撤销。',
+      confirmLabel: '确认删除',
+      details: `作品 ID：${workId}`,
+    })
+    if (!approved) return
 
     setBusyId(workId)
     setError(null)
@@ -112,7 +170,13 @@ export function AdminWorksPage() {
 
   async function handleBulkDelete() {
     if (!selection.selectedIds.length) return
-    if (!window.confirm(`确定要批量删除 ${selection.selectedIds.length} 个作品吗？`)) return
+    const approved = await confirm({
+      title: '批量删除作品',
+      description: '选中的作品会被批量删除，适用于运营巡检后的集中清理。',
+      confirmLabel: '确认批量删除',
+      details: `本次将处理 ${selection.selectedIds.length} 个作品。`,
+    })
+    if (!approved) return
 
     setBulkBusy(true)
     setError(null)
@@ -132,6 +196,45 @@ export function AdminWorksPage() {
     }
   }
 
+  async function handleRetryAsset(workId: string) {
+    setRetryBusyId(workId)
+    setError(null)
+    setMessage('')
+    try {
+      const updated = await retryAdminWorkAsset(workId)
+      if (selectedWorkId === workId) {
+        setSelectedWork(updated)
+      }
+      setMessage(`作品 ${workId} 已重新执行入库，当前状态：${getAssetSyncLabel(updated.assetSyncStatus) || '未标记'}。`)
+      await refresh()
+    } catch (nextError) {
+      setError(nextError)
+    } finally {
+      setRetryBusyId('')
+    }
+  }
+
+  async function handleBulkRetryAsset() {
+    if (!selection.selectedIds.length) return
+
+    setBulkRetryBusy(true)
+    setError(null)
+    setMessage('')
+    try {
+      const result = await retryAdminWorksAssetBulk(selection.selectedIds)
+      if (selectedWorkId && result.succeeded.some((item) => item.id === selectedWorkId)) {
+        const detail = await fetchAdminWorkById(selectedWorkId).catch(() => null)
+        setSelectedWork(detail)
+      }
+      setMessage(`已触发 ${result.processedCount} 个作品重新入库，成功处理 ${result.succeeded.length} 个。`)
+      await refresh()
+    } catch (nextError) {
+      setError(nextError)
+    } finally {
+      setBulkRetryBusy(false)
+    }
+  }
+
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     updateSearchParams({
@@ -142,7 +245,7 @@ export function AdminWorksPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="admin-page-content">
       <AdminPageHeader
         eyebrow="Works"
         title="作品管理"
@@ -161,9 +264,17 @@ export function AdminWorksPage() {
 
       <AdminSelectionBar
         count={selection.selectedCount}
-        label="可批量删除选中的作品"
+        label="可批量删除或重试入库选中的作品"
         actions={
           <>
+            <button
+              type="button"
+              className="rounded-full border border-amber-300/25 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-50 disabled:opacity-35"
+              onClick={() => void handleBulkRetryAsset()}
+              disabled={bulkRetryBusy}
+            >
+              {bulkRetryBusy ? '处理中…' : '批量重试入库'}
+            </button>
             <button
               type="button"
               className="rounded-full border border-signal-coral/25 bg-signal-coral/10 px-4 py-2 text-sm font-semibold text-signal-coral disabled:opacity-35"
@@ -185,7 +296,7 @@ export function AdminWorksPage() {
 
       <article className="progress-card">
         <form
-          className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px]"
+          className="grid gap-3 min-[1480px]:grid-cols-[minmax(0,1fr)_auto]"
           onSubmit={handleSearchSubmit}
         >
           <label className="field-block">
@@ -198,7 +309,7 @@ export function AdminWorksPage() {
             />
           </label>
 
-          <div className="flex items-end gap-2">
+          <div className="admin-toolbar-actions min-[1480px]:justify-end">
             <button
               type="submit"
               className="h-12 rounded-2xl bg-signal-cyan px-4 text-sm font-bold text-ink-950"
@@ -212,9 +323,10 @@ export function AdminWorksPage() {
                 updateSearchParams({
                   page: '1',
                   query: undefined,
+                  userId: undefined,
                   selected: undefined,
                 })
-              }
+            }
             >
               <RotateCcw className="h-4 w-4" />
             </button>
@@ -229,6 +341,30 @@ export function AdminWorksPage() {
           {message}
         </p>
       ) : null}
+      <AdminActiveFilters
+        items={activeFilters}
+        onClearAll={
+          activeFilters.length
+            ? () =>
+                updateSearchParams({
+                  page: '1',
+                  query: undefined,
+                  selected: undefined,
+                })
+            : undefined
+        }
+      />
+      <div className="admin-summary-strip">
+        <span className="admin-summary-strong">结果摘要</span>
+        <span>当前命中 {total} 个作品</span>
+        <span>本页 {workSummary.currentPage} 个</span>
+        <span>涉及作者 {workSummary.authorCount} 位</span>
+        {userIdFilter ? <span>当前用户 {userIdFilter}</span> : null}
+        {workSummary.withoutPreview ? <span>缺预览 {workSummary.withoutPreview} 个</span> : null}
+        {workSummary.withoutModel ? <span>缺模型标记 {workSummary.withoutModel} 个</span> : null}
+        {workSummary.pendingAssetCount ? <span>待入库 {workSummary.pendingAssetCount} 个</span> : null}
+        {selection.selectedCount ? <span>已跨页选中 {selection.selectedCount} 项</span> : null}
+      </div>
 
       <section className="admin-table-shell">
         <div className="flex items-center justify-between border-b border-porcelain-50/10 px-4 py-3 text-xs text-porcelain-100/45">
@@ -250,9 +386,9 @@ export function AdminWorksPage() {
                 <th className="w-[100px]">预览</th>
                 <th>作品</th>
                 <th>作者</th>
-                <th>模型</th>
+                <th>模型 / 资产</th>
                 <th>创建时间</th>
-                <th className="w-[170px]">操作</th>
+                <th className="w-[250px]">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -293,10 +429,31 @@ export function AdminWorksPage() {
                       <p className="mt-1 max-w-[28rem] break-words text-xs text-porcelain-100/45">
                         {work.promptSnippet || work.meta || '无描述'}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {getAssetSyncLabel(work.assetSyncStatus) ? (
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-[11px] ${getAssetStatusTone(work.assetSyncStatus)}`}
+                          >
+                            {getAssetSyncLabel(work.assetSyncStatus)}
+                          </span>
+                        ) : null}
+                        {work.batchId ? (
+                          <span className="rounded-full border border-porcelain-50/10 bg-ink-950/[0.72] px-2.5 py-1 text-[11px] text-porcelain-100/60">
+                            批次 {work.batchId}
+                          </span>
+                        ) : null}
+                      </div>
                     </button>
                   </td>
                   <td>{work.userNickname ?? work.userEmail ?? '—'}</td>
-                  <td>{work.providerModel || '—'}</td>
+                  <td>
+                    <div className="space-y-1 text-sm text-porcelain-100/70">
+                      <p>{work.providerModel || '—'}</p>
+                      <p className="text-xs text-porcelain-100/45">
+                        {work.assetRemoteKey || work.assetStorage || '未标记资产来源'}
+                      </p>
+                    </div>
+                  </td>
                   <td>{formatAdminDateTime(work.createdAt)}</td>
                   <td>
                     <div className="flex flex-wrap gap-2">
@@ -308,6 +465,17 @@ export function AdminWorksPage() {
                         <span className="inline-flex items-center gap-2">
                           <Eye className="h-3.5 w-3.5" />
                           查看
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-50 disabled:opacity-35"
+                        onClick={() => void handleRetryAsset(work.id)}
+                        disabled={retryBusyId === work.id}
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <HardDriveUpload className="h-3.5 w-3.5" />
+                          {retryBusyId === work.id ? '重试中…' : '重试入库'}
                         </span>
                       </button>
                       <button
@@ -349,14 +517,24 @@ export function AdminWorksPage() {
         }
         onClose={() => updateSearchParams({ selected: undefined })}
         actions={
-          <button
-            type="button"
-            className="rounded-full border border-signal-coral/25 bg-signal-coral/10 px-4 py-2 text-sm font-semibold text-signal-coral disabled:opacity-35"
-            onClick={() => selectedWorkId && void handleDeleteWork(selectedWorkId)}
-            disabled={busyId === selectedWorkId}
-          >
-            {busyId === selectedWorkId ? '处理中…' : '删除作品'}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-amber-300/25 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-50 disabled:opacity-35"
+              onClick={() => selectedWorkId && void handleRetryAsset(selectedWorkId)}
+              disabled={retryBusyId === selectedWorkId}
+            >
+              {retryBusyId === selectedWorkId ? '重试中…' : '重试入库'}
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-signal-coral/25 bg-signal-coral/10 px-4 py-2 text-sm font-semibold text-signal-coral disabled:opacity-35"
+              onClick={() => selectedWorkId && void handleDeleteWork(selectedWorkId)}
+              disabled={busyId === selectedWorkId}
+            >
+              {busyId === selectedWorkId ? '处理中…' : '删除作品'}
+            </button>
+          </div>
         }
       >
         {detailLoading && !selectedWork ? (
@@ -389,6 +567,10 @@ export function AdminWorksPage() {
                   <p>快照 ID：{selectedWork.snapshotId || '—'}</p>
                   <p>模型：{selectedWork.providerModel || '—'}</p>
                   <p>模式：{selectedWork.mode || '—'}</p>
+                  <p>资产状态：{getAssetSyncLabel(selectedWork.assetSyncStatus) || '—'}</p>
+                  <p>资产存储：{selectedWork.assetStorage || '—'}</p>
+                  <p>远端 Key：{selectedWork.assetRemoteKey || '—'}</p>
+                  <p>远端 URL：{selectedWork.assetRemoteUrl || '—'}</p>
                   <p>尺寸：{selectedWork.size || '—'}</p>
                   <p>质量：{selectedWork.quality || '—'}</p>
                   <p>创建时间：{formatAdminDateTime(selectedWork.createdAt)}</p>
@@ -426,6 +608,7 @@ export function AdminWorksPage() {
           </div>
         ) : null}
       </AdminDetailDrawer>
+      {confirmDialog}
     </div>
   )
 }

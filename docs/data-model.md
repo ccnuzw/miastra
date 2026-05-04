@@ -41,6 +41,10 @@
 - `email`
 - `nickname`
 - `role`
+- `status`
+- `statusReason`
+- `statusUpdatedAt`
+- `statusUpdatedBy`
 - `passwordHash`
 - `createdAt`
 - `updatedAt`
@@ -51,6 +55,8 @@
 
 - 登录时支持邮箱或昵称
 - 后台权限以 `role` 为准
+- 普通用户状态支持 `active`、`frozen`、`disabled`
+- 冻结/禁用会阻止登录和后续受保护接口访问
 
 ### `sessions`
 

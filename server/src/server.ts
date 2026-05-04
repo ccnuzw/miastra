@@ -5,6 +5,7 @@ import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import { registerAdminRoutes } from './admin/routes'
+import { ensureDefaultAdminAccount } from './auth/bootstrap'
 import { registerAuthRoutes } from './auth/routes'
 import { registerBillingRoutes } from './billing/routes'
 import { registerDrawBatchRoutes } from './draw-batches/routes'
@@ -124,6 +125,7 @@ export async function createServer() {
 
 export async function start() {
   await assertRuntimeReady()
+  await ensureDefaultAdminAccount()
   const app = await createServer()
   startGenerationTaskWorker(app.log)
   const port = Number(process.env.PORT ?? 18081)

@@ -1,4 +1,4 @@
-import type { DataStore, StoredManagedProvider, StoredProviderConfig } from '../auth/types'
+import type { AuthRecord, DataStore, StoredManagedProvider, StoredProviderConfig } from '../auth/types'
 import { normalizeProviderApiUrlInput, resolveProviderBaseUrl, validateProviderApiUrl } from './provider.utils'
 
 export type PublicManagedProviderSummary = {
@@ -19,6 +19,13 @@ export type ResolvedProviderRuntimeConfig = {
   exposeApiUrl: boolean
 }
 
+export type UserProviderPolicy = {
+  allowManagedProviders: boolean
+  allowCustomProvider: boolean
+  allowedManagedProviderIds: string[]
+  allowedModels: string[]
+}
+
 type ProviderValidationError = {
   code: string
   message: string
@@ -33,6 +40,10 @@ type UserProviderConfigLike = {
   apiUrl: string
   model: string
   apiKey?: string
+}
+
+function normalizeStringList(values: string[] | undefined) {
+  return Array.from(new Set((values ?? []).map((item) => item.trim()).filter(Boolean)))
 }
 
 export function createDefaultProviderConfig(userId = ''): StoredProviderConfig {
@@ -90,6 +101,55 @@ export function normalizeUserProviderConfigInput(config: UserProviderConfigLike)
   }
 }
 
+export function getUserProviderPolicy(user?: Pick<AuthRecord, 'allowManagedProviders' | 'allowCustomProvider' | 'allowedManagedProviderIds' | 'allowedModels'> | null): UserProviderPolicy {
+  return {
+    allowManagedProviders: user?.allowManagedProviders !== false,
+    allowCustomProvider: user?.allowCustomProvider !== false,
+    allowedManagedProviderIds: normalizeStringList(user?.allowedManagedProviderIds),
+    allowedModels: normalizeStringList(user?.allowedModels),
+  }
+}
+
+export function filterManagedProvidersByPolicy(
+  providers: StoredManagedProvider[],
+  policy: UserProviderPolicy,
+) {
+  if (!policy.allowManagedProviders) return []
+  if (!policy.allowedManagedProviderIds.length) return providers
+  const allowedIds = new Set(policy.allowedManagedProviderIds)
+  return providers.filter((item) => allowedIds.has(item.id))
+}
+
+function validateProviderAccess(params: {
+  mode: 'managed' | 'custom'
+  model: string
+  managedProviderId?: string
+  policy: UserProviderPolicy
+}): ProviderValidationError | null {
+  if (params.mode === 'managed') {
+    if (!params.policy.allowManagedProviders) {
+      return { code: 'FORBIDDEN', message: '当前账号未开放公共 Provider 权限，请联系管理员。' }
+    }
+    if (
+      params.managedProviderId &&
+      params.policy.allowedManagedProviderIds.length &&
+      !params.policy.allowedManagedProviderIds.includes(params.managedProviderId)
+    ) {
+      return { code: 'FORBIDDEN', message: '当前账号无权使用这个公共 Provider，请联系管理员调整权限。' }
+    }
+  } else if (!params.policy.allowCustomProvider) {
+    return { code: 'FORBIDDEN', message: '当前账号未开放自定义 Provider 权限，请联系管理员。' }
+  }
+
+  if (params.policy.allowedModels.length && params.model.trim()) {
+    if (!params.policy.allowedModels.includes(params.model.trim())) {
+      return { code: 'FORBIDDEN', message: '当前账号无权使用这个模型，请联系管理员调整权限。' }
+    }
+  }
+
+  return null
+}
+
 export function getEnabledManagedProviders(store: Pick<DataStore, 'managedProviders'>) {
   return store.managedProviders
     .map(normalizeManagedProvider)
@@ -108,8 +168,22 @@ export function toPublicManagedProviderSummary(provider: StoredManagedProvider):
   }
 }
 
-export function listPublicManagedProviders(store: Pick<DataStore, 'managedProviders'>) {
-  return getEnabledManagedProviders(store).map(toPublicManagedProviderSummary)
+export function listPublicManagedProviders(
+  store: Pick<DataStore, 'managedProviders'>,
+  user?: Pick<AuthRecord, 'allowManagedProviders' | 'allowCustomProvider' | 'allowedManagedProviderIds' | 'allowedModels'> | null,
+) {
+  const policy = getUserProviderPolicy(user)
+  const providers = filterManagedProvidersByPolicy(getEnabledManagedProviders(store), policy)
+  return providers.map(toPublicManagedProviderSummary).map((provider) => ({
+    ...provider,
+    models: policy.allowedModels.length
+      ? provider.models.filter((model) => policy.allowedModels.includes(model))
+      : provider.models,
+    defaultModel:
+      policy.allowedModels.length && !policy.allowedModels.includes(provider.defaultModel)
+        ? provider.models.find((model) => policy.allowedModels.includes(model)) ?? ''
+        : provider.defaultModel,
+  })).filter((provider) => provider.models.length)
 }
 
 export function findStoredProviderConfigByUserId(store: Pick<DataStore, 'providerConfigs'>, userId: string) {
@@ -132,8 +206,10 @@ export function validateManagedProvider(provider: StoredManagedProvider) {
 export function resolveEffectiveProviderConfig(params: {
   store: Pick<DataStore, 'managedProviders'>
   config: StoredProviderConfig | null
+  user?: Pick<AuthRecord, 'allowManagedProviders' | 'allowCustomProvider' | 'allowedManagedProviderIds' | 'allowedModels'> | null
 }): { config: ResolvedProviderRuntimeConfig | null; error: ProviderValidationError | null } {
   const normalized = params.config ? normalizeUserProviderConfigInput(params.config) : null
+  const policy = getUserProviderPolicy(params.user)
   if (!normalized) {
     return {
       config: null,
@@ -148,8 +224,23 @@ export function resolveEffectiveProviderConfig(params: {
     }
   }
 
+  const accessError = validateProviderAccess({
+    mode: normalized.mode,
+    model: normalized.model,
+    managedProviderId: normalized.managedProviderId,
+    policy,
+  })
+  if (accessError) {
+    return {
+      config: null,
+      error: accessError,
+    }
+  }
+
   if (normalized.mode === 'managed') {
-    const provider = getEnabledManagedProviders(params.store).find((item) => item.id === normalized.managedProviderId)
+    const provider = filterManagedProvidersByPolicy(getEnabledManagedProviders(params.store), policy).find(
+      (item) => item.id === normalized.managedProviderId,
+    )
     if (!provider) {
       return {
         config: null,

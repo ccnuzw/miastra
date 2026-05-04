@@ -441,7 +441,7 @@ export function TasksPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-screen-xl px-4 pb-10 pt-32 md:px-8">
+    <main className="app-page-shell app-page-shell-full">
       <section className="panel-shell w-full">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -459,7 +459,7 @@ export function TasksPage() {
           </button>
         </div>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3 min-[1600px]:grid-cols-5">
           <article className="progress-card">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-porcelain-100/40">批次</p>
             <p className="mt-3 text-3xl font-semibold text-porcelain-50">{overallStats.batchCount}</p>

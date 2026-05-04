@@ -158,7 +158,8 @@ function classifyFetchFailure(error: unknown) {
 async function resolveProviderRequestTargetForUser(userId: string, request: FastifyRequest) {
   const store = await storeRepository.read()
   const config = findStoredProviderConfigByUserId(store, userId)
-  const resolved = resolveEffectiveProviderConfig({ store, config })
+  const user = store.users.find((item) => item.id === userId) ?? null
+  const resolved = resolveEffectiveProviderConfig({ store, config, user })
   if (resolved.error || !resolved.config) {
     return {
       error: resolved.error ?? {

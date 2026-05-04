@@ -1,5 +1,11 @@
 import type { Pool } from 'pg'
-import type { AuthRecord, SessionRecord, StoredBillingInvoice, StoredProviderConfig, StoredQuotaProfile } from '../auth/types'
+import type {
+  AuthRecord,
+  SessionRecord,
+  StoredBillingInvoice,
+  StoredProviderConfig,
+  StoredQuotaProfile,
+} from '../auth/types'
 
 export type AuthContextRecord = {
   user: AuthRecord
@@ -14,15 +20,33 @@ export type AuthTablesRepository = {
   findUserByLoginIdentifier: (identifier: string) => Promise<AuthRecord | null>
   findUserById: (id: string) => Promise<AuthRecord | null>
   createUser: (user: AuthRecord) => Promise<void>
-  updateUserProfile: (userId: string, nickname: string, updatedAt: string) => Promise<AuthRecord | null>
-  updatePasswordResetToken: (userId: string, token: string | null, expiresAt: string | null, updatedAt: string) => Promise<void>
+  updateUserProfile: (
+    userId: string,
+    nickname: string,
+    updatedAt: string,
+  ) => Promise<AuthRecord | null>
+  updatePasswordResetToken: (
+    userId: string,
+    token: string | null,
+    expiresAt: string | null,
+    updatedAt: string,
+  ) => Promise<void>
   resetUserPassword: (userId: string, passwordHash: string, updatedAt: string) => Promise<void>
-  resetUserPasswordAndRevokeSessions: (userId: string, passwordHash: string, updatedAt: string, revokeOthersOnly?: { excludeSessionId: string }) => Promise<void>
+  resetUserPasswordAndRevokeSessions: (
+    userId: string,
+    passwordHash: string,
+    updatedAt: string,
+    revokeOthersOnly?: { excludeSessionId: string },
+  ) => Promise<void>
   updateSessionExpiresAt: (sessionId: string, userId: string, expiresAt: string) => Promise<boolean>
   findSessionById: (id: string) => Promise<SessionRecord | null>
   createSession: (session: SessionRecord) => Promise<void>
   revokeSession: (sessionId: string, revokedAt: string) => Promise<boolean>
-  revokeSessionsByUserId: (userId: string, revokedAt: string, excludeSessionId?: string) => Promise<number>
+  revokeSessionsByUserId: (
+    userId: string,
+    revokedAt: string,
+    excludeSessionId?: string,
+  ) => Promise<number>
   listSessionsByUserId: (userId: string) => Promise<SessionRecord[]>
   findAuthContext: (sessionId: string, userId: string) => Promise<AuthContextRecord | null>
   findProviderConfigByUserId: (userId: string) => Promise<StoredProviderConfig | null>
@@ -46,9 +70,23 @@ function mapUserRow(row: Record<string, unknown>): AuthRecord {
     email: String(row.email),
     nickname: String(row.nickname),
     role: row.role as AuthRecord['role'],
+    status: row.status === 'frozen' || row.status === 'disabled' ? row.status : 'active',
+    statusReason: row.status_reason ? String(row.status_reason) : null,
+    statusUpdatedAt: toIsoString(row.status_updated_at as string | Date | null | undefined),
+    statusUpdatedBy: row.status_updated_by ? String(row.status_updated_by) : null,
+    allowManagedProviders: row.allow_managed_providers !== false,
+    allowCustomProvider: row.allow_custom_provider !== false,
+    allowedManagedProviderIds: Array.isArray(row.allowed_managed_provider_ids_json)
+      ? row.allowed_managed_provider_ids_json.map(String)
+      : [],
+    allowedModels: Array.isArray(row.allowed_models_json)
+      ? row.allowed_models_json.map(String)
+      : [],
     passwordHash: String(row.password_hash),
     passwordResetToken: row.password_reset_token ? String(row.password_reset_token) : null,
-    passwordResetExpiresAt: toIsoString(row.password_reset_expires_at as string | Date | null | undefined),
+    passwordResetExpiresAt: toIsoString(
+      row.password_reset_expires_at as string | Date | null | undefined,
+    ),
     createdAt: new Date(row.created_at as string | Date).toISOString(),
     updatedAt: new Date(row.updated_at as string | Date).toISOString(),
   }
@@ -108,7 +146,7 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
   return {
     async listUsers() {
       const result = await pool.query(`
-        SELECT id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
+        SELECT id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, allow_managed_providers, allow_custom_provider, allowed_managed_provider_ids_json, allowed_models_json, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
         FROM users
         ORDER BY created_at DESC
       `)
@@ -131,83 +169,128 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
       return result.rows.map(mapProviderConfigRow)
     },
     async findUserByEmail(email) {
-      const result = await pool.query(`
-        SELECT id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
+      const result = await pool.query(
+        `
+        SELECT id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, allow_managed_providers, allow_custom_provider, allowed_managed_provider_ids_json, allowed_models_json, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
         FROM users
         WHERE email = $1
         LIMIT 1
-      `, [email])
+      `,
+        [email],
+      )
       return result.rows[0] ? mapUserRow(result.rows[0]) : null
     },
     async findUserByLoginIdentifier(identifier) {
-      const result = await pool.query(`
-        SELECT id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
+      const result = await pool.query(
+        `
+        SELECT id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, allow_managed_providers, allow_custom_provider, allowed_managed_provider_ids_json, allowed_models_json, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
         FROM users
         WHERE lower(email) = lower($1) OR lower(nickname) = lower($1)
         LIMIT 1
-      `, [identifier])
+      `,
+        [identifier],
+      )
       return result.rows[0] ? mapUserRow(result.rows[0]) : null
     },
     async findUserById(id) {
-      const result = await pool.query(`
-        SELECT id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
+      const result = await pool.query(
+        `
+        SELECT id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, allow_managed_providers, allow_custom_provider, allowed_managed_provider_ids_json, allowed_models_json, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
         FROM users
         WHERE id = $1
         LIMIT 1
-      `, [id])
+      `,
+        [id],
+      )
       return result.rows[0] ? mapUserRow(result.rows[0]) : null
     },
     async createUser(user) {
       await pool.query(
-        `INSERT INTO users (id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [user.id, user.email, user.nickname, user.role, user.passwordHash, user.passwordResetToken ?? null, user.passwordResetExpiresAt ?? null, user.createdAt, user.updatedAt],
+        `INSERT INTO users (id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, allow_managed_providers, allow_custom_provider, allowed_managed_provider_ids_json, allowed_models_json, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, $14, $15, $16, $17)`,
+        [
+          user.id,
+          user.email,
+          user.nickname,
+          user.role,
+          user.status,
+          user.statusReason ?? null,
+          user.statusUpdatedAt ?? null,
+          user.statusUpdatedBy ?? null,
+          user.allowManagedProviders !== false,
+          user.allowCustomProvider !== false,
+          JSON.stringify(user.allowedManagedProviderIds ?? []),
+          JSON.stringify(user.allowedModels ?? []),
+          user.passwordHash,
+          user.passwordResetToken ?? null,
+          user.passwordResetExpiresAt ?? null,
+          user.createdAt,
+          user.updatedAt,
+        ],
       )
     },
     async updateUserProfile(userId, nickname, updatedAt) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         UPDATE users
         SET nickname = $2, updated_at = $3
         WHERE id = $1
-        RETURNING id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
-      `, [userId, nickname, updatedAt])
+        RETURNING id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, allow_managed_providers, allow_custom_provider, allowed_managed_provider_ids_json, allowed_models_json, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at
+      `,
+        [userId, nickname, updatedAt],
+      )
       return result.rows[0] ? mapUserRow(result.rows[0]) : null
     },
     async updatePasswordResetToken(userId, token, expiresAt, updatedAt) {
-      await pool.query(`
+      await pool.query(
+        `
         UPDATE users
         SET password_reset_token = $2, password_reset_expires_at = $3, updated_at = $4
         WHERE id = $1
-      `, [userId, token, expiresAt, updatedAt])
+      `,
+        [userId, token, expiresAt, updatedAt],
+      )
     },
     async resetUserPassword(userId, passwordHash, updatedAt) {
-      await pool.query(`
+      await pool.query(
+        `
         UPDATE users
         SET password_hash = $2, password_reset_token = NULL, password_reset_expires_at = NULL, updated_at = $3
         WHERE id = $1
-      `, [userId, passwordHash, updatedAt])
+      `,
+        [userId, passwordHash, updatedAt],
+      )
     },
     async resetUserPasswordAndRevokeSessions(userId, passwordHash, updatedAt, revokeOthersOnly) {
       const client = await pool.connect()
       try {
         await client.query('BEGIN')
-        await client.query(`
+        await client.query(
+          `
           UPDATE users
           SET password_hash = $2, password_reset_token = NULL, password_reset_expires_at = NULL, updated_at = $3
           WHERE id = $1
-        `, [userId, passwordHash, updatedAt])
+        `,
+          [userId, passwordHash, updatedAt],
+        )
         if (revokeOthersOnly?.excludeSessionId) {
-          await client.query(`
+          await client.query(
+            `
             UPDATE sessions
             SET revoked_at = $2
             WHERE user_id = $1 AND id <> $3 AND revoked_at IS NULL
-          `, [userId, updatedAt, revokeOthersOnly.excludeSessionId])
+          `,
+            [userId, updatedAt, revokeOthersOnly.excludeSessionId],
+          )
         } else {
-          await client.query(`
+          await client.query(
+            `
             UPDATE sessions
             SET revoked_at = $2
             WHERE user_id = $1 AND revoked_at IS NULL
-          `, [userId, updatedAt])
+          `,
+            [userId, updatedAt],
+          )
         }
         await client.query('COMMIT')
       } catch (error) {
@@ -218,56 +301,78 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
       }
     },
     async updateSessionExpiresAt(sessionId, userId, expiresAt) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         UPDATE sessions
         SET expires_at = $3
         WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
-      `, [sessionId, userId, expiresAt])
+      `,
+        [sessionId, userId, expiresAt],
+      )
       return result.rowCount > 0
     },
     async findSessionById(id) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         SELECT id, user_id, created_at, expires_at, revoked_at
         FROM sessions
         WHERE id = $1
         LIMIT 1
-      `, [id])
+      `,
+        [id],
+      )
       return result.rows[0] ? mapSessionRow(result.rows[0]) : null
     },
     async createSession(session) {
       await pool.query(
         `INSERT INTO sessions (id, user_id, created_at, expires_at, revoked_at)
          VALUES ($1, $2, $3, $4, $5)`,
-        [session.id, session.userId, session.createdAt, session.expiresAt, session.revokedAt ?? null],
+        [
+          session.id,
+          session.userId,
+          session.createdAt,
+          session.expiresAt,
+          session.revokedAt ?? null,
+        ],
       )
     },
     async revokeSession(sessionId, revokedAt) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         UPDATE sessions
         SET revoked_at = $2
         WHERE id = $1 AND revoked_at IS NULL
-      `, [sessionId, revokedAt])
+      `,
+        [sessionId, revokedAt],
+      )
       return result.rowCount > 0
     },
     async revokeSessionsByUserId(userId, revokedAt, excludeSessionId) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         UPDATE sessions
         SET revoked_at = $2
         WHERE user_id = $1 AND revoked_at IS NULL AND ($3::text IS NULL OR id <> $3)
-      `, [userId, revokedAt, excludeSessionId ?? null])
+      `,
+        [userId, revokedAt, excludeSessionId ?? null],
+      )
       return result.rowCount
     },
     async listSessionsByUserId(userId) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         SELECT id, user_id, created_at, expires_at, revoked_at
         FROM sessions
         WHERE user_id = $1
         ORDER BY created_at DESC
-      `, [userId])
+      `,
+        [userId],
+      )
       return result.rows.map(mapSessionRow)
     },
     async findAuthContext(sessionId, userId) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         SELECT
           s.id AS session_id,
           s.user_id AS session_user_id,
@@ -278,6 +383,14 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
           u.email,
           u.nickname,
           u.role,
+          u.status,
+          u.status_reason,
+          u.status_updated_at,
+          u.status_updated_by,
+          u.allow_managed_providers,
+          u.allow_custom_provider,
+          u.allowed_managed_provider_ids_json,
+          u.allowed_models_json,
           u.password_hash,
           u.password_reset_token,
           u.password_reset_expires_at,
@@ -287,7 +400,9 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
         JOIN users u ON u.id = s.user_id
         WHERE s.id = $1 AND s.user_id = $2
         LIMIT 1
-      `, [sessionId, userId])
+      `,
+        [sessionId, userId],
+      )
       const row = result.rows[0]
       if (!row) return null
       return {
@@ -302,29 +417,47 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
       }
     },
     async findProviderConfigByUserId(userId) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         SELECT user_id, mode, provider_id, managed_provider_id, api_url, model, api_key, updated_at
         FROM provider_configs
         WHERE user_id = $1
         LIMIT 1
-      `, [userId])
+      `,
+        [userId],
+      )
       return result.rows[0] ? mapProviderConfigRow(result.rows[0]) : null
     },
     async upsertProviderConfig(config) {
-      await pool.query(`
+      await pool.query(
+        `
         INSERT INTO provider_configs (user_id, mode, provider_id, managed_provider_id, api_url, model, api_key, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (user_id)
         DO UPDATE SET mode = EXCLUDED.mode, provider_id = EXCLUDED.provider_id, managed_provider_id = EXCLUDED.managed_provider_id, api_url = EXCLUDED.api_url, model = EXCLUDED.model, api_key = EXCLUDED.api_key, updated_at = EXCLUDED.updated_at
-      `, [config.userId, config.mode, config.providerId, config.managedProviderId ?? null, config.apiUrl, config.model, config.apiKey, config.updatedAt])
+      `,
+        [
+          config.userId,
+          config.mode,
+          config.providerId,
+          config.managedProviderId ?? null,
+          config.apiUrl,
+          config.model,
+          config.apiKey,
+          config.updatedAt,
+        ],
+      )
     },
     async findQuotaProfileByUserId(userId) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         SELECT user_id, plan_name, quota_total, quota_used, quota_remaining, renews_at, updated_at
         FROM quota_profiles
         WHERE user_id = $1
         LIMIT 1
-      `, [userId])
+      `,
+        [userId],
+      )
       return result.rows[0] ? mapQuotaProfileRow(result.rows[0]) : null
     },
     async upsertQuotaProfile(profile) {
@@ -333,7 +466,15 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (user_id)
          DO UPDATE SET plan_name = EXCLUDED.plan_name, quota_total = EXCLUDED.quota_total, quota_used = EXCLUDED.quota_used, quota_remaining = EXCLUDED.quota_remaining, renews_at = EXCLUDED.renews_at, updated_at = EXCLUDED.updated_at`,
-        [profile.userId, profile.planName, profile.quotaTotal, profile.quotaUsed, profile.quotaRemaining, profile.renewsAt ?? null, profile.updatedAt],
+        [
+          profile.userId,
+          profile.planName,
+          profile.quotaTotal,
+          profile.quotaUsed,
+          profile.quotaRemaining,
+          profile.renewsAt ?? null,
+          profile.updatedAt,
+        ],
       )
     },
     async listQuotaProfiles() {
@@ -353,12 +494,15 @@ export function createPostgresAuthTablesRepository(pool: Pool): AuthTablesReposi
       return result.rows.map(mapBillingInvoiceRow)
     },
     async listBillingInvoicesByUserId(userId) {
-      const result = await pool.query(`
+      const result = await pool.query(
+        `
         SELECT id, user_id, plan_name, amount_cents, currency, status, provider, provider_ref, created_at, updated_at
         FROM billing_invoices
         WHERE user_id = $1
         ORDER BY created_at DESC
-      `, [userId])
+      `,
+        [userId],
+      )
       return result.rows.map(mapBillingInvoiceRow)
     },
   }

@@ -53,6 +53,8 @@ const serverErrorCatalog: Record<string, ServerErrorDefinition> = {
   TEMPLATE_NOT_FOUND: { category: 'data', retryable: false, action: 'refresh' },
   UNAUTHORIZED: { category: 'auth', retryable: false, action: 'login' },
   UPSTREAM_UNAVAILABLE: { category: 'provider', retryable: true, action: 'retry' },
+  USER_DISABLED: { category: 'auth', retryable: false, action: 'none' },
+  USER_FROZEN: { category: 'auth', retryable: false, action: 'none' },
   USER_NOT_FOUND: { category: 'data', retryable: false, action: 'refresh' },
   WORK_NOT_FOUND: { category: 'data', retryable: false, action: 'refresh' },
 }

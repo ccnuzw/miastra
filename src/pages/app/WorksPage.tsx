@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ImageWallModal } from '@/features/works/ImageWallModal'
 import { ImageViewerModal } from '@/features/works/ImageViewerModal'
 import { useWorksGallery } from '@/features/works/useWorksGallery'
+import { getAssetSyncLabel } from '@/features/works/works.asset'
 import type { GalleryImage } from '@/features/works/works.types'
 import { queueWorkReplayPayload } from '@/features/works/workReplay'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
@@ -27,13 +28,7 @@ export function WorksPage() {
 
   function renderWorkCard(work: GalleryImage) {
     const isFavorite = Boolean(work.isFavorite)
-    const assetSyncLabel = work.assetSyncStatus === 'synced'
-      ? '已同步'
-      : work.assetSyncStatus === 'pending-sync'
-        ? '待同步'
-        : work.assetSyncStatus === 'local-only'
-          ? '待同步'
-          : null
+    const assetSyncLabel = getAssetSyncLabel(work.assetSyncStatus)
     return (
       <article key={work.id} className="progress-card">
         {work.src ? <img className="h-56 w-full rounded-2xl object-cover" src={work.src} alt={work.title} /> : null}
@@ -75,7 +70,7 @@ export function WorksPage() {
 
   return (
     <>
-      <main className="mx-auto flex min-h-screen w-full max-w-screen-xl px-4 pb-10 pt-32 md:px-8">
+      <main className="app-page-shell app-page-shell-wide">
         <section className="panel-shell w-full">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -108,7 +103,7 @@ export function WorksPage() {
             <button type="button" onClick={() => works.clearWorkFilters()} className="batch-chip">清空</button>
           </div>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4 min-[1680px]:grid-cols-5 min-[1920px]:grid-cols-6">
             {works.filteredGallery.map(renderWorkCard)}
             {!works.loading && works.filteredGallery.length === 0 ? <div className="progress-card text-sm text-porcelain-100/60">当前没有匹配作品。</div> : null}
           </div>

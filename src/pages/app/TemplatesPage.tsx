@@ -107,7 +107,7 @@ export function TemplatesPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-screen-xl px-4 pb-10 pt-32 md:px-8">
+    <main className="app-page-shell app-page-shell-wide">
       <section className="panel-shell w-full">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -125,115 +125,128 @@ export function TemplatesPage() {
         {loading ? <p className="mt-6 text-sm text-porcelain-100/60">正在加载模板…</p> : null}
         {message ? <p className="mt-6 text-sm text-signal-cyan">{message}</p> : null}
 
-        <form className="mt-8 grid gap-4 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-5" onSubmit={handleSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
+        <div className="mt-8 grid gap-6 min-[1480px]:grid-cols-[minmax(400px,0.82fr)_minmax(0,1.18fr)]">
+          <form
+            className="grid gap-4 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-5 min-[1480px]:sticky min-[1480px]:top-28 min-[1480px]:self-start"
+            onSubmit={handleSubmit}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="field-label">编辑器</p>
+                <p className="mt-2 text-sm text-porcelain-100/60">在左侧维护模板，右侧即时浏览筛选结果。</p>
+              </div>
+              {editingId ? <span className="status-pill">编辑中</span> : <span className="status-pill">新模板</span>}
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="field-block">
+                <span className="field-label">标题</span>
+                <input className="input-shell" value={title} onChange={(e) => setTitle(e.target.value)} required />
+              </label>
+              <label className="field-block">
+                <span className="field-label">分类</span>
+                <input className="input-shell" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="如：海报 / 角色 / 电商" />
+              </label>
+            </div>
             <label className="field-block">
-              <span className="field-label">标题</span>
-              <input className="input-shell" value={title} onChange={(e) => setTitle(e.target.value)} required />
-            </label>
-            <label className="field-block">
-              <span className="field-label">分类</span>
-              <input className="input-shell" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="如：海报 / 角色 / 电商" />
-            </label>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="field-block md:col-span-2">
               <span className="field-label">内容</span>
-              <textarea className="prompt-area min-h-40" value={content} onChange={(e) => setContent(e.target.value)} required />
+              <textarea className="prompt-area min-h-52" value={content} onChange={(e) => setContent(e.target.value)} required />
             </label>
-            <label className="field-block md:col-span-2">
+            <label className="field-block">
               <span className="field-label">标签</span>
               <input className="input-shell" value={tagsText} onChange={(e) => setTagsText(e.target.value)} placeholder="用逗号分隔，例如：产品, 营销, 轻奢" />
             </label>
-          </div>
-          <div className="flex gap-3">
-            <button className="rounded-2xl bg-signal-cyan px-4 py-3 text-sm font-bold text-ink-950" type="submit" disabled={busyId === 'save'}>
-              {busyId === 'save' ? '保存中…' : editingId ? '更新模板' : '新增模板'}
-            </button>
-            {editingId ? (
-              <button
-                type="button"
-                className="rounded-2xl border border-porcelain-50/10 px-4 py-3 text-sm"
-                onClick={() => {
-                  setEditingId('')
-                  setTitle('')
-                  setContent('')
-                  setCategory('')
-                  setTagsText('')
-                }}
-              >
-                取消编辑
+            <div className="flex flex-wrap gap-3">
+              <button className="rounded-2xl bg-signal-cyan px-4 py-3 text-sm font-bold text-ink-950" type="submit" disabled={busyId === 'save'}>
+                {busyId === 'save' ? '保存中…' : editingId ? '更新模板' : '新增模板'}
               </button>
-            ) : null}
-          </div>
-        </form>
+              {editingId ? (
+                <button
+                  type="button"
+                  className="rounded-2xl border border-porcelain-50/10 px-4 py-3 text-sm"
+                  onClick={() => {
+                    setEditingId('')
+                    setTitle('')
+                    setContent('')
+                    setCategory('')
+                    setTagsText('')
+                  }}
+                >
+                  取消编辑
+                </button>
+              ) : null}
+            </div>
+          </form>
 
-        <div className="mt-8 grid gap-4 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-4 lg:grid-cols-[1.4fr_0.8fr_0.8fr]">
-          <label className="field-block">
-            <span className="field-label">
-              <Search className="h-3.5 w-3.5" />
-              搜索
-            </span>
-            <input className="input-shell" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="按标题、标签或内容搜索" />
-          </label>
-          <label className="field-block">
-            <span className="field-label">
-              <Filter className="h-3.5 w-3.5" />
-              分类筛选
-            </span>
-            <select className="input-shell" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-              <option value="全部分类">全部分类</option>
-              {categories.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label className="field-block">
-            <span className="field-label">
-              <Clock3 className="h-3.5 w-3.5" />
-              排序
-            </span>
-            <select className="input-shell" value={sortMode} onChange={(e) => setSortMode(e.target.value as 'updated' | 'used')}>
-              <option value="updated">按更新时间</option>
-              <option value="used">按最近使用</option>
-            </select>
-          </label>
-        </div>
-
-        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filteredTemplates.map((template) => (
-            <article key={template.id} className="progress-card">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-lg font-semibold text-porcelain-50">{template.title || '未命名模板'}</h2>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <span className="prompt-template-chip">{template.category?.trim() || '未分类'}</span>
-                    {(template.tags ?? []).map((tag) => <span key={tag} className="prompt-template-chip prompt-template-chip-tag">{tag}</span>)}
-                  </div>
-                </div>
-                <span className="shrink-0 rounded-full border border-porcelain-50/10 bg-ink-950/55 px-2.5 py-1 text-[10px] font-bold text-porcelain-100/45">
-                  {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(sortMode === 'used' ? (template.lastUsedAt ?? template.updatedAt ?? template.createdAt) : (template.updatedAt ?? template.createdAt)))}
+          <div className="space-y-6">
+            <div className="grid gap-4 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-4 lg:grid-cols-[1.4fr_0.8fr_0.8fr]">
+              <label className="field-block">
+                <span className="field-label">
+                  <Search className="h-3.5 w-3.5" />
+                  搜索
                 </span>
-              </div>
-              <p className="mt-3 line-clamp-5 text-sm leading-6 text-porcelain-100/60">{template.content}</p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs" onClick={() => setEditingId(template.id)} disabled={busyId === template.id}>
-                  编辑
-                </button>
-                <button type="button" className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs" onClick={() => void handleDuplicate(template)} disabled={busyId === template.id}>
-                  <Copy className="mr-1 inline h-3.5 w-3.5" />
-                  复制为新模板
-                </button>
-                <button type="button" className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs" onClick={() => void handleCopyContent(template.content, template.id)} disabled={busyId === template.id}>
-                  <ClipboardCopy className="mr-1 inline h-3.5 w-3.5" />
-                  复制内容
-                </button>
-                <button type="button" className="rounded-full border border-signal-coral/25 bg-signal-coral/10 px-3 py-2 text-xs text-signal-coral" onClick={() => void handleDelete(template.id)} disabled={busyId === template.id}>
-                  <Trash2 className="mr-1 inline h-3.5 w-3.5" />
-                  {busyId === template.id ? '处理中…' : '删除'}
-                </button>
-              </div>
-            </article>
-          ))}
-          {!loading && filteredTemplates.length === 0 ? <div className="progress-card text-sm text-porcelain-100/60">当前没有匹配的模板。</div> : null}
+                <input className="input-shell" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="按标题、标签或内容搜索" />
+              </label>
+              <label className="field-block">
+                <span className="field-label">
+                  <Filter className="h-3.5 w-3.5" />
+                  分类筛选
+                </span>
+                <select className="input-shell" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                  <option value="全部分类">全部分类</option>
+                  {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label className="field-block">
+                <span className="field-label">
+                  <Clock3 className="h-3.5 w-3.5" />
+                  排序
+                </span>
+                <select className="input-shell" value={sortMode} onChange={(e) => setSortMode(e.target.value as 'updated' | 'used')}>
+                  <option value="updated">按更新时间</option>
+                  <option value="used">按最近使用</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 min-[1680px]:grid-cols-4">
+              {filteredTemplates.map((template) => (
+                <article key={template.id} className="progress-card">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-lg font-semibold text-porcelain-50">{template.title || '未命名模板'}</h2>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span className="prompt-template-chip">{template.category?.trim() || '未分类'}</span>
+                        {(template.tags ?? []).map((tag) => <span key={tag} className="prompt-template-chip prompt-template-chip-tag">{tag}</span>)}
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-porcelain-50/10 bg-ink-950/55 px-2.5 py-1 text-[10px] font-bold text-porcelain-100/45">
+                      {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(sortMode === 'used' ? (template.lastUsedAt ?? template.updatedAt ?? template.createdAt) : (template.updatedAt ?? template.createdAt)))}
+                    </span>
+                  </div>
+                  <p className="mt-3 line-clamp-6 text-sm leading-6 text-porcelain-100/60">{template.content}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs" onClick={() => setEditingId(template.id)} disabled={busyId === template.id}>
+                      编辑
+                    </button>
+                    <button type="button" className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs" onClick={() => void handleDuplicate(template)} disabled={busyId === template.id}>
+                      <Copy className="mr-1 inline h-3.5 w-3.5" />
+                      复制为新模板
+                    </button>
+                    <button type="button" className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs" onClick={() => void handleCopyContent(template.content, template.id)} disabled={busyId === template.id}>
+                      <ClipboardCopy className="mr-1 inline h-3.5 w-3.5" />
+                      复制内容
+                    </button>
+                    <button type="button" className="rounded-full border border-signal-coral/25 bg-signal-coral/10 px-3 py-2 text-xs text-signal-coral" onClick={() => void handleDelete(template.id)} disabled={busyId === template.id}>
+                      <Trash2 className="mr-1 inline h-3.5 w-3.5" />
+                      {busyId === template.id ? '处理中…' : '删除'}
+                    </button>
+                  </div>
+                </article>
+              ))}
+              {!loading && filteredTemplates.length === 0 ? <div className="progress-card text-sm text-porcelain-100/60">当前没有匹配的模板。</div> : null}
+            </div>
+          </div>
         </div>
       </section>
     </main>

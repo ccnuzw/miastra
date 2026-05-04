@@ -1,9 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { materializeWorkAsset } from '../assets/storage.service'
 import type { StoredWork } from '../auth/types'
 import { requireAuthenticatedUser } from '../auth/routes'
 import { getContentDomainStore } from '../lib/domain-store'
 import { fail, ok } from '../lib/http'
+import { storeRepository } from '../lib/store'
+import { getGenerationTaskDomainStore } from '../lib/domain-store'
+import { recoverWorkFromTask } from './recovery'
 
 const workTaskStatusSchema = z.enum(['pending', 'running', 'receiving', 'success', 'failed', 'retrying', 'cancelled', 'timeout', 'interrupted'])
 
@@ -127,7 +131,10 @@ export async function registerWorksRoutes(app: FastifyInstance) {
       return fail('INVALID_INPUT', '作品数据格式不正确')
     }
 
-    const nextWorks = parsed.data.works.map((work) => toStoredWork(user.id, work))
+    const store = await storeRepository.read()
+    const nextWorks = await Promise.all(parsed.data.works.map(async (work) =>
+      await materializeWorkAsset(toStoredWork(user.id, work), store.assetStorageConfig),
+    ))
     await getContentDomainStore().replaceWorksByUserId(user.id, nextWorks)
     return ok({ success: true, count: parsed.data.works.length })
   })
@@ -143,7 +150,10 @@ export async function registerWorksRoutes(app: FastifyInstance) {
       return fail('INVALID_INPUT', '作品数据格式不正确')
     }
 
-    const work = await getContentDomainStore().upsertWorkForUser(toStoredWork(user.id, parsed.data))
+    const store = await storeRepository.read()
+    const work = await getContentDomainStore().upsertWorkForUser(
+      await materializeWorkAsset(toStoredWork(user.id, parsed.data), store.assetStorageConfig),
+    )
     return ok(stripUserId(work))
   })
 
@@ -178,6 +188,41 @@ export async function registerWorksRoutes(app: FastifyInstance) {
 
     const count = await getContentDomainStore().deleteWorksForUser(user.id, parsed.data.ids)
     return ok({ success: true, count })
+  })
+
+  app.post('/api/works/recover-from-tasks', async (request, reply) => {
+    const user = await requireAuthenticatedUser(request, reply)
+    if (!user) return
+
+    const contentStore = getContentDomainStore()
+    const store = await storeRepository.read()
+    const [tasks, works] = await Promise.all([
+      getGenerationTaskDomainStore().listGenerationTasksByUserId(user.id),
+      contentStore.listWorksByUserId(user.id),
+    ])
+
+    const existingWorkIds = new Set(works.map((item) => item.id))
+    const existingSnapshotIds = new Set(works.map((item) => item.snapshotId).filter(Boolean))
+    const recoveredWorks: StoredWork[] = []
+
+    for (const task of tasks) {
+      const recovered = recoverWorkFromTask(task)
+      if (!recovered) continue
+      if (existingWorkIds.has(recovered.id)) continue
+      if (recovered.snapshotId && existingSnapshotIds.has(recovered.snapshotId)) continue
+      const saved = await contentStore.upsertWorkForUser(
+        await materializeWorkAsset(recovered, store.assetStorageConfig),
+      )
+      recoveredWorks.push(saved)
+      existingWorkIds.add(saved.id)
+      if (saved.snapshotId) existingSnapshotIds.add(saved.snapshotId)
+    }
+
+    return ok({
+      success: true,
+      count: recoveredWorks.length,
+      works: recoveredWorks.map(stripUserId),
+    })
   })
 
   app.put('/api/works/:id/favorite', async (request, reply) => {

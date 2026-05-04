@@ -1,6 +1,7 @@
 import { Bolt, Check, CheckCircle2, ClipboardCopy, Download, Eye, ImagePlus, Loader2, RefreshCw, Star, Tag, Trash2 } from 'lucide-react'
 import { useState, type FormEvent, type MouseEvent } from 'react'
 import { drawTaskStatusText } from '@/features/draw-card/drawCard.constants'
+import { getAssetSyncLabel } from './works.asset'
 import type { GalleryImage } from './works.types'
 
 type WorkTileProps = {
@@ -36,13 +37,7 @@ export function WorkTile({
   const hasTask = Boolean(item.taskStatus)
   const promptText = item.promptText || item.promptSnippet || item.meta
   const isFavorite = Boolean(item.isFavorite)
-  const assetSyncText = item.assetSyncStatus === 'synced'
-    ? '已同步'
-    : item.assetSyncStatus === 'pending-sync'
-      ? '待同步'
-      : item.assetSyncStatus === 'local-only'
-        ? '待同步'
-        : ''
+  const assetSyncText = getAssetSyncLabel(item.assetSyncStatus)
   const [copyState, setCopyState] = useState<'idle' | 'success' | 'error'>('idle')
   const [tagDraft, setTagDraft] = useState('')
   const tags = item.tags ?? []

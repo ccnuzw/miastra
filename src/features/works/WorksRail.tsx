@@ -80,6 +80,7 @@ export function WorksRail({
   const selectedCount = selectedIds.length
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
   const hasFilters = Boolean(searchQuery.trim() || activeTag !== 'all' || favoritesOnly)
+  const isLimitedView = filteredCount > items.length
 
   function handleAddSelectedTag(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -96,8 +97,13 @@ export function WorksRail({
           <p className="eyebrow">Works Rail</p>
           <h3 className="font-display text-2xl">生成作品</h3>
           <p className="mt-1 text-xs font-semibold text-porcelain-100/45">
-            最近 10 项 · 全部 {totalCount} 张{hasFilters ? ` · 当前 ${filteredCount} 张` : ''}{taskCount ? ` · 任务 ${taskCount} 个` : ''}
+            当前展示 {items.length} 张 · 当前结果 {filteredCount} 张 · 全部 {totalCount} 张{taskCount ? ` · 任务 ${taskCount} 个` : ''}
           </p>
+          {isLimitedView ? (
+            <p className="mt-2 text-[11px] font-semibold text-signal-cyan/75">
+              工作台仅展示最新 12 张，更多结果请打开图片墙查看。
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {selectedCount > 0 && (
@@ -170,7 +176,7 @@ export function WorksRail({
       {batches.length > 0 && (
         <div className="batch-strip">
           <button type="button" onClick={() => onBatchChange('all')} className={`batch-chip ${activeBatchId === 'all' ? 'batch-chip-active' : ''}`}>全部批次</button>
-          {batches.slice(0, 5).map((batch) => (
+          {batches.map((batch) => (
             <button key={batch.id} type="button" onClick={() => onBatchChange(batch.id)} className={`batch-chip ${activeBatchId === batch.id ? 'batch-chip-active' : ''}`}>
               <span>{batch.title}</span>
               <small>{batch.successCount}/{batch.count} · 失败 {batch.failedCount} · 超时 {batch.timeoutCount} · 中断 {batch.interruptedCount}</small>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, KeyRound, Loader2, Lock, PlugZap, RadioTower, Save, X } from 'lucide-react'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
-import type { ManagedProviderOption, ProviderConfig } from './provider.types'
+import type { ManagedProviderOption, ProviderConfig, ProviderPolicy } from './provider.types'
 import { providerConnectionLabel } from './provider.constants'
 import { testProviderConnection } from './provider.testConnection'
 import { normalizeProviderConfig, providerEditRequestUrl, providerGenerationRequestUrl } from './provider.utils'
@@ -11,6 +11,7 @@ type ProviderModalProps = {
   config: ProviderConfig
   draftConfig: ProviderConfig
   managedProviders: ManagedProviderOption[]
+  providerPolicy: ProviderPolicy
   onDraftConfigChange: (config: ProviderConfig) => void
   onSave: () => Promise<void> | void
   onClose: () => void
@@ -32,7 +33,16 @@ type SaveState = {
 const idleConnectionTestState: ConnectionTestState = { status: 'idle', message: '' }
 const idleSaveState: SaveState = { status: 'idle', error: null, message: '' }
 
-export function ProviderModal({ open, config, draftConfig, managedProviders, onDraftConfigChange, onSave, onClose }: ProviderModalProps) {
+export function ProviderModal({
+  open,
+  config,
+  draftConfig,
+  managedProviders,
+  providerPolicy,
+  onDraftConfigChange,
+  onSave,
+  onClose,
+}: ProviderModalProps) {
   const [connectionTest, setConnectionTest] = useState<ConnectionTestState>(idleConnectionTestState)
   const [saveState, setSaveState] = useState<SaveState>(idleSaveState)
   const testRunRef = useRef(0)
@@ -46,6 +56,9 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
     () => JSON.stringify(normalizedDraftConfig) !== JSON.stringify(normalizedSavedConfig),
     [normalizedDraftConfig, normalizedSavedConfig],
   )
+  const canUseManagedProviders = providerPolicy.allowManagedProviders
+  const canUseCustomProvider = providerPolicy.allowCustomProvider
+  const hasManagedProviderOptions = managedProviders.length > 0
   const isTestingConnection = connectionTest.status === 'loading'
   const isSaving = saveState.status === 'loading'
 
@@ -74,6 +87,8 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
   )
 
   const handleModeChange = useCallback((mode: ProviderConfig['mode']) => {
+    if (mode === 'managed' && !canUseManagedProviders) return
+    if (mode === 'custom' && !canUseCustomProvider) return
     if (mode === 'managed') {
       resetTransientState()
       const fallback = managedProviders[0]
@@ -96,7 +111,7 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
       managedProviderId: '',
       providerId: 'custom',
     }))
-  }, [draftConfig, managedProviders, normalizedDraftConfig.managedProviderId, onDraftConfigChange, resetTransientState])
+  }, [canUseCustomProvider, canUseManagedProviders, draftConfig, managedProviders, normalizedDraftConfig.managedProviderId, onDraftConfigChange, resetTransientState])
 
   const handleManagedProviderChange = useCallback((providerId: string) => {
     const nextProvider = managedProviders.find((item) => item.id === providerId) ?? null
@@ -172,29 +187,40 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
         </div>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => handleModeChange('managed')}
-            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-              normalizedDraftConfig.mode === 'managed'
-                ? 'border-signal-cyan/60 bg-signal-cyan/15 text-signal-cyan'
-                : 'border-porcelain-50/10 bg-ink-950/[0.45] text-porcelain-100/70'
-            }`}
-          >
-            公共 Provider
-          </button>
-          <button
-            type="button"
-            onClick={() => handleModeChange('custom')}
-            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-              normalizedDraftConfig.mode === 'custom'
-                ? 'border-signal-cyan/60 bg-signal-cyan/15 text-signal-cyan'
-                : 'border-porcelain-50/10 bg-ink-950/[0.45] text-porcelain-100/70'
-            }`}
-          >
-            自定义 Provider
-          </button>
+          {canUseManagedProviders ? (
+            <button
+              type="button"
+              onClick={() => handleModeChange('managed')}
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                normalizedDraftConfig.mode === 'managed'
+                  ? 'border-signal-cyan/60 bg-signal-cyan/15 text-signal-cyan'
+                  : 'border-porcelain-50/10 bg-ink-950/[0.45] text-porcelain-100/70'
+              }`}
+            >
+              公共 Provider
+            </button>
+          ) : null}
+          {canUseCustomProvider ? (
+            <button
+              type="button"
+              onClick={() => handleModeChange('custom')}
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                normalizedDraftConfig.mode === 'custom'
+                  ? 'border-signal-cyan/60 bg-signal-cyan/15 text-signal-cyan'
+                  : 'border-porcelain-50/10 bg-ink-950/[0.45] text-porcelain-100/70'
+              }`}
+            >
+              自定义 Provider
+            </button>
+          ) : null}
         </div>
+
+        {!canUseManagedProviders || !canUseCustomProvider ? (
+          <div className="mt-4 rounded-[1.5rem] border border-amber-400/20 bg-amber-400/[0.08] p-4 text-sm text-amber-100/80">
+            {!canUseManagedProviders ? <p>当前账号未开放公共 Provider 权限。</p> : null}
+            {!canUseCustomProvider ? <p>当前账号未开放自定义 Provider 权限。</p> : null}
+          </div>
+        ) : null}
 
         {normalizedDraftConfig.mode === 'managed' ? (
           <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -204,6 +230,7 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
                 value={normalizedDraftConfig.managedProviderId}
                 onChange={(event) => handleManagedProviderChange(event.target.value)}
                 className="input-shell"
+                disabled={!canUseManagedProviders || !hasManagedProviderOptions}
               >
                 <option value="" disabled>请选择公共 Provider</option>
                 {managedProviders.map((provider) => (
@@ -219,6 +246,7 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
                   value={normalizedDraftConfig.model}
                   onChange={(event) => updateDraftConfig({ model: event.target.value })}
                   className="input-shell"
+                  disabled={!canUseManagedProviders}
                 >
                   {selectedManagedProvider.models.map((model) => (
                     <option key={model} value={model}>{model}</option>
@@ -230,12 +258,13 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
                   value={normalizedDraftConfig.model}
                   onChange={(event) => updateDraftConfig({ model: event.target.value })}
                   className="input-shell"
+                  disabled={!canUseManagedProviders}
                 />
               )}
             </div>
             <div className="md:col-span-2 rounded-[1.5rem] border border-porcelain-50/10 bg-porcelain-50/[0.03] p-4 text-xs leading-6 text-porcelain-100/[0.62]">
               <p>当前模式下，Base URL 与 API Key 由管理员托管，前台不会暴露这些敏感信息。</p>
-              <p className="mt-2">可选 Provider：{managedProviders.length ? `${managedProviders.length} 个` : '暂无可用公共 Provider，请联系管理员配置或切换到自定义模式。'}</p>
+              <p className="mt-2">可选 Provider：{managedProviders.length ? `${managedProviders.length} 个` : '暂无可用公共 Provider，请联系管理员配置。'}</p>
               {selectedManagedProvider?.description ? <p className="mt-2">{selectedManagedProvider.description}</p> : null}
             </div>
           </div>
@@ -248,11 +277,12 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
                 onChange={(event) => updateDraftConfig({ apiUrl: event.target.value })}
                 className="input-shell"
                 placeholder="例如 https://api.openai.com"
+                disabled={!canUseCustomProvider}
               />
             </label>
             <label className="field-block">
               <span className="field-label">Model</span>
-              <input value={draftConfig.model} onChange={(event) => updateDraftConfig({ model: event.target.value })} className="input-shell" />
+              <input value={draftConfig.model} onChange={(event) => updateDraftConfig({ model: event.target.value })} className="input-shell" disabled={!canUseCustomProvider} />
             </label>
             <label className="field-block">
               <span className="field-label">
@@ -265,6 +295,7 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
                 className="input-shell"
                 placeholder="sk-..."
                 type="password"
+                disabled={!canUseCustomProvider}
               />
             </label>
           </div>
@@ -356,7 +387,18 @@ export function ProviderModal({ open, config, draftConfig, managedProviders, onD
           <p className="truncate font-mono text-xs text-porcelain-100/[0.52]">
             {isDirty ? '当前草稿尚未保存' : '当前草稿与已保存配置一致'}
           </p>
-          <button type="button" onClick={() => void handleSave()} className="generate-button" disabled={isSaving || isTestingConnection}>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            className="generate-button"
+            disabled={
+              !isDirty ||
+              isSaving ||
+              isTestingConnection ||
+              (normalizedDraftConfig.mode === 'managed' && !canUseManagedProviders) ||
+              (normalizedDraftConfig.mode === 'custom' && !canUseCustomProvider)
+            }
+          >
             {isSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
             {isSaving ? '保存中…' : '保存配置'}
           </button>

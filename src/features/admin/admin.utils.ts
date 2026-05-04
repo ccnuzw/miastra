@@ -1,4 +1,9 @@
-import type { AdminAuditLogRecord, AdminTaskStatus, AdminUserRole } from './admin.api'
+import type {
+  AdminAuditLogRecord,
+  AdminTaskStatus,
+  AdminUserRole,
+  AdminUserStatus,
+} from './admin.api'
 
 export const adminRoleLabels: Record<AdminUserRole, string> = {
   user: '普通用户',
@@ -14,6 +19,12 @@ export const adminTaskStatusLabels: Record<AdminTaskStatus, string> = {
   failed: '已失败',
   cancelled: '已取消',
   timeout: '已超时',
+}
+
+export const adminUserStatusLabels: Record<AdminUserStatus, string> = {
+  active: '正常',
+  frozen: '冻结',
+  disabled: '禁用',
 }
 
 export function formatAdminDateTime(value?: string | number | null) {
@@ -46,6 +57,12 @@ export function roleTone(role: AdminUserRole) {
   if (role === 'admin') return 'border-signal-coral/30 bg-signal-coral/10 text-signal-coral'
   if (role === 'operator') return 'border-amber-400/30 bg-amber-400/10 text-amber-200'
   return 'border-signal-cyan/30 bg-signal-cyan/10 text-signal-cyan'
+}
+
+export function userStatusTone(status: AdminUserStatus) {
+  if (status === 'active') return 'border-signal-cyan/30 bg-signal-cyan/10 text-signal-cyan'
+  if (status === 'frozen') return 'border-amber-400/30 bg-amber-400/10 text-amber-200'
+  return 'border-signal-coral/30 bg-signal-coral/10 text-signal-coral'
 }
 
 export function parsePositivePage(value: string | null, fallback = 1) {

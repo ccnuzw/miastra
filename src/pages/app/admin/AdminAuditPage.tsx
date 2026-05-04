@@ -1,6 +1,8 @@
 import { Eye, RotateCcw } from 'lucide-react'
-import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { type AdminActiveFilterItem, AdminActiveFilters } from '@/features/admin/AdminActiveFilters'
 import { AdminDetailDrawer } from '@/features/admin/AdminDetailDrawer'
+import { AdminFilterPresets } from '@/features/admin/AdminFilterPresets'
 import { AdminPageHeader } from '@/features/admin/AdminPageHeader'
 import { AdminPagination } from '@/features/admin/AdminPagination'
 import {
@@ -23,9 +25,11 @@ const actorRoleOptions: Array<AdminActorRole | ''> = ['', 'user', 'operator', 'a
 export function AdminAuditPage() {
   const { searchParams, updateSearchParams } = useAdminSearchParams()
   const page = parsePositivePage(searchParams.get('page'))
+  const preset = searchParams.get('preset') ?? ''
   const appliedQuery = searchParams.get('query') ?? ''
   const appliedAction = searchParams.get('action') ?? ''
   const appliedTargetType = searchParams.get('targetType') ?? ''
+  const targetIdFilter = searchParams.get('targetId') ?? ''
   const actorRoleFilter = (searchParams.get('actorRole') as AdminActorRole | '') || ''
   const selectedAuditId = searchParams.get('selected') ?? ''
 
@@ -56,6 +60,7 @@ export function AdminAuditPage() {
         actorRole: actorRoleFilter || undefined,
         action: appliedAction || undefined,
         targetType: appliedTargetType || undefined,
+        targetId: targetIdFilter || undefined,
       })
       setLogs(result.items)
       setTotal(result.total)
@@ -66,25 +71,197 @@ export function AdminAuditPage() {
     } finally {
       setLoading(false)
     }
-  }, [actorRoleFilter, appliedAction, appliedQuery, appliedTargetType, page, selectedAuditId])
+  }, [
+    actorRoleFilter,
+    appliedAction,
+    appliedQuery,
+    appliedTargetType,
+    page,
+    selectedAuditId,
+    targetIdFilter,
+  ])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
 
+  const auditPresets = useMemo(
+    () => [
+      {
+        key: 'all',
+        label: '全部日志',
+        active: !preset,
+        onClick: () =>
+          updateSearchParams({
+            page: '1',
+            preset: undefined,
+            actorRole: undefined,
+            action: undefined,
+            targetType: undefined,
+            targetId: undefined,
+            query: undefined,
+            selected: undefined,
+          }),
+      },
+      {
+        key: 'role-update',
+        label: '角色变更',
+        active: preset === 'role-update',
+        onClick: () =>
+          updateSearchParams({
+            page: '1',
+            preset: 'role-update',
+            action: 'user.role.updated',
+            targetType: 'user',
+            selected: undefined,
+          }),
+      },
+      {
+        key: 'provider-change',
+        label: 'Provider 变更',
+        active: preset === 'provider-change',
+        onClick: () =>
+          updateSearchParams({
+            page: '1',
+            preset: 'provider-change',
+            targetType: 'managed_provider',
+            action: undefined,
+            selected: undefined,
+          }),
+      },
+      {
+        key: 'task-cancel',
+        label: '任务取消',
+        active: preset === 'task-cancel',
+        onClick: () =>
+          updateSearchParams({
+            page: '1',
+            preset: 'task-cancel',
+            action: 'task.cancelled',
+            targetType: 'task',
+            selected: undefined,
+          }),
+      },
+      {
+        key: 'work-delete',
+        label: '作品删除',
+        active: preset === 'work-delete',
+        onClick: () =>
+          updateSearchParams({
+            page: '1',
+            preset: 'work-delete',
+            targetType: 'work',
+            action: 'work.deleted',
+            selected: undefined,
+          }),
+      },
+    ],
+    [preset, updateSearchParams],
+  )
+  const activeFilters = useMemo(() => {
+    const items: Array<AdminActiveFilterItem | null> = [
+      appliedQuery
+        ? {
+            key: 'query',
+            label: `关键词：${appliedQuery}`,
+            onRemove: () =>
+              updateSearchParams({
+                page: '1',
+                query: undefined,
+                selected: undefined,
+              }),
+          }
+        : null,
+      actorRoleFilter
+        ? {
+            key: 'actorRole',
+            label: `角色：${adminRoleLabels[actorRoleFilter]}`,
+            onRemove: () =>
+              updateSearchParams({
+                page: '1',
+                actorRole: undefined,
+                selected: undefined,
+              }),
+          }
+        : null,
+      appliedAction
+        ? {
+            key: 'action',
+            label: `动作：${appliedAction}`,
+            onRemove: () =>
+              updateSearchParams({
+                page: '1',
+                preset: undefined,
+                action: undefined,
+                selected: undefined,
+              }),
+          }
+        : null,
+      appliedTargetType
+        ? {
+            key: 'targetType',
+            label: `对象：${appliedTargetType}`,
+            onRemove: () =>
+              updateSearchParams({
+                page: '1',
+                preset: undefined,
+                targetType: undefined,
+                selected: undefined,
+              }),
+          }
+        : null,
+      targetIdFilter
+        ? {
+            key: 'targetId',
+            label: `对象 ID：${targetIdFilter}`,
+            onRemove: () =>
+              updateSearchParams({
+                page: '1',
+                targetId: undefined,
+                selected: undefined,
+              }),
+          }
+        : null,
+    ]
+    return items.filter((item): item is AdminActiveFilterItem => item !== null)
+  }, [
+    actorRoleFilter,
+    appliedAction,
+    appliedQuery,
+    appliedTargetType,
+    targetIdFilter,
+    updateSearchParams,
+  ])
+  const auditSummary = useMemo(() => {
+    return {
+      currentPage: logs.length,
+      roleCounts: logs.reduce<Record<AdminActorRole, number>>(
+        (accumulator, item) => {
+          accumulator[item.actorRole] += 1
+          return accumulator
+        },
+        { user: 0, operator: 0, admin: 0 },
+      ),
+      managedProviderEvents: logs.filter((item) => item.targetType === 'managed_provider').length,
+      workEvents: logs.filter((item) => item.targetType === 'work').length,
+    }
+  }, [logs])
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     updateSearchParams({
       page: '1',
+      preset: undefined,
       query: searchInput.trim() || undefined,
       action: actionInput.trim() || undefined,
       targetType: targetTypeInput.trim() || undefined,
+      targetId: targetIdFilter || undefined,
       selected: undefined,
     })
   }
 
   return (
-    <div className="space-y-6">
+    <div className="admin-page-content">
       <AdminPageHeader
         eyebrow="Audit"
         title="审计日志"
@@ -101,9 +278,11 @@ export function AdminAuditPage() {
         }
       />
 
+      <AdminFilterPresets presets={auditPresets} />
+
       <article className="progress-card">
         <form
-          className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_180px_180px_180px_160px]"
+          className="grid gap-3 min-[1480px]:grid-cols-[minmax(0,1.45fr)_220px_220px] 2xl:grid-cols-[minmax(0,1.6fr)_220px_220px_220px_auto]"
           onSubmit={handleSubmit}
         >
           <label className="field-block">
@@ -123,6 +302,7 @@ export function AdminAuditPage() {
               onChange={(event) =>
                 updateSearchParams({
                   page: '1',
+                  preset: undefined,
                   actorRole: event.target.value,
                   selected: undefined,
                 })
@@ -153,7 +333,7 @@ export function AdminAuditPage() {
               placeholder="例如 user / work"
             />
           </label>
-          <div className="flex items-end gap-2">
+          <div className="admin-toolbar-actions 2xl:justify-end">
             <button
               type="submit"
               className="h-12 rounded-2xl bg-signal-cyan px-4 text-sm font-bold text-ink-950"
@@ -169,6 +349,7 @@ export function AdminAuditPage() {
                   query: undefined,
                   action: undefined,
                   targetType: undefined,
+                  targetId: undefined,
                   actorRole: undefined,
                   selected: undefined,
                 })
@@ -182,6 +363,35 @@ export function AdminAuditPage() {
 
       {loading ? <p className="text-sm text-porcelain-100/60">正在加载审计日志…</p> : null}
       {error ? <ErrorNotice error={error} /> : null}
+      <AdminActiveFilters
+        items={activeFilters}
+        onClearAll={
+          activeFilters.length
+            ? () =>
+                updateSearchParams({
+                  page: '1',
+                  preset: undefined,
+                  query: undefined,
+                  action: undefined,
+                  targetType: undefined,
+                  targetId: undefined,
+                  actorRole: undefined,
+                  selected: undefined,
+                })
+            : undefined
+        }
+      />
+      <div className="admin-summary-strip">
+        <span className="admin-summary-strong">结果摘要</span>
+        <span>当前命中 {total} 条日志</span>
+        <span>本页 {auditSummary.currentPage} 条</span>
+        <span>管理员动作 {auditSummary.roleCounts.admin} 条</span>
+        <span>Provider 事件 {auditSummary.managedProviderEvents} 条</span>
+        <span>作品事件 {auditSummary.workEvents} 条</span>
+        {appliedAction ? <span>聚焦动作：{appliedAction}</span> : null}
+        {appliedTargetType ? <span>对象类型：{appliedTargetType}</span> : null}
+        {targetIdFilter ? <span>对象 ID：{targetIdFilter}</span> : null}
+      </div>
 
       <section className="admin-table-shell">
         <div className="admin-table-scroll">

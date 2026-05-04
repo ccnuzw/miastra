@@ -32,8 +32,9 @@ async function registerUser(
   })
 
   expect(response.statusCode).toBe(200)
+  const cookie = response.cookies.find((item) => item.name === 'miastra_auth')?.value ?? ''
   return {
-    cookie: String(response.headers['set-cookie'] ?? ''),
+    cookie: cookie ? `miastra_auth=${cookie}` : '',
     user: response.json().data as { id: string; email: string; nickname: string },
     credentials: input,
   }
@@ -47,7 +48,8 @@ async function loginUser(app: Awaited<ReturnType<typeof createServer>>, email: s
   })
 
   expect(response.statusCode).toBe(200)
-  return String(response.headers['set-cookie'] ?? '')
+  const cookie = response.cookies.find((item) => item.name === 'miastra_auth')?.value ?? ''
+  return cookie ? `miastra_auth=${cookie}` : ''
 }
 
 async function upsertProviderConfig(userId: string) {
@@ -221,7 +223,7 @@ describe('release regression routes', () => {
       data: [
         {
           id: taskId,
-          status: 'queued',
+          status: 'pending',
           progress: 0,
         },
       ],
@@ -326,6 +328,122 @@ describe('release regression routes', () => {
         code: 'TASK_NOT_CANCELLABLE',
       },
     })
+    await app.close()
+  })
+
+  it('recovers missing works from succeeded task results', async () => {
+    const app = await createServer()
+    const registered = await registerUser(app, {
+      email: 'release-task-recover@example.com',
+      password: '123456',
+      nickname: 'release-task-recover',
+    })
+    await upsertProviderConfig(registered.user.id)
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/generation-tasks',
+      headers: { cookie: registered.cookie },
+      payload: buildGenerationTaskPayload({
+        title: '恢复用作品',
+        meta: '恢复校验',
+      }),
+    })
+
+    expect(createResponse.statusCode).toBe(200)
+    const taskId = createResponse.json().data.id as string
+
+    const successResponse = await app.inject({
+      method: 'POST',
+      url: `/api/generation-tasks/${taskId}`,
+      headers: { cookie: registered.cookie },
+      payload: {
+        status: 'running',
+        progress: 20,
+      },
+    })
+    expect(successResponse.statusCode).toBe(200)
+
+    const completedResponse = await app.inject({
+      method: 'POST',
+      url: `/api/generation-tasks/${taskId}`,
+      headers: { cookie: registered.cookie },
+      payload: {
+        status: 'succeeded',
+        progress: 100,
+        result: {
+          workId: 'recovered-work-1',
+          imageUrl: 'https://example.com/recovered.png',
+          title: '恢复用作品',
+          meta: '恢复校验',
+          promptText: 'studio portrait',
+          promptSnippet: 'studio portrait',
+          size: '1024x1024',
+          quality: 'high',
+          providerModel: 'gpt-image-1',
+          snapshotId: 'recover-snapshot-1',
+          mode: 'text2image',
+          generationSnapshot: {
+            id: 'recover-snapshot-1',
+            createdAt: 1_715_000_000_000,
+          },
+        },
+      },
+    })
+    expect(completedResponse.statusCode).toBe(200)
+
+    const recoverResponse = await app.inject({
+      method: 'POST',
+      url: '/api/works/recover-from-tasks',
+      headers: { cookie: registered.cookie },
+    })
+
+    expect(recoverResponse.statusCode).toBe(200)
+    expect(recoverResponse.json()).toMatchObject({
+      data: {
+        success: true,
+        count: 1,
+        works: [
+          {
+            id: 'recovered-work-1',
+            title: '恢复用作品',
+            src: 'https://example.com/recovered.png',
+            snapshotId: 'recover-snapshot-1',
+            providerModel: 'gpt-image-1',
+          },
+        ],
+      },
+    })
+
+    const worksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/works',
+      headers: { cookie: registered.cookie },
+    })
+
+    expect(worksResponse.statusCode).toBe(200)
+    expect(worksResponse.json()).toMatchObject({
+      data: [
+        {
+          id: 'recovered-work-1',
+          title: '恢复用作品',
+        },
+      ],
+    })
+
+    const secondRecoverResponse = await app.inject({
+      method: 'POST',
+      url: '/api/works/recover-from-tasks',
+      headers: { cookie: registered.cookie },
+    })
+    expect(secondRecoverResponse.statusCode).toBe(200)
+    expect(secondRecoverResponse.json()).toMatchObject({
+      data: {
+        success: true,
+        count: 0,
+      },
+    })
+
     await app.close()
   })
 
@@ -554,6 +672,247 @@ describe('release regression routes', () => {
       error: {
         code: 'TASK_NOT_CANCELLABLE',
       },
+    })
+
+    await app.close()
+  })
+
+  it('shows only the latest logical task attempt in admin dashboard task summaries', async () => {
+    const app = await createServer()
+    const registered = await registerUser(app, {
+      email: 'release-admin-dashboard-tasks@example.com',
+      password: '123456',
+      nickname: 'release-admin-dashboard-tasks',
+    })
+
+    const store = await storeRepository.read()
+    const currentUser = store.users.find((item) => item.id === registered.user.id)
+    if (!currentUser) throw new Error('missing registered user')
+    currentUser.role = 'admin'
+    currentUser.updatedAt = new Date().toISOString()
+    store.generationTasks.push(
+      {
+        id: 'task-slot-9-attempt-1',
+        userId: registered.user.id,
+        status: 'failed',
+        progress: 100,
+        createdAt: '2026-05-04T09:00:00.000Z',
+        updatedAt: '2026-05-04T09:01:00.000Z',
+        errorMessage: '首次失败',
+        payload: buildGenerationTaskPayload({
+          title: '变体 #9',
+          snapshotId: 'slot-9-attempt-1',
+          tracking: {
+            rootTaskId: 'task-slot-9-root',
+            retryAttempt: 0,
+          },
+          draw: {
+            count: 2,
+            strategy: 'smart',
+            concurrency: 2,
+            delayMs: 500,
+            retries: 1,
+            timeoutSec: 90,
+            safeMode: true,
+            variationStrength: 'medium',
+            dimensions: ['portrait'],
+            batchId: 'batch-admin-dashboard',
+            batchSnapshotId: 'batch-admin-dashboard-snapshot',
+            drawIndex: 9,
+            variation: '正面',
+          },
+        }),
+      },
+      {
+        id: 'task-slot-9-attempt-2',
+        userId: registered.user.id,
+        status: 'succeeded',
+        progress: 100,
+        createdAt: '2026-05-04T09:02:00.000Z',
+        updatedAt: '2026-05-04T09:03:00.000Z',
+        payload: buildGenerationTaskPayload({
+          title: '变体 #9',
+          snapshotId: 'slot-9-attempt-2',
+          tracking: {
+            rootTaskId: 'task-slot-9-root',
+            parentTaskId: 'task-slot-9-attempt-1',
+            retryAttempt: 1,
+            recoverySource: 'manual',
+          },
+          draw: {
+            count: 2,
+            strategy: 'smart',
+            concurrency: 2,
+            delayMs: 500,
+            retries: 1,
+            timeoutSec: 90,
+            safeMode: true,
+            variationStrength: 'medium',
+            dimensions: ['portrait'],
+            batchId: 'batch-admin-dashboard',
+            batchSnapshotId: 'batch-admin-dashboard-snapshot',
+            drawIndex: 9,
+            variation: '正面',
+          },
+        }),
+        result: {
+          workId: 'work-slot-9',
+          imageUrl: 'https://example.com/work-slot-9.png',
+          title: '变体 #9',
+          meta: '成功结果',
+          promptText: 'studio portrait',
+          promptSnippet: 'studio portrait',
+          size: '1024x1024',
+          quality: 'high',
+          providerModel: 'gpt-image-1',
+          snapshotId: 'work-slot-9-snapshot',
+          mode: 'draw-text2image',
+          batchId: 'batch-admin-dashboard',
+          drawIndex: 9,
+          variation: '正面',
+        },
+      },
+      {
+        id: 'task-slot-10-attempt-1',
+        userId: registered.user.id,
+        status: 'failed',
+        progress: 100,
+        createdAt: '2026-05-04T09:04:00.000Z',
+        updatedAt: '2026-05-04T09:05:00.000Z',
+        errorMessage: '仍然失败',
+        payload: buildGenerationTaskPayload({
+          title: '变体 #10',
+          snapshotId: 'slot-10-attempt-1',
+          draw: {
+            count: 2,
+            strategy: 'smart',
+            concurrency: 2,
+            delayMs: 500,
+            retries: 1,
+            timeoutSec: 90,
+            safeMode: true,
+            variationStrength: 'medium',
+            dimensions: ['portrait'],
+            batchId: 'batch-admin-dashboard',
+            batchSnapshotId: 'batch-admin-dashboard-snapshot',
+            drawIndex: 10,
+            variation: '侧面',
+          },
+        }),
+      },
+    )
+    await storeRepository.write(store)
+
+    const dashboardResponse = await app.inject({
+      method: 'GET',
+      url: '/api/admin/dashboard',
+      headers: { cookie: registered.cookie },
+    })
+
+    expect(dashboardResponse.statusCode).toBe(200)
+    expect(dashboardResponse.json()).toMatchObject({
+      data: {
+        overview: {
+          taskStatusBreakdown: {
+            succeeded: 1,
+            failed: 1,
+          },
+        },
+        recentTasks: [
+          {
+            id: 'task-slot-10-attempt-1',
+            status: 'failed',
+          },
+          {
+            id: 'task-slot-9-attempt-2',
+            status: 'succeeded',
+          },
+        ],
+      },
+    })
+    expect(
+      (dashboardResponse.json().data.recentTasks as Array<{ id: string }>).some(
+        (task) => task.id === 'task-slot-9-attempt-1',
+      ),
+    ).toBe(false)
+
+    const currentTasksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/admin/tasks?view=current',
+      headers: { cookie: registered.cookie },
+    })
+    expect(currentTasksResponse.statusCode).toBe(200)
+    expect(currentTasksResponse.json()).toMatchObject({
+      data: {
+        total: 2,
+        items: [
+          {
+            id: 'task-slot-10-attempt-1',
+            status: 'failed',
+            retryAttempt: 0,
+          },
+          {
+            id: 'task-slot-9-attempt-2',
+            status: 'succeeded',
+            retryAttempt: 1,
+            rootTaskId: 'task-slot-9-root',
+            parentTaskId: 'task-slot-9-attempt-1',
+          },
+        ],
+      },
+    })
+
+    const historyTasksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/admin/tasks?view=history',
+      headers: { cookie: registered.cookie },
+    })
+    expect(historyTasksResponse.statusCode).toBe(200)
+    expect(historyTasksResponse.json()).toMatchObject({
+      data: {
+        total: 3,
+        items: [
+          {
+            id: 'task-slot-10-attempt-1',
+            status: 'failed',
+            retryAttempt: 0,
+          },
+          {
+            id: 'task-slot-9-attempt-2',
+            status: 'succeeded',
+            retryAttempt: 1,
+          },
+          {
+            id: 'task-slot-9-attempt-1',
+            status: 'failed',
+            retryAttempt: 0,
+          },
+        ],
+      },
+    })
+
+    const attemptsResponse = await app.inject({
+      method: 'GET',
+      url: '/api/admin/tasks/task-slot-9-attempt-2/attempts',
+      headers: { cookie: registered.cookie },
+    })
+    expect(attemptsResponse.statusCode).toBe(200)
+    expect(attemptsResponse.json()).toMatchObject({
+      data: [
+        {
+          id: 'task-slot-9-attempt-2',
+          status: 'succeeded',
+          retryAttempt: 1,
+          rootTaskId: 'task-slot-9-root',
+          parentTaskId: 'task-slot-9-attempt-1',
+        },
+        {
+          id: 'task-slot-9-attempt-1',
+          status: 'failed',
+          retryAttempt: 0,
+          rootTaskId: 'task-slot-9-root',
+        },
+      ],
     })
 
     await app.close()

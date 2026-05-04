@@ -59,10 +59,10 @@ export function AdminShell() {
   }, [])
 
   return (
-    <main className="mx-auto w-full max-w-screen-2xl px-4 pb-10 pt-32 md:px-8">
-      <section className="panel-shell">
-        <div className="flex flex-col gap-6 xl:flex-row">
-          <aside className="xl:sticky xl:top-28 xl:w-[280px] xl:self-start">
+    <main className="app-page-shell app-page-shell-full">
+      <section className="panel-shell w-full">
+        <div className="admin-workspace-shell">
+          <aside className="admin-workspace-sidebar">
             <div className="rounded-[2rem] border border-porcelain-50/10 bg-ink-950/[0.56] p-5 shadow-card">
               <p className="eyebrow">Admin Console</p>
               <h1 className="mt-3 text-2xl font-semibold tracking-tight text-porcelain-50">
@@ -116,7 +116,7 @@ export function AdminShell() {
             </div>
           </aside>
 
-          <div className="min-w-0 flex-1">
+          <div className="admin-workspace-main">
             <Outlet />
           </div>
         </div>

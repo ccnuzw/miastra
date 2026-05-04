@@ -13,12 +13,15 @@ import {
 } from '@/features/generation/generation.api'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
 import { requestGenerationImage } from '@/features/generation/generation.request'
+import { validateGenerationInputState } from '@/features/generation/generation.validation'
+import { upsertStoredWork } from '@/features/works/works.storage'
 import type { GenerationError, GenerationMode, GenerationRequestOptions, GenerationStage, GenerationStatus, GenerationSnapshot } from '@/features/generation/generation.types'
 import { getErrorDisplay } from '@/shared/errors/app-error'
 import { sleep } from '@/shared/utils/sleep'
 
 type UseGenerationFlowOptions = {
   config: ProviderConfig
+  providerLoading: boolean
   requestUrl: string
   editRequestUrl: string
   prompt: string
@@ -125,6 +128,7 @@ function getRetryDelayMs(attempt: number) {
 
 export function useGenerationFlow({
   config,
+  providerLoading,
   requestUrl,
   editRequestUrl,
   prompt,
@@ -169,14 +173,26 @@ export function useGenerationFlow({
   status,
 }: UseGenerationFlowOptions) {
   function validateGenerationInput() {
-    if (!config.model || !config.apiUrl || !config.apiKey || !prompt.trim()) {
+    if (providerLoading) {
+      setStatus('idle')
+      setStage('idle')
+      setStatusText('正在恢复已保存的 Provider 配置，请稍候再试')
+      return false
+    }
+
+    const validation = validateGenerationInputState(config, prompt)
+    if (!validation.ok) {
       setStatus('error')
       setStage('error')
-      setStatusText('请先在右上角设置里补全 Provider API URL、Model、API Key 和提示词')
-      setSettingsOpen(true)
+      setStatusText(validation.message)
+      if (validation.openSettings) setSettingsOpen(true)
       return false
     }
     return true
+  }
+
+  async function persistGeneratedWork(image: GalleryImage) {
+    return await upsertStoredWork(image)
   }
 
   function syncTaskSnapshots(tasks: DrawTask[]) {
@@ -337,11 +353,13 @@ export function useGenerationFlow({
         setStatusText('已取消当前生成任务')
         return
       }
-      setGallery((items) => [nextImage, ...items])
+      const savedImage = await persistGeneratedWork(nextImage)
+      setGallery((items) => [savedImage, ...items])
+      setPreviewImage(savedImage)
       setStatus('success')
       setStage('success')
-      setStatusText(nextImage.src ? '生成成功，图片已加入作品区' : '请求成功，未解析到图片，已保留响应')
-      const result = buildTaskResult(nextImage)
+      setStatusText(savedImage.src ? '生成成功，图片已加入作品区' : '请求成功，未解析到图片，已保留响应')
+      const result = buildTaskResult(savedImage)
       syncRemoteTask(createdTask?.id, { status: 'succeeded', progress: 100, result })
     } catch (error) {
       if (isAbortError(error) || isGenerationError(error) && error.code === 'abort') {
@@ -466,10 +484,11 @@ export function useGenerationFlow({
             ? 'cancelled' as const
             : latestAfterRequest.status
         }
+        const savedImage = await persistGeneratedWork(image)
         const finishedAt = Date.now()
         patchTask(task.id, {
           status: 'success',
-          image,
+          image: savedImage,
           retryCount: attempt,
           finishedAt,
           error: undefined,
@@ -478,11 +497,11 @@ export function useGenerationFlow({
         }, {
           status: 'succeeded',
           progress: 100,
-          result: buildTaskResult(image),
+          result: buildTaskResult(savedImage),
         })
-        setGallery((items) => [image, ...items])
-        setPreviewImage(image)
-        options.onSuccess?.(image)
+        setGallery((items) => [savedImage, ...items])
+        setPreviewImage(savedImage)
+        options.onSuccess?.(savedImage)
         return 'success' as const
       } catch (error) {
         taskControllersRef.current.delete(task.id)

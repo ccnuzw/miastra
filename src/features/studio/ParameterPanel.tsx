@@ -8,20 +8,23 @@ type ParameterPanelProps = {
   resolutionTier: ResolutionTier
   quality: string
   stream: boolean
-  detailStrength: number
-  detailTone: string
-  negativePrompt: string
   onAspectChange: (value: string) => void
   onResolutionChange: (value: ResolutionTier) => void
   onQualityChange: (value: string) => void
   onStreamChange: (value: boolean) => void
-  onDetailStrengthChange: (value: number) => void
-  onNegativePromptChange: (value: string) => void
 }
 
 export function ParameterPanel(props: ParameterPanelProps) {
   return (
     <div className="parameter-panel">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="eyebrow">Core Controls</p>
+          <h3 className="mt-2 text-xl font-semibold tracking-tight text-porcelain-50">常用参数</h3>
+        </div>
+        <span className="status-pill">高频参数优先展示</span>
+      </div>
+
       <div className="parameter-top-row">
         <div className="field-block parameter-card aspect-card">
           <div className="flex items-center justify-between gap-3">
@@ -38,7 +41,7 @@ export function ParameterPanel(props: ParameterPanelProps) {
           </div>
         </div>
 
-        <div className="field-block parameter-card resolution-card">
+        <div className="field-block parameter-card resolution-card studio-balanced-card">
           <div className="flex items-center justify-between gap-3">
             <span className="field-label">分辨率档位</span>
             <span className="param-value">{props.selectedResolutionLabel}</span>
@@ -54,15 +57,21 @@ export function ParameterPanel(props: ParameterPanelProps) {
           <p className="resolution-note">当前实际请求尺寸：{props.size}，需远端模型直接支持该尺寸。</p>
         </div>
 
-        <div className="field-block parameter-card generation-card">
+        <div className="field-block parameter-card generation-card studio-balanced-card">
           <span className="field-label">生成设置</span>
           <div className="generation-controls">
             <div className="quality-grid">
               {qualityOptions.map((option) => (
                 <button key={option.value} type="button" onClick={() => props.onQualityChange(option.value)} className={`quality-chip ${props.quality === option.value ? 'quality-chip-active' : ''}`}>
                   <span>{option.label}</span>
-                  <small>{option.hint}</small>
                 </button>
+              ))}
+            </div>
+            <div className="quality-note-row">
+              {qualityOptions.map((option) => (
+                <span key={option.value} className="quality-note-pill">
+                  {option.label} · {option.hint}
+                </span>
               ))}
             </div>
             <label className="stream-switch">
@@ -78,37 +87,6 @@ export function ParameterPanel(props: ParameterPanelProps) {
           </div>
         </div>
       </div>
-
-      <div className="field-block detail-control">
-        <div className="flex items-center justify-between gap-3">
-          <span className="field-label">细节强度</span>
-          <span className="param-value">{props.detailStrength}% · {props.detailTone}</span>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={props.detailStrength}
-          onChange={(event) => props.onDetailStrengthChange(Number(event.target.value))}
-          className="detail-slider"
-          style={{ ['--detail-value' as string]: `${props.detailStrength}%` }}
-        />
-        <div className="flex items-center justify-between text-xs font-semibold text-porcelain-100/35">
-          <span>柔和</span>
-          <span>锐利</span>
-        </div>
-      </div>
-
-      <label className="field-block">
-        <span className="field-label">负面提示词</span>
-        <textarea
-          value={props.negativePrompt}
-          onChange={(event) => props.onNegativePromptChange(event.target.value)}
-          className="negative-area"
-          rows={3}
-          placeholder="不希望出现在图片里的元素、风格或缺陷"
-        />
-      </label>
     </div>
   )
 }

@@ -47,6 +47,36 @@ const quickLinks = [
   },
 ] as const
 
+const operatorShortcuts = [
+  {
+    to: '/app/admin/tasks?preset=failed&status=failed',
+    label: '失败任务',
+  },
+  {
+    to: '/app/admin/tasks?preset=queued&status=queued',
+    label: '排队任务',
+  },
+  {
+    to: '/app/admin/users?preset=admins&role=admin',
+    label: '管理员账号',
+  },
+  {
+    to: '/app/admin/audit?preset=provider-change&targetType=managed_provider',
+    label: 'Provider 变更',
+  },
+  {
+    to: '/app/admin/audit?preset=work-delete&action=work.deleted&targetType=work',
+    label: '作品删除记录',
+  },
+] as const
+
+type AdminPriorityItem = {
+  title: string
+  description: string
+  to: string
+  tone: string
+}
+
 export function AdminOverviewPage() {
   const [data, setData] = useState<AdminDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,6 +110,7 @@ export function AdminOverviewPage() {
       {
         title: '失败任务',
         value: failedTasks,
+        to: '/app/admin/tasks?preset=failed&status=failed',
         tone:
           failedTasks > 0
             ? 'border-signal-coral/25 bg-signal-coral/10 text-signal-coral'
@@ -87,17 +118,29 @@ export function AdminOverviewPage() {
         hint: failedTasks > 0 ? '建议进入任务页排查失败原因。' : '当前没有失败任务。',
       },
       {
-        title: '排队与运行',
-        value: runningTasks + queuedTasks,
+        title: '执行中任务',
+        value: runningTasks,
+        to: '/app/admin/tasks?preset=running&status=running',
         tone:
-          runningTasks + queuedTasks > 0
+          runningTasks > 0
             ? 'border-amber-400/25 bg-amber-400/10 text-amber-200'
             : 'border-porcelain-50/10 bg-ink-950/[0.42] text-porcelain-50',
-        hint: '用于观察系统积压和正在执行的压力。',
+        hint: runningTasks > 0 ? '适合跟进长时间执行中的任务。' : '当前没有执行中的任务。',
+      },
+      {
+        title: '排队任务',
+        value: queuedTasks,
+        to: '/app/admin/tasks?preset=queued&status=queued',
+        tone:
+          queuedTasks > 0
+            ? 'border-amber-400/25 bg-amber-400/10 text-amber-200'
+            : 'border-porcelain-50/10 bg-ink-950/[0.42] text-porcelain-50',
+        hint: queuedTasks > 0 ? '适合排查积压和吞吐压力。' : '当前没有排队任务。',
       },
       {
         title: '管理员账号',
         value: adminCount,
+        to: '/app/admin/users?preset=admins&role=admin',
         tone:
           adminCount > 1
             ? 'border-signal-cyan/25 bg-signal-cyan/10 text-signal-cyan'
@@ -107,8 +150,71 @@ export function AdminOverviewPage() {
     ]
   }, [data])
 
+  const priorities = useMemo(() => {
+    if (!data) return []
+
+    const providerDisabled = data.overview.providerHealth.disabled
+    const providerMissingApiKey = data.overview.providerHealth.missingApiKey
+    const failedTasks = data.overview.taskStatusBreakdown.failed ?? 0
+    const queuedTasks = data.overview.taskStatusBreakdown.queued ?? 0
+    const runningTasks = data.overview.taskStatusBreakdown.running ?? 0
+    const adminCount = data.overview.roleBreakdown.admin ?? 0
+
+    const items: Array<AdminPriorityItem | null> = [
+      failedTasks > 0
+        ? {
+            title: '优先处理失败任务',
+            description: `当前有 ${failedTasks} 个失败任务，建议优先排查模型、上游返回和配额异常。`,
+            to: '/app/admin/tasks?preset=failed&status=failed',
+            tone: 'border-signal-coral/25 bg-signal-coral/10 text-signal-coral',
+          }
+        : null,
+      queuedTasks > 0
+        ? {
+            title: '关注任务积压',
+            description: `当前有 ${queuedTasks} 个任务仍在排队，建议检查吞吐和上游可用性。`,
+            to: '/app/admin/tasks?preset=queued&status=queued',
+            tone: 'border-amber-400/25 bg-amber-400/10 text-amber-200',
+          }
+        : null,
+      runningTasks > 0
+        ? {
+            title: '跟进长时间执行中的任务',
+            description: `当前有 ${runningTasks} 个执行中任务，建议确认是否存在超时或重试链路异常。`,
+            to: '/app/admin/tasks?preset=running&status=running',
+            tone: 'border-amber-400/25 bg-amber-400/10 text-amber-200',
+          }
+        : null,
+      providerDisabled > 0
+        ? {
+            title: '检查已停用 Provider',
+            description: `当前有 ${providerDisabled} 个公共 Provider 处于停用状态，建议确认是否影响前台可选能力。`,
+            to: '/app/admin/providers',
+            tone: 'border-signal-coral/25 bg-signal-coral/10 text-signal-coral',
+          }
+        : null,
+      providerMissingApiKey > 0
+        ? {
+            title: '补齐 Provider 凭证',
+            description: `当前有 ${providerMissingApiKey} 个公共 Provider 未配置 API Key，建议优先补齐或下线。`,
+            to: '/app/admin/providers',
+            tone: 'border-signal-coral/25 bg-signal-coral/10 text-signal-coral',
+          }
+        : null,
+      adminCount > 1
+        ? {
+            title: '复核高权限账号',
+            description: `当前有 ${adminCount} 个管理员账号，建议定期审查高权限账号是否仍有必要。`,
+            to: '/app/admin/users?preset=admins&role=admin',
+            tone: 'border-signal-cyan/25 bg-signal-cyan/10 text-signal-cyan',
+          }
+        : null,
+    ]
+    return items.filter((item): item is AdminPriorityItem => item !== null)
+  }, [data])
+
   return (
-    <div className="space-y-6">
+    <div className="admin-page-content">
       <AdminPageHeader
         eyebrow="Overview"
         title="后台总览"
@@ -139,15 +245,72 @@ export function AdminOverviewPage() {
         <>
           <AdminOverviewCards counts={data.overview.counts} />
 
-          <div className="grid gap-4 xl:grid-cols-3">
+          <section className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-porcelain-50">待处理中心</h2>
+                <p className="mt-1 text-sm text-porcelain-100/55">
+                  首页优先展示当前需要跟进的对象，减少在后台内反复跳转查找。
+                </p>
+              </div>
+              <span className="status-pill">共 {alerts.reduce((sum, item) => sum + item.value, 0)} 个重点对象</span>
+            </div>
+          <div className="grid gap-4 xl:grid-cols-4">
             {alerts.map((alert) => (
-              <article key={alert.title} className={`progress-card border ${alert.tone}`}>
+              <Link key={alert.title} to={alert.to} className={`progress-card block border transition hover:-translate-y-0.5 ${alert.tone}`}>
                 <p className="text-xs uppercase tracking-[0.22em] text-current/70">{alert.title}</p>
                 <p className="mt-3 text-4xl font-semibold text-current">{alert.value}</p>
                 <p className="mt-3 text-sm text-porcelain-100/60">{alert.hint}</p>
-              </article>
+                <p className="mt-4 text-xs font-semibold text-current/80">进入处理</p>
+              </Link>
             ))}
           </div>
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-porcelain-50">建议优先处理</h2>
+              <p className="mt-1 text-sm text-porcelain-100/55">
+                把后台当前最值得跟进的异常和运营动作收敛到一处，避免只看总数。
+              </p>
+            </div>
+            {priorities.length ? (
+              <div className="grid gap-4 xl:grid-cols-2">
+                {priorities.map((item) => (
+                  <Link
+                    key={item.title}
+                    to={item.to}
+                    className={`progress-card block border transition hover:-translate-y-0.5 ${item.tone}`}
+                  >
+                    <p className="text-sm font-semibold text-current">{item.title}</p>
+                    <p className="mt-2 text-sm leading-6 text-porcelain-100/68">{item.description}</p>
+                    <p className="mt-4 text-xs font-semibold text-current/80">立即查看</p>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="progress-card border border-signal-cyan/20 bg-signal-cyan/10 text-signal-cyan">
+                <p className="text-sm font-semibold">当前没有需要优先处理的异常。</p>
+                <p className="mt-2 text-sm text-porcelain-100/70">系统状态平稳，可以继续做例行巡检和抽样检查。</p>
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-porcelain-50">运营捷径</h2>
+              <p className="mt-1 text-sm text-porcelain-100/55">
+                直接进入后台里最常用的几个处理视角，减少从模块页再二次筛选的成本。
+              </p>
+            </div>
+            <div className="admin-filter-strip">
+              {operatorShortcuts.map((item) => (
+                <Link key={item.to} to={item.to} className="admin-filter-chip">
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          </section>
 
           <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
             <article className="progress-card">
@@ -235,9 +398,10 @@ export function AdminOverviewPage() {
               </div>
               <div className="mt-4 space-y-3">
                 {data.users.map((user) => (
-                  <div
+                  <Link
                     key={user.id}
-                    className="rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-3 text-sm text-porcelain-100/72"
+                    to={`/app/admin/users?selected=${user.id}`}
+                    className="block rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-3 text-sm text-porcelain-100/72"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-semibold text-porcelain-50">{user.nickname}</p>
@@ -251,7 +415,7 @@ export function AdminOverviewPage() {
                     <p className="mt-2 text-xs text-porcelain-100/45">
                       会话 {user.activeSessionCount} / 作品 {user.workCount} / 任务 {user.taskCount}
                     </p>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </article>
@@ -265,9 +429,10 @@ export function AdminOverviewPage() {
               </div>
               <div className="mt-4 space-y-3">
                 {data.recentTasks.map((task) => (
-                  <div
+                  <Link
                     key={task.id}
-                    className="rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-3 text-sm text-porcelain-100/72"
+                    to={`/app/admin/tasks?selected=${task.id}`}
+                    className="block rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-3 text-sm text-porcelain-100/72"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <p className="font-semibold text-porcelain-50">
@@ -285,7 +450,7 @@ export function AdminOverviewPage() {
                     <p className="mt-2 text-xs text-porcelain-100/45">
                       模型：{task.payload.providerId} / {task.payload.model}
                     </p>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </article>
@@ -299,9 +464,10 @@ export function AdminOverviewPage() {
               </div>
               <div className="mt-4 space-y-3">
                 {data.recentWorks.map((work) => (
-                  <div
+                  <Link
                     key={work.id}
-                    className="rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-3 text-sm text-porcelain-100/72"
+                    to={`/app/admin/works?selected=${work.id}`}
+                    className="block rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-3 text-sm text-porcelain-100/72"
                   >
                     <p className="font-semibold text-porcelain-50">{work.title}</p>
                     <p className="mt-1 text-xs text-porcelain-100/45">
@@ -310,7 +476,7 @@ export function AdminOverviewPage() {
                     <p className="mt-2 text-xs text-porcelain-100/45">
                       创建时间：{formatAdminDateTime(work.createdAt)}
                     </p>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </article>

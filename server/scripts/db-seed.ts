@@ -31,14 +31,14 @@ export async function seedDatabase() {
     await pool.query('TRUNCATE TABLE audit_logs, generation_tasks, provider_configs, sessions, prompt_templates, works, draw_batches, quota_profiles, users RESTART IDENTITY CASCADE')
 
     await pool.query(
-      `INSERT INTO users (id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)`,
+      `INSERT INTO users (id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'active', NULL, $6, NULL, $5, NULL, NULL, $6, $7)`,
       [adminId, 'admin@miastra.local', 'admin', 'admin', adminPasswordHash, now, now],
     )
 
     await pool.query(
-      `INSERT INTO users (id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)`,
+      `INSERT INTO users (id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'active', NULL, $6, NULL, $5, NULL, NULL, $6, $7)`,
       [userId, 'demo@miastra.local', 'Demo Creator', 'user', demoPasswordHash, now, now],
     )
 

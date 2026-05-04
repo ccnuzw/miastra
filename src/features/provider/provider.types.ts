@@ -17,7 +17,15 @@ export type ProviderConfig = {
   apiKey: string
 }
 
+export type ProviderPolicy = {
+  allowManagedProviders: boolean
+  allowCustomProvider: boolean
+  allowedManagedProviderIds: string[]
+  allowedModels: string[]
+}
+
 export type ProviderConfigPayload = {
   config: ProviderConfig
   managedProviders: ManagedProviderOption[]
+  providerPolicy: ProviderPolicy
 }

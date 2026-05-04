@@ -136,6 +136,8 @@
 | `GET` | `/api/admin/users` | 用户分页查询 |
 | `GET` | `/api/admin/users/:id` | 用户详情 |
 | `POST` | `/api/admin/users/:id/role` | 调整角色 |
+| `POST` | `/api/admin/users/:id/status` | 更新用户状态 |
+| `POST` | `/api/admin/users/:id/quota-adjustments` | 调整用户额度 |
 | `POST` | `/api/admin/users/:id/revoke-sessions` | 撤销用户会话 |
 | `GET` | `/api/admin/works` | 全局作品查询 |
 | `GET` | `/api/admin/works/:id` | 单作品详情 |
@@ -154,6 +156,7 @@
 - `/health`、`/ready`、`/health/store` 不需要登录
 - `/api/auth/register`、`/api/auth/login`、`/api/auth/forgot-password`、`/api/auth/reset-password` 不需要登录
 - 大多数 `/api/*` 业务接口需要登录
+- 冻结或禁用用户会在鉴权阶段被拒绝继续登录和访问受保护接口
 - `/api/admin/*` 需要服务端角色校验，不以单纯前端可见性作为准入
 
 ## 12. 联调建议

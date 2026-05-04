@@ -4,10 +4,12 @@ import type { ReferenceImage } from '@/features/references/reference.types'
 
 type PromptComposerProps = {
   prompt: string
+  negativePrompt: string
   referenceImages: ReferenceImage[]
   hasReferenceImage: boolean
   inputRef: RefObject<HTMLInputElement>
   onPromptChange: (value: string) => void
+  onNegativePromptChange: (value: string) => void
   onReferenceUpload: (event: ChangeEvent<HTMLInputElement>) => void
   onRemoveReference: (id: string) => void
   onSaveTemplate: () => void
@@ -17,10 +19,12 @@ type PromptComposerProps = {
 
 export function PromptComposer({
   prompt,
+  negativePrompt,
   referenceImages,
   hasReferenceImage,
   inputRef,
   onPromptChange,
+  onNegativePromptChange,
   onReferenceUpload,
   onRemoveReference,
   onSaveTemplate,
@@ -54,6 +58,16 @@ export function PromptComposer({
         </div>
       </div>
       <textarea value={prompt} onChange={(event) => onPromptChange(event.target.value)} className="prompt-area" rows={9} />
+      <label className="field-block">
+        <span className="field-label">Negative Prompt</span>
+        <textarea
+          value={negativePrompt}
+          onChange={(event) => onNegativePromptChange(event.target.value)}
+          className="negative-area"
+          rows={4}
+          placeholder="不希望出现在图片里的元素、风格或缺陷"
+        />
+      </label>
       <div className="reference-tray">
         <div className="reference-strip">
           {referenceImages.map((image, index) => (

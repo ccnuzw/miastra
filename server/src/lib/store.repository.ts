@@ -1,12 +1,13 @@
-import type { DataStore, StoredWork } from '../auth/types'
 import { randomUUID } from 'node:crypto'
-import { dirname, resolve } from 'node:path'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { Pool } from 'pg'
-import { createPostgresAuthTablesRepository } from './auth-tables.repository'
-import { createPostgresGenerationTaskTablesRepository } from './generation-task-tables.repository'
-import { createPostgresContentTablesRepository } from './content-tables.repository'
+import { normalizeAssetStorageConfig } from '../assets/storage.service'
+import type { AuthRecord, DataStore, StoredWork } from '../auth/types'
 import { createPostgresAuditLogTablesRepository } from './audit-log-tables.repository'
+import { createPostgresAuthTablesRepository } from './auth-tables.repository'
+import { createPostgresContentTablesRepository } from './content-tables.repository'
+import { createPostgresGenerationTaskTablesRepository } from './generation-task-tables.repository'
 
 export type StoreRepository = {
   read: () => Promise<DataStore>
@@ -32,6 +33,7 @@ const emptyStore: DataStore = {
   sessions: [],
   promptTemplates: [],
   works: [],
+  assetStorageConfig: normalizeAssetStorageConfig(),
   providerConfigs: [],
   managedProviders: [],
   drawBatches: [],
@@ -41,16 +43,62 @@ const emptyStore: DataStore = {
   billingInvoices: [],
 }
 
+function normalizeStoredUser(user: unknown): AuthRecord | null {
+  if (!user || typeof user !== 'object') return null
+  const record = user as Record<string, unknown>
+  const id = normalizeOptionalString(record.id)
+  const email = normalizeOptionalString(record.email)
+  const nickname = normalizeOptionalString(record.nickname)
+  const role: AuthRecord['role'] =
+    record.role === 'operator' || record.role === 'admin' ? record.role : 'user'
+  const passwordHash = normalizeOptionalString(record.passwordHash)
+  const createdAt = normalizeOptionalString(record.createdAt)
+  const updatedAt = normalizeOptionalString(record.updatedAt)
+  if (!id || !email || !nickname) return null
+  if (!passwordHash || !createdAt || !updatedAt) return null
+
+  const status: AuthRecord['status'] =
+    record.status === 'frozen' || record.status === 'disabled' ? record.status : 'active'
+
+  return {
+    id,
+    email,
+    nickname,
+    role,
+    status,
+    allowManagedProviders: record.allowManagedProviders !== false,
+    allowCustomProvider: record.allowCustomProvider !== false,
+    allowedManagedProviderIds: normalizeStringArray(record.allowedManagedProviderIds),
+    allowedModels: normalizeStringArray(record.allowedModels),
+    passwordHash,
+    createdAt,
+    updatedAt,
+    statusReason: normalizeOptionalString(record.statusReason) ?? null,
+    statusUpdatedAt: normalizeOptionalString(record.statusUpdatedAt) ?? null,
+    statusUpdatedBy: normalizeOptionalString(record.statusUpdatedBy) ?? null,
+    passwordResetToken: normalizeOptionalString(record.passwordResetToken) ?? null,
+    passwordResetExpiresAt: normalizeOptionalString(record.passwordResetExpiresAt) ?? null,
+  }
+}
+
 function normalizeStore(value: Partial<DataStore> | null | undefined): DataStore {
   const works = Array.isArray(value?.works)
-    ? value.works.map((item) => normalizeStoredWork(item)).filter((item): item is StoredWork => Boolean(item))
+    ? value.works
+        .map((item) => normalizeStoredWork(item))
+        .filter((item): item is StoredWork => Boolean(item))
+    : []
+  const users = Array.isArray(value?.users)
+    ? value.users
+        .map((item) => normalizeStoredUser(item))
+        .filter((item): item is AuthRecord => Boolean(item))
     : []
 
   return {
-    users: Array.isArray(value?.users) ? value.users : [],
+    users,
     sessions: Array.isArray(value?.sessions) ? value.sessions : [],
     promptTemplates: Array.isArray(value?.promptTemplates) ? value.promptTemplates : [],
     works,
+    assetStorageConfig: normalizeAssetStorageConfig(value?.assetStorageConfig),
     providerConfigs: Array.isArray(value?.providerConfigs) ? value.providerConfigs : [],
     managedProviders: Array.isArray(value?.managedProviders) ? value.managedProviders : [],
     drawBatches: Array.isArray(value?.drawBatches) ? value.drawBatches : [],
@@ -66,13 +114,19 @@ function normalizeOptionalString(value: unknown) {
 }
 
 function normalizeWorkTags(tags: unknown) {
-  const values = Array.isArray(tags)
-    ? tags
-    : typeof tags === 'string'
-      ? tags.split(/[,，\n]/)
-      : []
+  const values = Array.isArray(tags) ? tags : typeof tags === 'string' ? tags.split(/[,，\n]/) : []
 
-  return Array.from(new Set(values.map((tag) => typeof tag === 'string' ? tag.trim() : '').filter(Boolean)))
+  return Array.from(
+    new Set(values.map((tag) => (typeof tag === 'string' ? tag.trim() : '')).filter(Boolean)),
+  )
+}
+
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) return []
+
+  return Array.from(
+    new Set(value.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)),
+  )
 }
 
 function normalizeStoredWork(work: unknown): StoredWork | null {
@@ -100,7 +154,9 @@ function normalizeStoredWork(work: unknown): StoredWork | null {
   }
 }
 
-export function createJsonStoreRepository(options: JsonStoreRepositoryOptions = {}): StoreRepository {
+export function createJsonStoreRepository(
+  options: JsonStoreRepositoryOptions = {},
+): StoreRepository {
   const filePath = options.filePath ?? defaultDataFilePath
 
   async function readJsonStore() {
@@ -143,6 +199,14 @@ const postgresSchemaSql = `
     email TEXT NOT NULL UNIQUE,
     nickname TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('user', 'operator', 'admin')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'frozen', 'disabled')),
+    status_reason TEXT,
+    status_updated_at TIMESTAMPTZ,
+    status_updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    allow_managed_providers BOOLEAN NOT NULL DEFAULT TRUE,
+    allow_custom_provider BOOLEAN NOT NULL DEFAULT TRUE,
+    allowed_managed_provider_ids_json JSONB,
+    allowed_models_json JSONB,
     password_hash TEXT NOT NULL,
     password_reset_token TEXT,
     password_reset_expires_at TIMESTAMPTZ,
@@ -184,6 +248,22 @@ const postgresSchemaSql = `
     models_json JSONB NOT NULL,
     default_model TEXT NOT NULL,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS asset_storage_configs (
+    id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    endpoint TEXT,
+    bucket TEXT,
+    region TEXT,
+    access_key_id TEXT,
+    secret_access_key TEXT,
+    public_base_url TEXT,
+    key_prefix TEXT,
+    force_path_style BOOLEAN NOT NULL DEFAULT FALSE,
+    inline_max_bytes INTEGER NOT NULL DEFAULT 1000000,
     updated_at TIMESTAMPTZ NOT NULL
   );
 
@@ -334,24 +414,60 @@ async function ensurePostgresSchema(pool: Pool) {
   }
 
   postgresSchemaReady = (async () => {
-  await pool.query(postgresSchemaSql)
-  await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS cancelled_count INTEGER NOT NULL DEFAULT 0`)
-  await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS interrupted_count INTEGER NOT NULL DEFAULT 0`)
-  await pool.query(`ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS timeout_count INTEGER NOT NULL DEFAULT 0`)
-  await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS category TEXT`)
-  await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS name TEXT`)
-  await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS tags_json JSONB`)
-  await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ`)
-  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS favorite BOOLEAN`)
-  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_id TEXT`)
-  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_storage TEXT`)
-  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_sync_status TEXT`)
-  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_remote_key TEXT`)
-  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_remote_url TEXT`)
-  await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_updated_at BIGINT`)
-  await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id TEXT`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS prompt_templates_user_updated_at_idx ON prompt_templates(user_id, updated_at DESC)`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS prompt_templates_user_last_used_at_idx ON prompt_templates(user_id, last_used_at DESC)`)
+    await pool.query(postgresSchemaSql)
+    await pool.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`,
+    )
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_reason TEXT`)
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ`)
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_updated_by TEXT`)
+    await pool.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_managed_providers BOOLEAN NOT NULL DEFAULT TRUE`,
+    )
+    await pool.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_custom_provider BOOLEAN NOT NULL DEFAULT TRUE`,
+    )
+    await pool.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_managed_provider_ids_json JSONB`,
+    )
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_models_json JSONB`)
+    await pool.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check`)
+    await pool.query(
+      `ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('active', 'frozen', 'disabled'))`,
+    )
+    await pool.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_updated_by_fkey`)
+    await pool.query(
+      `ALTER TABLE users ADD CONSTRAINT users_status_updated_by_fkey FOREIGN KEY (status_updated_by) REFERENCES users(id) ON DELETE SET NULL`,
+    )
+    await pool.query(
+      `ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS cancelled_count INTEGER NOT NULL DEFAULT 0`,
+    )
+    await pool.query(
+      `ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS interrupted_count INTEGER NOT NULL DEFAULT 0`,
+    )
+    await pool.query(
+      `ALTER TABLE draw_batches ADD COLUMN IF NOT EXISTS timeout_count INTEGER NOT NULL DEFAULT 0`,
+    )
+    await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS category TEXT`)
+    await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS name TEXT`)
+    await pool.query(`ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS tags_json JSONB`)
+    await pool.query(
+      `ALTER TABLE prompt_templates ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ`,
+    )
+    await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS favorite BOOLEAN`)
+    await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_id TEXT`)
+    await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_storage TEXT`)
+    await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_sync_status TEXT`)
+    await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_remote_key TEXT`)
+    await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_remote_url TEXT`)
+    await pool.query(`ALTER TABLE works ADD COLUMN IF NOT EXISTS asset_updated_at BIGINT`)
+    await pool.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id TEXT`)
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS prompt_templates_user_updated_at_idx ON prompt_templates(user_id, updated_at DESC)`,
+    )
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS prompt_templates_user_last_used_at_idx ON prompt_templates(user_id, last_used_at DESC)`,
+    )
   })().catch((error) => {
     postgresSchemaReady = null
     throw error
@@ -368,6 +484,7 @@ async function writeCoreTables(pool: Pool, store: DataStore) {
     await pool.query('DELETE FROM audit_logs')
     await pool.query('DELETE FROM generation_tasks')
     await pool.query('DELETE FROM managed_providers')
+    await pool.query('DELETE FROM asset_storage_configs')
     await pool.query('DELETE FROM provider_configs')
     await pool.query('DELETE FROM sessions')
     await pool.query('DELETE FROM prompt_templates')
@@ -376,50 +493,258 @@ async function writeCoreTables(pool: Pool, store: DataStore) {
     await pool.query('DELETE FROM users')
 
     for (const user of store.users) {
-      await pool.query(`INSERT INTO users (id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, [user.id, user.email, user.nickname, user.role, user.passwordHash, user.passwordResetToken ?? null, user.passwordResetExpiresAt ?? null, user.createdAt, user.updatedAt])
+      await pool.query(
+        `INSERT INTO users (id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, allow_managed_providers, allow_custom_provider, allowed_managed_provider_ids_json, allowed_models_json, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, $14, $15, $16, $17)`,
+        [
+          user.id,
+          user.email,
+          user.nickname,
+          user.role,
+          user.status ?? 'active',
+          user.statusReason ?? null,
+          user.statusUpdatedAt ?? null,
+          user.statusUpdatedBy ?? null,
+          user.allowManagedProviders !== false,
+          user.allowCustomProvider !== false,
+          JSON.stringify(user.allowedManagedProviderIds ?? []),
+          JSON.stringify(user.allowedModels ?? []),
+          user.passwordHash,
+          user.passwordResetToken ?? null,
+          user.passwordResetExpiresAt ?? null,
+          user.createdAt,
+          user.updatedAt,
+        ],
+      )
     }
 
     for (const session of store.sessions) {
-      await pool.query(`INSERT INTO sessions (id, user_id, created_at, expires_at, revoked_at) VALUES ($1, $2, $3, $4, $5)`, [session.id, session.userId, session.createdAt, session.expiresAt, session.revokedAt ?? null])
+      await pool.query(
+        `INSERT INTO sessions (id, user_id, created_at, expires_at, revoked_at) VALUES ($1, $2, $3, $4, $5)`,
+        [
+          session.id,
+          session.userId,
+          session.createdAt,
+          session.expiresAt,
+          session.revokedAt ?? null,
+        ],
+      )
     }
 
     for (const config of store.providerConfigs) {
-      await pool.query(`INSERT INTO provider_configs (user_id, mode, provider_id, managed_provider_id, api_url, model, api_key, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [config.userId, config.mode, config.providerId, config.managedProviderId ?? null, config.apiUrl, config.model, config.apiKey, config.updatedAt])
+      await pool.query(
+        `INSERT INTO provider_configs (user_id, mode, provider_id, managed_provider_id, api_url, model, api_key, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          config.userId,
+          config.mode,
+          config.providerId,
+          config.managedProviderId ?? null,
+          config.apiUrl,
+          config.model,
+          config.apiKey,
+          config.updatedAt,
+        ],
+      )
     }
 
     for (const provider of store.managedProviders) {
-      await pool.query(`INSERT INTO managed_providers (id, name, description, api_url, api_key, models_json, default_model, enabled, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`, [provider.id, provider.name, provider.description ?? null, provider.apiUrl, provider.apiKey, JSON.stringify(provider.models), provider.defaultModel, provider.enabled, provider.updatedAt])
+      await pool.query(
+        `INSERT INTO managed_providers (id, name, description, api_url, api_key, models_json, default_model, enabled, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
+        [
+          provider.id,
+          provider.name,
+          provider.description ?? null,
+          provider.apiUrl,
+          provider.apiKey,
+          JSON.stringify(provider.models),
+          provider.defaultModel,
+          provider.enabled,
+          provider.updatedAt,
+        ],
+      )
     }
 
+    const assetStorageConfig = normalizeAssetStorageConfig(store.assetStorageConfig)
+    await pool.query(
+      `INSERT INTO asset_storage_configs (id, mode, provider, endpoint, bucket, region, access_key_id, secret_access_key, public_base_url, key_prefix, force_path_style, inline_max_bytes, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [
+        'default',
+        assetStorageConfig.mode,
+        assetStorageConfig.provider,
+        assetStorageConfig.endpoint || null,
+        assetStorageConfig.bucket || null,
+        assetStorageConfig.region || null,
+        assetStorageConfig.accessKeyId || null,
+        assetStorageConfig.secretAccessKey || null,
+        assetStorageConfig.publicBaseUrl || null,
+        assetStorageConfig.keyPrefix || null,
+        assetStorageConfig.forcePathStyle,
+        assetStorageConfig.inlineMaxBytes,
+        assetStorageConfig.updatedAt,
+      ],
+    )
+
     for (const task of store.generationTasks) {
-      await pool.query(`INSERT INTO generation_tasks (id, user_id, status, progress, error_message, payload_json, result_json, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)`, [task.id, task.userId, task.status, task.progress ?? null, task.errorMessage ?? null, JSON.stringify(task.payload), task.result ? JSON.stringify(task.result) : null, task.createdAt, task.updatedAt])
+      await pool.query(
+        `INSERT INTO generation_tasks (id, user_id, status, progress, error_message, payload_json, result_json, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)`,
+        [
+          task.id,
+          task.userId,
+          task.status,
+          task.progress ?? null,
+          task.errorMessage ?? null,
+          JSON.stringify(task.payload),
+          task.result ? JSON.stringify(task.result) : null,
+          task.createdAt,
+          task.updatedAt,
+        ],
+      )
     }
 
     for (const template of store.promptTemplates) {
-      const tags = Array.isArray(template.tags) ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean))) : []
-      await pool.query(`INSERT INTO prompt_templates (id, user_id, title, name, content, category, tags_json, created_at, updated_at, last_used_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`, [template.id, template.userId, template.title ?? null, template.name ?? null, template.content, template.category ?? null, tags.length ? JSON.stringify(tags) : null, typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt, template.updatedAt ? (typeof template.updatedAt === 'number' ? new Date(template.updatedAt).toISOString() : template.updatedAt) : (typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt), template.lastUsedAt ? (typeof template.lastUsedAt === 'number' ? new Date(template.lastUsedAt).toISOString() : template.lastUsedAt) : null])
+      const tags = Array.isArray(template.tags)
+        ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean)))
+        : []
+      await pool.query(
+        `INSERT INTO prompt_templates (id, user_id, title, name, content, category, tags_json, created_at, updated_at, last_used_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
+        [
+          template.id,
+          template.userId,
+          template.title ?? null,
+          template.name ?? null,
+          template.content,
+          template.category ?? null,
+          tags.length ? JSON.stringify(tags) : null,
+          typeof template.createdAt === 'number'
+            ? new Date(template.createdAt).toISOString()
+            : template.createdAt,
+          template.updatedAt
+            ? typeof template.updatedAt === 'number'
+              ? new Date(template.updatedAt).toISOString()
+              : template.updatedAt
+            : typeof template.createdAt === 'number'
+              ? new Date(template.createdAt).toISOString()
+              : template.createdAt,
+          template.lastUsedAt
+            ? typeof template.lastUsedAt === 'number'
+              ? new Date(template.lastUsedAt).toISOString()
+              : template.lastUsedAt
+            : null,
+        ],
+      )
     }
 
     for (const work of store.works) {
       const isFavorite = work.isFavorite ?? work.favorite ?? false
-      const tags = Array.isArray(work.tags) ? Array.from(new Set(work.tags.map((tag) => tag.trim()).filter(Boolean))) : []
-      await pool.query(`INSERT INTO works (id, user_id, title, src, meta, variation, batch_id, draw_index, task_status, error, retryable, retry_count, created_at, mode, provider_model, size, quality, snapshot_id, generation_snapshot_json, prompt_snippet, prompt_text, is_favorite, favorite, tags_json, asset_id, asset_storage, asset_sync_status, asset_remote_key, asset_remote_url, asset_updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $21, $22, $23, $24::jsonb, $25, $26, $27, $28, $29, $30)`, [work.id, work.userId, work.title, work.src ?? null, work.meta, work.variation ?? null, work.batchId ?? null, work.drawIndex ?? null, work.taskStatus ?? null, work.error ?? null, work.retryable ?? null, work.retryCount ?? null, work.createdAt ?? null, work.mode ?? null, work.providerModel ?? null, work.size ?? null, work.quality ?? null, work.snapshotId ?? null, work.generationSnapshot ? JSON.stringify(work.generationSnapshot) : null, work.promptSnippet ?? null, work.promptText ?? null, isFavorite, isFavorite, tags.length ? JSON.stringify(tags) : null, work.assetId ?? null, work.assetStorage ?? null, work.assetSyncStatus ?? null, work.assetRemoteKey ?? null, work.assetRemoteUrl ?? null, work.assetUpdatedAt ?? null])
+      const tags = Array.isArray(work.tags)
+        ? Array.from(new Set(work.tags.map((tag) => tag.trim()).filter(Boolean)))
+        : []
+      await pool.query(
+        `INSERT INTO works (id, user_id, title, src, meta, variation, batch_id, draw_index, task_status, error, retryable, retry_count, created_at, mode, provider_model, size, quality, snapshot_id, generation_snapshot_json, prompt_snippet, prompt_text, is_favorite, favorite, tags_json, asset_id, asset_storage, asset_sync_status, asset_remote_key, asset_remote_url, asset_updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $21, $22, $23, $24::jsonb, $25, $26, $27, $28, $29, $30)`,
+        [
+          work.id,
+          work.userId,
+          work.title,
+          work.src ?? null,
+          work.meta,
+          work.variation ?? null,
+          work.batchId ?? null,
+          work.drawIndex ?? null,
+          work.taskStatus ?? null,
+          work.error ?? null,
+          work.retryable ?? null,
+          work.retryCount ?? null,
+          work.createdAt ?? null,
+          work.mode ?? null,
+          work.providerModel ?? null,
+          work.size ?? null,
+          work.quality ?? null,
+          work.snapshotId ?? null,
+          work.generationSnapshot ? JSON.stringify(work.generationSnapshot) : null,
+          work.promptSnippet ?? null,
+          work.promptText ?? null,
+          isFavorite,
+          isFavorite,
+          tags.length ? JSON.stringify(tags) : null,
+          work.assetId ?? null,
+          work.assetStorage ?? null,
+          work.assetSyncStatus ?? null,
+          work.assetRemoteKey ?? null,
+          work.assetRemoteUrl ?? null,
+          work.assetUpdatedAt ?? null,
+        ],
+      )
     }
 
     for (const batch of store.drawBatches) {
-      await pool.query(`INSERT INTO draw_batches (id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, cancelled_count, interrupted_count, timeout_count, snapshot_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, [batch.id, batch.userId, batch.title, batch.createdAt, batch.strategy, batch.concurrency, batch.count, batch.successCount, batch.failedCount, batch.cancelledCount ?? 0, batch.interruptedCount ?? 0, batch.timeoutCount ?? 0, batch.snapshotId])
+      await pool.query(
+        `INSERT INTO draw_batches (id, user_id, title, created_at, strategy, concurrency, count, success_count, failed_count, cancelled_count, interrupted_count, timeout_count, snapshot_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          batch.id,
+          batch.userId,
+          batch.title,
+          batch.createdAt,
+          batch.strategy,
+          batch.concurrency,
+          batch.count,
+          batch.successCount,
+          batch.failedCount,
+          batch.cancelledCount ?? 0,
+          batch.interruptedCount ?? 0,
+          batch.timeoutCount ?? 0,
+          batch.snapshotId,
+        ],
+      )
     }
 
     for (const log of store.auditLogs) {
-      await pool.query(`INSERT INTO audit_logs (id, actor_user_id, actor_role, action, target_type, target_id, payload_json, ip, request_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`, [log.id, log.actorUserId, log.actorRole, log.action, log.targetType, log.targetId, JSON.stringify(log.payload ?? {}), log.ip ?? null, log.requestId ?? null, log.createdAt])
+      await pool.query(
+        `INSERT INTO audit_logs (id, actor_user_id, actor_role, action, target_type, target_id, payload_json, ip, request_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
+        [
+          log.id,
+          log.actorUserId,
+          log.actorRole,
+          log.action,
+          log.targetType,
+          log.targetId,
+          JSON.stringify(log.payload ?? {}),
+          log.ip ?? null,
+          log.requestId ?? null,
+          log.createdAt,
+        ],
+      )
     }
 
     for (const profile of store.quotaProfiles) {
-      await pool.query(`INSERT INTO quota_profiles (user_id, plan_name, quota_total, quota_used, quota_remaining, renews_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [profile.userId, profile.planName, profile.quotaTotal, profile.quotaUsed, profile.quotaRemaining, profile.renewsAt ?? null, profile.updatedAt])
+      await pool.query(
+        `INSERT INTO quota_profiles (user_id, plan_name, quota_total, quota_used, quota_remaining, renews_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          profile.userId,
+          profile.planName,
+          profile.quotaTotal,
+          profile.quotaUsed,
+          profile.quotaRemaining,
+          profile.renewsAt ?? null,
+          profile.updatedAt,
+        ],
+      )
     }
 
     for (const invoice of store.billingInvoices) {
-      await pool.query(`INSERT INTO billing_invoices (id, user_id, plan_name, amount_cents, currency, status, provider, provider_ref, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [invoice.id, invoice.userId, invoice.planName, invoice.amountCents, invoice.currency, invoice.status, invoice.provider, invoice.providerRef ?? null, invoice.createdAt, invoice.updatedAt])
+      await pool.query(
+        `INSERT INTO billing_invoices (id, user_id, plan_name, amount_cents, currency, status, provider, provider_ref, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          invoice.id,
+          invoice.userId,
+          invoice.planName,
+          invoice.amountCents,
+          invoice.currency,
+          invoice.status,
+          invoice.provider,
+          invoice.providerRef ?? null,
+          invoice.createdAt,
+          invoice.updatedAt,
+        ],
+      )
     }
 
     await pool.query('COMMIT')
@@ -429,7 +754,9 @@ async function writeCoreTables(pool: Pool, store: DataStore) {
   }
 }
 
-export function createPostgresStoreRepository(options: PostgresStoreRepositoryOptions): StoreRepository {
+export function createPostgresStoreRepository(
+  options: PostgresStoreRepositoryOptions,
+): StoreRepository {
   const pool = new Pool({ connectionString: options.connectionString })
   const authRepository = createPostgresAuthTablesRepository(pool)
   const generationTaskRepository = createPostgresGenerationTaskTablesRepository(pool)
@@ -438,25 +765,72 @@ export function createPostgresStoreRepository(options: PostgresStoreRepositoryOp
 
   async function readPostgresStore() {
     await ensurePostgresSchema(pool)
-    const [users, sessions, providerConfigs, managedProviders, generationTasks, promptTemplates, works, drawBatches, auditLogs, quotaProfiles, billingInvoices] = await Promise.all([
+    const [
+      users,
+      sessions,
+      providerConfigs,
+      managedProviders,
+      assetStorageConfig,
+      generationTasks,
+      promptTemplates,
+      works,
+      drawBatches,
+      auditLogs,
+      quotaProfiles,
+      billingInvoices,
+    ] = await Promise.all([
       authRepository.listUsers(),
       authRepository.listSessions(),
       authRepository.listProviderConfigs(),
-      pool.query(`
+      pool
+        .query(`
         SELECT id, name, description, api_url, api_key, models_json, default_model, enabled, updated_at
         FROM managed_providers
         ORDER BY updated_at DESC
-      `).then((result) => result.rows.map((row) => ({
-        id: String(row.id),
-        name: String(row.name),
-        description: row.description ? String(row.description) : undefined,
-        apiUrl: String(row.api_url),
-        apiKey: String(row.api_key),
-        models: Array.isArray(row.models_json) ? row.models_json.map(String) : [],
-        defaultModel: String(row.default_model),
-        enabled: Boolean(row.enabled),
-        updatedAt: new Date(row.updated_at as string | Date).toISOString(),
-      }))),
+      `)
+        .then((result) =>
+          result.rows.map((row) => ({
+            id: String(row.id),
+            name: String(row.name),
+            description: row.description ? String(row.description) : undefined,
+            apiUrl: String(row.api_url),
+            apiKey: String(row.api_key),
+            models: Array.isArray(row.models_json) ? row.models_json.map(String) : [],
+            defaultModel: String(row.default_model),
+            enabled: Boolean(row.enabled),
+            updatedAt: new Date(row.updated_at as string | Date).toISOString(),
+          })),
+        ),
+      pool
+        .query(`
+        SELECT mode, provider, endpoint, bucket, region, access_key_id, secret_access_key, public_base_url, key_prefix, force_path_style, inline_max_bytes, updated_at
+        FROM asset_storage_configs
+        WHERE id = 'default'
+        LIMIT 1
+      `)
+        .then((result) =>
+          normalizeAssetStorageConfig(
+            result.rows[0]
+              ? {
+                  mode: result.rows[0].mode,
+                  provider: result.rows[0].provider,
+                  endpoint: result.rows[0].endpoint,
+                  bucket: result.rows[0].bucket,
+                  region: result.rows[0].region,
+                  accessKeyId: result.rows[0].access_key_id,
+                  secretAccessKey: result.rows[0].secret_access_key,
+                  publicBaseUrl: result.rows[0].public_base_url,
+                  keyPrefix: result.rows[0].key_prefix,
+                  forcePathStyle: result.rows[0].force_path_style,
+                  inlineMaxBytes: result.rows[0].inline_max_bytes,
+                  updatedAt:
+                    result.rows[0].updated_at instanceof Date
+                      ? result.rows[0].updated_at.toISOString()
+                      : String(result.rows[0].updated_at),
+                }
+              : null,
+          ),
+        ),
       generationTaskRepository.listGenerationTasks(),
       contentRepository.listPromptTemplates(),
       contentRepository.listWorks(),
@@ -471,6 +845,7 @@ export function createPostgresStoreRepository(options: PostgresStoreRepositoryOp
       sessions,
       providerConfigs,
       managedProviders,
+      assetStorageConfig,
       generationTasks,
       promptTemplates,
       works,

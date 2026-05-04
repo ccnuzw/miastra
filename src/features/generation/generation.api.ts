@@ -189,7 +189,7 @@ export async function listDrawBatches() {
 }
 
 export async function createGenerationTask(payload: CreateGenerationTaskInput) {
-  return apiRequest<{ id: string; status: 'queued' }>('/api/generation-tasks', {
+  return apiRequest<{ id: string; status: 'pending' }>('/api/generation-tasks', {
     method: 'POST',
     body: payload,
   })

@@ -1,6 +1,22 @@
 export type GenerationMode = 'text2image' | 'image2image' | 'draw-text2image' | 'draw-image2image'
-export type DrawTaskStatus = 'pending' | 'running' | 'receiving' | 'success' | 'failed' | 'retrying' | 'cancelled' | 'timeout' | 'interrupted'
-export type GenerationTaskStatus = 'pending' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timeout'
+export type DrawTaskStatus =
+  | 'pending'
+  | 'running'
+  | 'receiving'
+  | 'success'
+  | 'failed'
+  | 'retrying'
+  | 'cancelled'
+  | 'timeout'
+  | 'interrupted'
+export type GenerationTaskStatus =
+  | 'pending'
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout'
 export type DrawStrategy = 'linear' | 'smart' | 'turbo'
 
 export type StoredPromptTemplate = {
@@ -47,6 +63,24 @@ export type StoredWork = {
   isFavorite?: boolean
   favorite?: boolean
   tags?: string[]
+}
+
+export type StoredAssetStorageMode = 'inline' | 'passthrough' | 'managed'
+export type StoredAssetStorageProvider = 's3' | 'oss' | 'cos' | 'r2' | 'minio'
+
+export type StoredAssetStorageConfig = {
+  mode: StoredAssetStorageMode
+  provider: StoredAssetStorageProvider
+  endpoint: string
+  bucket: string
+  region?: string
+  accessKeyId?: string
+  secretAccessKey?: string
+  publicBaseUrl?: string
+  keyPrefix?: string
+  forcePathStyle: boolean
+  inlineMaxBytes: number
+  updatedAt: string
 }
 
 export type StoredProviderConfig = {
@@ -186,6 +220,14 @@ export type AuthRecord = {
   email: string
   nickname: string
   role: 'user' | 'operator' | 'admin'
+  status: 'active' | 'frozen' | 'disabled'
+  statusReason?: string | null
+  statusUpdatedAt?: string | null
+  statusUpdatedBy?: string | null
+  allowManagedProviders: boolean
+  allowCustomProvider: boolean
+  allowedManagedProviderIds?: string[]
+  allowedModels?: string[]
   passwordHash: string
   createdAt: string
   updatedAt: string
@@ -219,6 +261,7 @@ export type DataStore = {
   sessions: SessionRecord[]
   promptTemplates: StoredPromptTemplate[]
   works: StoredWork[]
+  assetStorageConfig?: StoredAssetStorageConfig
   providerConfigs: StoredProviderConfig[]
   managedProviders: StoredManagedProvider[]
   drawBatches: StoredDrawBatch[]

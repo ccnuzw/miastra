@@ -147,7 +147,7 @@ export function BillingPage() {
   return (
     <>
       <Header />
-      <main className="mx-auto flex min-h-screen w-full max-w-screen-xl px-4 pb-10 pt-32 md:px-8">
+      <main className="app-page-shell app-page-shell-standard">
         <section className="panel-shell w-full space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>

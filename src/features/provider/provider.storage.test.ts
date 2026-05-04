@@ -38,6 +38,12 @@ describe('provider.storage', () => {
       managedProviders: [
         { id: 'openai-main', name: 'OpenAI Main', models: ['gpt-image-2'], defaultModel: 'gpt-image-2' },
       ],
+      providerPolicy: {
+        allowManagedProviders: true,
+        allowCustomProvider: true,
+        allowedManagedProviderIds: [],
+        allowedModels: [],
+      },
     })
   })
 
@@ -76,6 +82,12 @@ describe('provider.storage', () => {
         apiKey: 'secret',
       },
       managedProviders: [],
+      providerPolicy: {
+        allowManagedProviders: true,
+        allowCustomProvider: true,
+        allowedManagedProviderIds: [],
+        allowedModels: [],
+      },
     })
   })
 })

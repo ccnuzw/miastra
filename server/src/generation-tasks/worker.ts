@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { getGenerationTaskDomainStore } from '../lib/domain-store'
+import { materializeWorkAsset } from '../assets/storage.service'
 import type { StoredGenerationTask, StoredWork } from '../auth/types'
 import { consumeQuota, refundQuota } from '../billing/ledger'
 import { storeRepository } from '../lib/store'
@@ -324,7 +325,8 @@ async function processTask(claim: TaskClaim, logger?: WorkerLogger) {
   try {
     const store = await storeRepository.read()
     const storedConfig = findStoredProviderConfigByUserId(store, task.userId)
-    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: storedConfig })
+    const user = store.users.find((item) => item.id === task.userId) ?? null
+    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: storedConfig, user })
     if (resolvedProvider.error || !resolvedProvider.config) {
       await generationStore.updateGenerationTask(task.id, {
         status: 'failed',
@@ -343,7 +345,10 @@ async function processTask(claim: TaskClaim, logger?: WorkerLogger) {
     const execution = await executeGenerationTask(task, config, controller.signal)
     if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
     const snapshotApiUrl = config.exposeApiUrl ? config.apiUrl : ''
-    const work = buildWorkRecord(task, execution, snapshotRequestUrl, snapshotApiUrl)
+    const work = await materializeWorkAsset(
+      buildWorkRecord(task, execution, snapshotRequestUrl, snapshotApiUrl),
+      store.assetStorageConfig,
+    )
     const completed = await generationStore.completeGenerationTaskAndInsertWork(task.id, {
       status: 'succeeded',
       progress: 100,

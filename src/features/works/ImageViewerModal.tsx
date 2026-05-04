@@ -1,6 +1,8 @@
 import { createPortal } from 'react-dom'
+import { useEffect } from 'react'
 import { Download, ImagePlus, RefreshCw, SlidersHorizontal, X } from 'lucide-react'
 import type { GenerationDrawSnapshot, GenerationMode, GenerationReferenceSnapshot } from '@/features/generation/generation.types'
+import { getAssetSyncLabel } from './works.asset'
 import type { GalleryImage } from './works.types'
 
 type ImageViewerModalProps = {
@@ -78,7 +80,7 @@ function buildAssetRows(image: GalleryImage): ParameterRow[] {
   const rows: ParameterRow[] = [
     { label: '资产 ID', value: image.assetId },
     { label: '资产类型', value: image.assetStorage },
-    { label: '同步状态', value: image.assetSyncStatus },
+    { label: '同步状态', value: getAssetSyncLabel(image.assetSyncStatus) || image.assetSyncStatus },
     { label: '远端标识', value: image.assetRemoteKey },
     { label: '远端地址', value: image.assetRemoteUrl },
     { label: '资产更新时间', value: image.assetUpdatedAt ? formatMaybeDate(image.assetUpdatedAt) : undefined },
@@ -138,7 +140,22 @@ export function ImageViewerModal({
   onReuseParameters,
   onRegenerateFromParameters,
 }: ImageViewerModalProps) {
-  if (!image?.src || typeof document === 'undefined') return null
+  const isOpen = Boolean(image?.src && typeof document !== 'undefined')
+
+  useEffect(() => {
+    if (!isOpen) return
+    const { body, documentElement } = document
+    const previousBodyOverflow = body.style.overflow
+    const previousHtmlOverflow = documentElement.style.overflow
+    body.style.overflow = 'hidden'
+    documentElement.style.overflow = 'hidden'
+    return () => {
+      body.style.overflow = previousBodyOverflow
+      documentElement.style.overflow = previousHtmlOverflow
+    }
+  }, [isOpen])
+
+  if (!isOpen || !image) return null
 
   const snapshot = image.generationSnapshot
   const mode = snapshot?.mode ?? image.mode
@@ -165,14 +182,16 @@ export function ImageViewerModal({
   const hasReferenceHint = Boolean(references?.count || mode?.includes('image2image'))
 
   return createPortal(
-    <div className="modal-backdrop image-viewer-backdrop" role="dialog" aria-modal="true" aria-label="图片放大预览">
-      <button
-        type="button"
-        className="absolute inset-0"
-        aria-label="关闭预览"
-        onClick={onClose}
-      />
-      <div className="image-viewer-card">
+    <div
+      className="modal-backdrop image-viewer-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="图片放大预览"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="image-viewer-card" onClick={(event) => event.stopPropagation()}>
         <div className="image-viewer-header">
           <div className="min-w-0">
             <p className="eyebrow">Preview</p>
@@ -196,81 +215,84 @@ export function ImageViewerModal({
             <img src={image.src} alt={image.title} />
           </div>
           <aside className="viewer-parameters-panel" aria-label="生成参数详情">
-            <div className="flex items-start justify-between gap-3">
+            <div className="viewer-parameters-header">
               <div>
                 <p className="eyebrow">Parameters</p>
                 <h3 className="mt-2 font-display text-xl">生成参数</h3>
               </div>
             </div>
-
-            <section className="viewer-parameter-section">
-              <p className="viewer-section-title">Prompt</p>
-              <div className="viewer-prompt-stack">
-                <div>
-                  <p className="viewer-prompt-label">工作区 Prompt</p>
-                  <div className="viewer-prompt-box">{workspacePrompt || '未记录工作区 Prompt。'}</div>
-                </div>
-                {requestPromptText && requestPromptText !== workspacePrompt && (
+            <div className="viewer-parameters-scroll">
+              <section className="viewer-parameter-section">
+                <p className="viewer-section-title">Prompt</p>
+                <div className="viewer-prompt-stack">
                   <div>
-                    <p className="viewer-prompt-label">请求 Prompt</p>
-                    <div className="viewer-prompt-box">{requestPromptText}</div>
+                    <p className="viewer-prompt-label">工作区 Prompt</p>
+                    <div className="viewer-prompt-box">{workspacePrompt || '未记录工作区 Prompt。'}</div>
                   </div>
-                )}
-              </div>
-            </section>
-
-            <section className="viewer-parameter-section">
-              <p className="viewer-section-title">基础参数</p>
-              <ParameterGrid rows={baseRows} />
-            </section>
-
-            {assetRows.length > 0 && (
-              <section className="viewer-parameter-section">
-                <p className="viewer-section-title">资产追踪</p>
-                <ParameterGrid rows={assetRows} />
+                  {requestPromptText && requestPromptText !== workspacePrompt && (
+                    <div>
+                      <p className="viewer-prompt-label">请求 Prompt</p>
+                      <div className="viewer-prompt-box">{requestPromptText}</div>
+                    </div>
+                  )}
+                </div>
               </section>
-            )}
 
-            {referenceRows.length > 0 && (
               <section className="viewer-parameter-section">
-                <p className="viewer-section-title">参考图</p>
-                <ParameterGrid rows={referenceRows} />
-                <ReferencePreviewGrid references={references} />
-                <p className="viewer-reference-note">{references?.note ? `${references.note}；可恢复项会在当前会话中自动补齐。` : '参考图文件未随作品快照保存；复用或再次生成前需重新提供参考图文件。'}</p>
+                <p className="viewer-section-title">基础参数</p>
+                <ParameterGrid rows={baseRows} />
               </section>
-            )}
-            {hasReferenceHint && referenceRows.length === 0 && (
-              <p className="viewer-reference-note">该作品可能基于图生图生成；旧数据未保存参考图详情，复用后参考图文件需重新提供。</p>
-            )}
 
-            {batchRows.length > 0 && (
-              <section className="viewer-parameter-section">
-                <p className="viewer-section-title">批次信息</p>
-                <ParameterGrid rows={batchRows} />
-              </section>
-            )}
+              {assetRows.length > 0 && (
+                <section className="viewer-parameter-section">
+                  <p className="viewer-section-title">资产追踪</p>
+                  <ParameterGrid rows={assetRows} />
+                </section>
+              )}
 
-            <div className="viewer-action-row">
-              <button
-                type="button"
-                className="settings-button flex-1"
-                disabled={!hasReusableParameters || !onReuseParameters}
-                onClick={() => onReuseParameters?.(image)}
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                复用参数
-              </button>
-              <button
-                type="button"
-                className="generate-button flex-1"
-                disabled={!hasReusableParameters || !onRegenerateFromParameters}
-                onClick={() => onRegenerateFromParameters?.(image)}
-              >
-                <RefreshCw className="h-4 w-4" />
-                再次生成
-              </button>
+              {referenceRows.length > 0 && (
+                <section className="viewer-parameter-section">
+                  <p className="viewer-section-title">参考图</p>
+                  <ParameterGrid rows={referenceRows} />
+                  <ReferencePreviewGrid references={references} />
+                  <p className="viewer-reference-note">{references?.note ? `${references.note}；可恢复项会在当前会话中自动补齐。` : '参考图文件未随作品快照保存；复用或再次生成前需重新提供参考图文件。'}</p>
+                </section>
+              )}
+              {hasReferenceHint && referenceRows.length === 0 && (
+                <p className="viewer-reference-note">该作品可能基于图生图生成；旧数据未保存参考图详情，复用后参考图文件需重新提供。</p>
+              )}
+
+              {batchRows.length > 0 && (
+                <section className="viewer-parameter-section">
+                  <p className="viewer-section-title">批次信息</p>
+                  <ParameterGrid rows={batchRows} />
+                </section>
+              )}
             </div>
-            <p className="text-xs leading-5 text-porcelain-100/45">再次生成会先恢复当前参数；请确认工作区参数后点击主生成按钮。</p>
+
+            <div className="viewer-parameters-footer">
+              <div className="viewer-action-row">
+                <button
+                  type="button"
+                  className="settings-button flex-1"
+                  disabled={!hasReusableParameters || !onReuseParameters}
+                  onClick={() => onReuseParameters?.(image)}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  复用参数
+                </button>
+                <button
+                  type="button"
+                  className="generate-button flex-1"
+                  disabled={!hasReusableParameters || !onRegenerateFromParameters}
+                  onClick={() => onRegenerateFromParameters?.(image)}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  再次生成
+                </button>
+              </div>
+              <p className="text-xs leading-5 text-porcelain-100/45">再次生成会先恢复当前参数；请确认工作区参数后点击主生成按钮。</p>
+            </div>
           </aside>
         </div>
       </div>

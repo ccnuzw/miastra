@@ -44,13 +44,13 @@ async function ensureFirstAdmin(pool: Awaited<ReturnType<typeof createDatabasePo
   if (existing.rows[0]) {
     await pool.query(`
       UPDATE users
-      SET email = $2, nickname = $3, role = 'admin', password_hash = $4, updated_at = $5
+      SET email = $2, nickname = $3, role = 'admin', status = 'active', status_reason = NULL, status_updated_at = $5, status_updated_by = NULL, password_hash = $4, updated_at = $5
       WHERE id = $1
     `, [existing.rows[0].id, adminEmail, adminNickname, passwordHash, now])
   } else {
     await pool.query(`
-      INSERT INTO users (id, email, nickname, role, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
-      VALUES ($1, $2, $3, 'admin', $4, NULL, NULL, $5, $5)
+      INSERT INTO users (id, email, nickname, role, status, status_reason, status_updated_at, status_updated_by, password_hash, password_reset_token, password_reset_expires_at, created_at, updated_at)
+      VALUES ($1, $2, $3, 'admin', 'active', NULL, $5, NULL, $4, NULL, NULL, $5, $5)
     `, [randomUUID(), adminEmail, adminNickname, passwordHash, now])
   }
 

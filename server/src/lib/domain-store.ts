@@ -1,5 +1,3 @@
-import { getPostgresRepositories, isPostgresStoreBackend, storeRepository } from './store'
-import { isTerminalTaskStatus } from '../generation-tasks/state'
 import type {
   AuthRecord,
   SessionRecord,
@@ -10,6 +8,8 @@ import type {
   StoredQuotaProfile,
   StoredWork,
 } from '../auth/types'
+import { isTerminalTaskStatus } from '../generation-tasks/state'
+import { getPostgresRepositories, isPostgresStoreBackend, storeRepository } from './store'
 
 export type AuthDomainStore = {
   findUserByEmail: (email: string) => Promise<AuthRecord | null>
@@ -19,29 +19,58 @@ export type AuthDomainStore = {
   createSession: (session: SessionRecord) => Promise<void>
   updateSessionExpiresAt: (sessionId: string, userId: string, expiresAt: string) => Promise<boolean>
   revokeSession: (sessionId: string, revokedAt: string) => Promise<boolean>
-  revokeSessionsByUserId: (userId: string, revokedAt: string, excludeSessionId?: string) => Promise<number>
+  revokeSessionsByUserId: (
+    userId: string,
+    revokedAt: string,
+    excludeSessionId?: string,
+  ) => Promise<number>
   listSessionsByUserId: (userId: string) => Promise<SessionRecord[]>
-  findAuthContext: (sessionId: string, userId: string) => Promise<{ user: AuthRecord, session: SessionRecord } | null>
+  findAuthContext: (
+    sessionId: string,
+    userId: string,
+  ) => Promise<{ user: AuthRecord; session: SessionRecord } | null>
   findProviderConfigByUserId: (userId: string) => Promise<StoredProviderConfig | null>
   upsertProviderConfig: (config: StoredProviderConfig) => Promise<void>
   findQuotaProfileByUserId: (userId: string) => Promise<StoredQuotaProfile | null>
   upsertQuotaProfile: (profile: StoredQuotaProfile) => Promise<void>
-  updateUserProfile: (userId: string, nickname: string, updatedAt: string) => Promise<AuthRecord | null>
-  updatePasswordResetToken: (userId: string, token: string | null, expiresAt: string | null, updatedAt: string) => Promise<void>
-  resetUserPasswordAndRevokeSessions: (userId: string, passwordHash: string, updatedAt: string, revokeOthersOnly?: { excludeSessionId: string }) => Promise<void>
+  updateUserProfile: (
+    userId: string,
+    nickname: string,
+    updatedAt: string,
+  ) => Promise<AuthRecord | null>
+  updatePasswordResetToken: (
+    userId: string,
+    token: string | null,
+    expiresAt: string | null,
+    updatedAt: string,
+  ) => Promise<void>
+  resetUserPasswordAndRevokeSessions: (
+    userId: string,
+    passwordHash: string,
+    updatedAt: string,
+    revokeOthersOnly?: { excludeSessionId: string },
+  ) => Promise<void>
 }
 
 export type ContentDomainStore = {
   listPromptTemplatesByUserId: (userId: string) => Promise<StoredPromptTemplate[]>
   upsertPromptTemplateForUser: (template: StoredPromptTemplate) => Promise<StoredPromptTemplate>
-  markPromptTemplateUsedForUser: (userId: string, id: string, usedAt: string) => Promise<StoredPromptTemplate | null>
+  markPromptTemplateUsedForUser: (
+    userId: string,
+    id: string,
+    usedAt: string,
+  ) => Promise<StoredPromptTemplate | null>
   deletePromptTemplateForUser: (userId: string, id: string) => Promise<boolean>
   listWorksByUserId: (userId: string) => Promise<StoredWork[]>
   replaceWorksByUserId: (userId: string, works: StoredWork[]) => Promise<void>
   upsertWorkForUser: (work: StoredWork) => Promise<StoredWork>
   deleteWorkForUser: (userId: string, id: string) => Promise<boolean>
   deleteWorksForUser: (userId: string, ids: string[]) => Promise<number>
-  updateWorkFavoriteForUser: (userId: string, id: string, isFavorite: boolean) => Promise<StoredWork | null>
+  updateWorkFavoriteForUser: (
+    userId: string,
+    id: string,
+    isFavorite: boolean,
+  ) => Promise<StoredWork | null>
   replaceWorkTagsForUser: (userId: string, id: string, tags: string[]) => Promise<StoredWork | null>
   addTagToWorksForUser: (userId: string, ids: string[], tag: string) => Promise<StoredWork[]>
   removeTagFromWorksForUser: (userId: string, ids: string[], tag: string) => Promise<StoredWork[]>
@@ -54,11 +83,24 @@ export type ContentDomainStore = {
 export type GenerationTaskDomainStore = {
   listGenerationTasksByUserId: (userId: string) => Promise<StoredGenerationTask[]>
   findGenerationTaskById: (taskId: string) => Promise<StoredGenerationTask | null>
-  findGenerationTaskByIdForUser: (taskId: string, userId: string) => Promise<StoredGenerationTask | null>
+  findGenerationTaskByIdForUser: (
+    taskId: string,
+    userId: string,
+  ) => Promise<StoredGenerationTask | null>
   insertGenerationTask: (task: StoredGenerationTask) => Promise<void>
-  updateGenerationTask: (taskId: string, patch: Partial<StoredGenerationTask>) => Promise<StoredGenerationTask | null>
-  claimNextQueuedGenerationTask: (updatedAt: string, excludedIds?: string[]) => Promise<StoredGenerationTask | null>
-  completeGenerationTaskAndInsertWork: (taskId: string, taskPatch: Partial<StoredGenerationTask>, work: StoredWork) => Promise<boolean>
+  updateGenerationTask: (
+    taskId: string,
+    patch: Partial<StoredGenerationTask>,
+  ) => Promise<StoredGenerationTask | null>
+  claimNextQueuedGenerationTask: (
+    updatedAt: string,
+    excludedIds?: string[],
+  ) => Promise<StoredGenerationTask | null>
+  completeGenerationTaskAndInsertWork: (
+    taskId: string,
+    taskPatch: Partial<StoredGenerationTask>,
+    work: StoredWork,
+  ) => Promise<boolean>
 }
 
 function toIsoString(value: string | Date | null | undefined) {
@@ -73,9 +115,21 @@ function _mapAuthUser(row: Record<string, unknown>): AuthRecord {
     email: String(row.email),
     nickname: String(row.nickname),
     role: row.role as AuthRecord['role'],
+    status: row.status === 'frozen' || row.status === 'disabled' ? row.status : 'active',
+    statusReason: row.status_reason ? String(row.status_reason) : null,
+    statusUpdatedAt: toIsoString(row.status_updated_at as string | Date | null | undefined),
+    statusUpdatedBy: row.status_updated_by ? String(row.status_updated_by) : null,
+    allowManagedProviders: row.allow_managed_providers !== false,
+    allowCustomProvider: row.allow_custom_provider !== false,
+    allowedManagedProviderIds: Array.isArray(row.allowed_managed_provider_ids_json)
+      ? row.allowed_managed_provider_ids_json.map(String)
+      : [],
+    allowedModels: Array.isArray(row.allowed_models_json) ? row.allowed_models_json.map(String) : [],
     passwordHash: String(row.password_hash),
     passwordResetToken: row.password_reset_token ? String(row.password_reset_token) : null,
-    passwordResetExpiresAt: toIsoString(row.password_reset_expires_at as string | Date | null | undefined),
+    passwordResetExpiresAt: toIsoString(
+      row.password_reset_expires_at as string | Date | null | undefined,
+    ),
     createdAt: new Date(row.created_at as string | Date).toISOString(),
     updatedAt: new Date(row.updated_at as string | Date).toISOString(),
   }
@@ -124,9 +178,15 @@ function _mapPromptTemplate(row: Record<string, unknown>): StoredPromptTemplate 
     content: String(row.content ?? ''),
     category: row.category ? String(row.category) : undefined,
     tags: Array.isArray(row.tags_json) ? row.tags_json.map(String) : undefined,
-    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
-    lastUsedAt: row.last_used_at ? (row.last_used_at instanceof Date ? row.last_used_at.toISOString() : String(row.last_used_at)) : null,
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    updatedAt:
+      row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+    lastUsedAt: row.last_used_at
+      ? row.last_used_at instanceof Date
+        ? row.last_used_at.toISOString()
+        : String(row.last_used_at)
+      : null,
   }
 }
 
@@ -137,21 +197,34 @@ function _mapWork(row: Record<string, unknown>): StoredWork {
     title: String(row.title ?? ''),
     src: row.src ? String(row.src) : undefined,
     assetId: row.asset_id ? String(row.asset_id) : undefined,
-    assetStorage: row.asset_storage ? String(row.asset_storage) as StoredWork['assetStorage'] : undefined,
-    assetSyncStatus: row.asset_sync_status ? String(row.asset_sync_status) as StoredWork['assetSyncStatus'] : undefined,
+    assetStorage: row.asset_storage
+      ? (String(row.asset_storage) as StoredWork['assetStorage'])
+      : undefined,
+    assetSyncStatus: row.asset_sync_status
+      ? (String(row.asset_sync_status) as StoredWork['assetSyncStatus'])
+      : undefined,
     assetRemoteKey: row.asset_remote_key ? String(row.asset_remote_key) : undefined,
     assetRemoteUrl: row.asset_remote_url ? String(row.asset_remote_url) : undefined,
-    assetUpdatedAt: row.asset_updated_at === null || row.asset_updated_at === undefined ? undefined : Number(row.asset_updated_at),
+    assetUpdatedAt:
+      row.asset_updated_at === null || row.asset_updated_at === undefined
+        ? undefined
+        : Number(row.asset_updated_at),
     meta: String(row.meta ?? ''),
     variation: row.variation ? String(row.variation) : undefined,
     batchId: row.batch_id ? String(row.batch_id) : undefined,
-    drawIndex: row.draw_index === null || row.draw_index === undefined ? undefined : Number(row.draw_index),
-    taskStatus: row.task_status ? String(row.task_status) as StoredWork['taskStatus'] : undefined,
+    drawIndex:
+      row.draw_index === null || row.draw_index === undefined ? undefined : Number(row.draw_index),
+    taskStatus: row.task_status ? (String(row.task_status) as StoredWork['taskStatus']) : undefined,
     error: row.error ? String(row.error) : undefined,
-    retryable: row.retryable === null || row.retryable === undefined ? undefined : Boolean(row.retryable),
-    retryCount: row.retry_count === null || row.retry_count === undefined ? undefined : Number(row.retry_count),
-    createdAt: row.created_at === null || row.created_at === undefined ? undefined : Number(row.created_at),
-    mode: row.mode ? String(row.mode) as StoredWork['mode'] : undefined,
+    retryable:
+      row.retryable === null || row.retryable === undefined ? undefined : Boolean(row.retryable),
+    retryCount:
+      row.retry_count === null || row.retry_count === undefined
+        ? undefined
+        : Number(row.retry_count),
+    createdAt:
+      row.created_at === null || row.created_at === undefined ? undefined : Number(row.created_at),
+    mode: row.mode ? (String(row.mode) as StoredWork['mode']) : undefined,
     providerModel: row.provider_model ? String(row.provider_model) : undefined,
     size: row.size ? String(row.size) : undefined,
     quality: row.quality ? String(row.quality) : undefined,
@@ -159,7 +232,10 @@ function _mapWork(row: Record<string, unknown>): StoredWork {
     generationSnapshot: row.generation_snapshot_json ?? undefined,
     promptSnippet: row.prompt_snippet ? String(row.prompt_snippet) : undefined,
     promptText: row.prompt_text ? String(row.prompt_text) : undefined,
-    isFavorite: row.is_favorite === null || row.is_favorite === undefined ? undefined : Boolean(row.is_favorite),
+    isFavorite:
+      row.is_favorite === null || row.is_favorite === undefined
+        ? undefined
+        : Boolean(row.is_favorite),
     tags: Array.isArray(row.tags_json) ? row.tags_json.map(String) : undefined,
   }
 }
@@ -183,17 +259,19 @@ function _mapDrawBatch(row: Record<string, unknown>): StoredDrawBatch {
 }
 
 function _mapGenerationTask(row: Record<string, unknown>): StoredGenerationTask {
-  const payload = row.payload_json && typeof row.payload_json === 'object'
-    ? ('tracking' in (row.payload_json as Record<string, unknown>)
-      ? row.payload_json
-      : { ...(row.payload_json as Record<string, unknown>), tracking: undefined })
-    : row.payload_json
+  const payload =
+    row.payload_json && typeof row.payload_json === 'object'
+      ? 'tracking' in (row.payload_json as Record<string, unknown>)
+        ? row.payload_json
+        : { ...(row.payload_json as Record<string, unknown>), tracking: undefined }
+      : row.payload_json
 
   return {
     id: String(row.id),
     userId: String(row.user_id),
     status: row.status as StoredGenerationTask['status'],
-    progress: row.progress === null || row.progress === undefined ? undefined : Number(row.progress),
+    progress:
+      row.progress === null || row.progress === undefined ? undefined : Number(row.progress),
     errorMessage: row.error_message ? String(row.error_message) : undefined,
     payload: payload as StoredGenerationTask['payload'],
     result: (row.result_json ?? undefined) as StoredGenerationTask['result'],
@@ -237,7 +315,9 @@ function _workValues(work: StoredWork) {
 }
 
 function _promptTemplateValues(template: StoredPromptTemplate) {
-  const tags = Array.isArray(template.tags) ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean))) : []
+  const tags = Array.isArray(template.tags)
+    ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean)))
+    : []
   return [
     template.id,
     template.userId,
@@ -245,15 +325,29 @@ function _promptTemplateValues(template: StoredPromptTemplate) {
     template.content,
     template.category?.trim() || null,
     tags.length ? JSON.stringify(tags) : null,
-    typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt,
-    template.updatedAt ? (typeof template.updatedAt === 'number' ? new Date(template.updatedAt).toISOString() : template.updatedAt) : (typeof template.createdAt === 'number' ? new Date(template.createdAt).toISOString() : template.createdAt),
-    template.lastUsedAt ? (typeof template.lastUsedAt === 'number' ? new Date(template.lastUsedAt).toISOString() : template.lastUsedAt) : null,
+    typeof template.createdAt === 'number'
+      ? new Date(template.createdAt).toISOString()
+      : template.createdAt,
+    template.updatedAt
+      ? typeof template.updatedAt === 'number'
+        ? new Date(template.updatedAt).toISOString()
+        : template.updatedAt
+      : typeof template.createdAt === 'number'
+        ? new Date(template.createdAt).toISOString()
+        : template.createdAt,
+    template.lastUsedAt
+      ? typeof template.lastUsedAt === 'number'
+        ? new Date(template.lastUsedAt).toISOString()
+        : template.lastUsedAt
+      : null,
   ]
 }
 
 function normalizePromptTemplate(template: StoredPromptTemplate): StoredPromptTemplate {
   const title = template.title?.trim() || '未命名模板'
-  const tags = Array.isArray(template.tags) ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean))) : undefined
+  const tags = Array.isArray(template.tags)
+    ? Array.from(new Set(template.tags.map((tag) => tag.trim()).filter(Boolean)))
+    : undefined
   return {
     ...template,
     title,
@@ -316,7 +410,13 @@ export function getAuthDomainStore(): AuthDomainStore {
     async findUserByLoginIdentifier(identifier) {
       const normalized = identifier.trim().toLowerCase()
       const store = await getJsonStore().read()
-      return store.users.find((user) => user.email.trim().toLowerCase() === normalized || user.nickname.trim().toLowerCase() === normalized) ?? null
+      return (
+        store.users.find(
+          (user) =>
+            user.email.trim().toLowerCase() === normalized ||
+            user.nickname.trim().toLowerCase() === normalized,
+        ) ?? null
+      )
     },
     async findUserById(id) {
       const store = await getJsonStore().read()
@@ -334,7 +434,9 @@ export function getAuthDomainStore(): AuthDomainStore {
     },
     async updateSessionExpiresAt(sessionId, userId, expiresAt) {
       const store = await getJsonStore().read()
-      const session = store.sessions.find((item) => item.id === sessionId && item.userId === userId && !item.revokedAt)
+      const session = store.sessions.find(
+        (item) => item.id === sessionId && item.userId === userId && !item.revokedAt,
+      )
       if (!session) return false
       session.expiresAt = expiresAt
       await getJsonStore().write(store)
@@ -366,7 +468,8 @@ export function getAuthDomainStore(): AuthDomainStore {
     },
     async findAuthContext(sessionId, userId) {
       const store = await getJsonStore().read()
-      const session = store.sessions.find((item) => item.id === sessionId && item.userId === userId) ?? null
+      const session =
+        store.sessions.find((item) => item.id === sessionId && item.userId === userId) ?? null
       if (!session) return null
       const user = store.users.find((item) => item.id === userId) ?? null
       if (!user) return null
@@ -378,7 +481,10 @@ export function getAuthDomainStore(): AuthDomainStore {
     },
     async upsertProviderConfig(config) {
       const store = await getJsonStore().read()
-      store.providerConfigs = [...store.providerConfigs.filter((item) => item.userId !== config.userId), config]
+      store.providerConfigs = [
+        ...store.providerConfigs.filter((item) => item.userId !== config.userId),
+        config,
+      ]
       await getJsonStore().write(store)
     },
     async findQuotaProfileByUserId(userId) {
@@ -387,7 +493,10 @@ export function getAuthDomainStore(): AuthDomainStore {
     },
     async upsertQuotaProfile(profile) {
       const store = await getJsonStore().read()
-      store.quotaProfiles = [...store.quotaProfiles.filter((item) => item.userId !== profile.userId), profile]
+      store.quotaProfiles = [
+        ...store.quotaProfiles.filter((item) => item.userId !== profile.userId),
+        profile,
+      ]
       await getJsonStore().write(store)
     },
     async updateUserProfile(userId, nickname, updatedAt) {
@@ -417,7 +526,11 @@ export function getAuthDomainStore(): AuthDomainStore {
       user.passwordResetExpiresAt = null
       user.updatedAt = updatedAt
       store.sessions.forEach((session) => {
-        if (session.userId === userId && session.id !== revokeOthersOnly?.excludeSessionId && !session.revokedAt) {
+        if (
+          session.userId === userId &&
+          session.id !== revokeOthersOnly?.excludeSessionId &&
+          !session.revokedAt
+        ) {
           session.revokedAt = updatedAt
         }
       })
@@ -458,11 +571,15 @@ export function getContentDomainStore(): ContentDomainStore {
     async upsertPromptTemplateForUser(template) {
       const store = await getJsonStore().read()
       const normalized = normalizePromptTemplate(template)
-      const conflict = store.promptTemplates.some((item) => item.id === template.id && item.userId !== template.userId)
+      const conflict = store.promptTemplates.some(
+        (item) => item.id === template.id && item.userId !== template.userId,
+      )
       if (conflict) throw new Error('模板 ID 已被占用')
 
       store.promptTemplates = [
-        ...store.promptTemplates.filter((item) => !(item.id === normalized.id && item.userId === normalized.userId)),
+        ...store.promptTemplates.filter(
+          (item) => !(item.id === normalized.id && item.userId === normalized.userId),
+        ),
         normalized,
       ]
       await getJsonStore().write(store)
@@ -470,7 +587,9 @@ export function getContentDomainStore(): ContentDomainStore {
     },
     async markPromptTemplateUsedForUser(userId, id, usedAt) {
       const store = await getJsonStore().read()
-      const template = store.promptTemplates.find((item) => item.userId === userId && item.id === id)
+      const template = store.promptTemplates.find(
+        (item) => item.userId === userId && item.id === id,
+      )
       if (!template) return null
       template.lastUsedAt = usedAt
       await getJsonStore().write(store)
@@ -479,7 +598,9 @@ export function getContentDomainStore(): ContentDomainStore {
     async deletePromptTemplateForUser(userId, id) {
       const store = await getJsonStore().read()
       const before = store.promptTemplates.length
-      store.promptTemplates = store.promptTemplates.filter((item) => !(item.userId === userId && item.id === id))
+      store.promptTemplates = store.promptTemplates.filter(
+        (item) => !(item.userId === userId && item.id === id),
+      )
       await getJsonStore().write(store)
       return store.promptTemplates.length !== before
     },
@@ -494,13 +615,17 @@ export function getContentDomainStore(): ContentDomainStore {
     },
     async upsertWorkForUser(work) {
       return await getJsonStore().mutate((store) => {
-        const index = store.works.findIndex((item) => item.userId === work.userId && item.id === work.id)
+        const index = store.works.findIndex(
+          (item) => item.userId === work.userId && item.id === work.id,
+        )
         if (index >= 0) {
           store.works[index] = work
           return work
         }
 
-        const conflict = store.works.some((item) => item.id === work.id && item.userId !== work.userId)
+        const conflict = store.works.some(
+          (item) => item.id === work.id && item.userId !== work.userId,
+        )
         if (conflict) throw new Error('作品 ID 已被占用')
 
         store.works.unshift(work)
@@ -519,7 +644,9 @@ export function getContentDomainStore(): ContentDomainStore {
       const targetIds = new Set(ids)
       return await getJsonStore().mutate((store) => {
         const before = store.works.length
-        store.works = store.works.filter((item) => !(item.userId === userId && targetIds.has(item.id)))
+        store.works = store.works.filter(
+          (item) => !(item.userId === userId && targetIds.has(item.id)),
+        )
         return before - store.works.length
       })
     },
@@ -549,7 +676,9 @@ export function getContentDomainStore(): ContentDomainStore {
         const updated: StoredWork[] = []
         for (const work of store.works) {
           if (work.userId !== userId || !targetIds.has(work.id)) continue
-          const tags = Array.from(new Set([...(work.tags ?? []).map((item) => item.trim()).filter(Boolean), nextTag]))
+          const tags = Array.from(
+            new Set([...(work.tags ?? []).map((item) => item.trim()).filter(Boolean), nextTag]),
+          )
           work.tags = tags
           updated.push(work)
         }
@@ -564,7 +693,9 @@ export function getContentDomainStore(): ContentDomainStore {
         const updated: StoredWork[] = []
         for (const work of store.works) {
           if (work.userId !== userId || !targetIds.has(work.id)) continue
-          work.tags = (work.tags ?? []).map((item) => item.trim()).filter((item) => item && item !== nextTag)
+          work.tags = (work.tags ?? [])
+            .map((item) => item.trim())
+            .filter((item) => item && item !== nextTag)
           updated.push(work)
         }
         return updated
@@ -580,13 +711,17 @@ export function getContentDomainStore(): ContentDomainStore {
     },
     async upsertDrawBatchForUser(batch) {
       return await getJsonStore().mutate((store) => {
-        const index = store.drawBatches.findIndex((item) => item.userId === batch.userId && item.id === batch.id)
+        const index = store.drawBatches.findIndex(
+          (item) => item.userId === batch.userId && item.id === batch.id,
+        )
         if (index >= 0) {
           store.drawBatches[index] = batch
           return batch
         }
 
-        const conflict = store.drawBatches.some((item) => item.id === batch.id && item.userId !== batch.userId)
+        const conflict = store.drawBatches.some(
+          (item) => item.id === batch.id && item.userId !== batch.userId,
+        )
         if (conflict) throw new Error('批次 ID 已被占用')
 
         store.drawBatches.unshift(batch)
@@ -595,7 +730,10 @@ export function getContentDomainStore(): ContentDomainStore {
     },
     async replaceDrawBatchesByUserId(userId, batches) {
       const store = await getJsonStore().read()
-      store.drawBatches = [...store.drawBatches.filter((item) => item.userId !== userId), ...batches]
+      store.drawBatches = [
+        ...store.drawBatches.filter((item) => item.userId !== userId),
+        ...batches,
+      ]
       await getJsonStore().write(store)
     },
   }
@@ -618,7 +756,9 @@ export function getGenerationTaskDomainStore(): GenerationTaskDomainStore {
   return {
     async listGenerationTasksByUserId(userId) {
       const store = await getJsonStore().read()
-      return store.generationTasks.filter((item) => item.userId === userId).sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
+      return store.generationTasks
+        .filter((item) => item.userId === userId)
+        .sort((a, b) => Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
     },
     async findGenerationTaskById(taskId) {
       const store = await getJsonStore().read()
@@ -626,7 +766,9 @@ export function getGenerationTaskDomainStore(): GenerationTaskDomainStore {
     },
     async findGenerationTaskByIdForUser(taskId, userId) {
       const store = await getJsonStore().read()
-      return store.generationTasks.find((item) => item.id === taskId && item.userId === userId) ?? null
+      return (
+        store.generationTasks.find((item) => item.id === taskId && item.userId === userId) ?? null
+      )
     },
     async insertGenerationTask(task) {
       const store = await getJsonStore().read()
@@ -650,7 +792,10 @@ export function getGenerationTaskDomainStore(): GenerationTaskDomainStore {
     },
     async claimNextQueuedGenerationTask(updatedAt, excludedIds = []) {
       const store = await getJsonStore().read()
-      const nextTask = store.generationTasks.find((item) => item.status === 'queued' && !excludedIds.includes(item.id)) ?? null
+      const nextTask =
+        store.generationTasks.find(
+          (item) => item.status === 'queued' && !excludedIds.includes(item.id),
+        ) ?? null
       if (!nextTask) return null
       nextTask.status = 'running'
       nextTask.progress = Math.max(nextTask.progress ?? 0, 15)
@@ -669,7 +814,9 @@ export function getGenerationTaskDomainStore(): GenerationTaskDomainStore {
       task.payload = taskPatch.payload ?? task.payload
       task.result = taskPatch.result ?? task.result
       task.updatedAt = taskPatch.updatedAt ?? new Date().toISOString()
-      const exists = store.works.some((item) => item.userId === work.userId && item.snapshotId === work.snapshotId)
+      const exists = store.works.some(
+        (item) => item.userId === work.userId && item.snapshotId === work.snapshotId,
+      )
       if (!exists) store.works.unshift(work)
       await getJsonStore().write(store)
       return true

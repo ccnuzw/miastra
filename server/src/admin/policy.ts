@@ -7,7 +7,12 @@ export type BackendAdminRole = (typeof backendAdminRoles)[number]
 export type AdminUserManagement = {
   isSelf: boolean
   canChangeRole: boolean
+  canUpdateStatus: boolean
+  canAdjustQuota: boolean
   canRevokeSessions: boolean
+  canUpdateProviderPolicy: boolean
+  canAddNotes: boolean
+  canTriggerPasswordReset: boolean
   assignableRoles: AuthRecord['role'][]
   reason?: string
 }
@@ -18,8 +23,8 @@ export function canAccessAdmin(role: AuthRecord['role']) {
 
 export function getAssignableAdminRoles(actor: AuthRecord) {
   return actor.role === 'admin'
-    ? ['user', 'operator', 'admin'] as AuthRecord['role'][]
-    : ['user', 'operator'] as AuthRecord['role'][]
+    ? (['user', 'operator', 'admin'] as AuthRecord['role'][])
+    : (['user', 'operator'] as AuthRecord['role'][])
 }
 
 export function getAdminPolicies(actor: AuthRecord) {
@@ -28,7 +33,7 @@ export function getAdminPolicies(actor: AuthRecord) {
     actorRole: actor.role as BackendAdminRole,
     canAssignAdmin: canManageAdmins,
     canManageAdmins,
-    operatorScope: canManageAdmins ? 'all-backend-users' as const : 'users-only' as const,
+    operatorScope: canManageAdmins ? ('all-backend-users' as const) : ('users-only' as const),
     selfProtection: {
       keepCurrentAdminAccess: true,
       keepCurrentSessionOnBulkRevoke: true,
@@ -41,7 +46,12 @@ export function getAdminUserManagement(actor: AuthRecord, target: AuthRecord): A
     return {
       isSelf: true,
       canChangeRole: false,
+      canUpdateStatus: false,
+      canAdjustQuota: false,
       canRevokeSessions: true,
+      canUpdateProviderPolicy: false,
+      canAddNotes: false,
+      canTriggerPasswordReset: false,
       assignableRoles: [actor.role],
       reason: '不能移除自己当前的后台权限',
     }
@@ -51,7 +61,12 @@ export function getAdminUserManagement(actor: AuthRecord, target: AuthRecord): A
     return {
       isSelf: false,
       canChangeRole: true,
+      canUpdateStatus: true,
+      canAdjustQuota: true,
       canRevokeSessions: true,
+      canUpdateProviderPolicy: true,
+      canAddNotes: true,
+      canTriggerPasswordReset: true,
       assignableRoles: getAssignableAdminRoles(actor),
     }
   }
@@ -60,7 +75,12 @@ export function getAdminUserManagement(actor: AuthRecord, target: AuthRecord): A
     return {
       isSelf: false,
       canChangeRole: true,
+      canUpdateStatus: true,
+      canAdjustQuota: true,
       canRevokeSessions: true,
+      canUpdateProviderPolicy: true,
+      canAddNotes: true,
+      canTriggerPasswordReset: true,
       assignableRoles: getAssignableAdminRoles(actor),
     }
   }
@@ -68,7 +88,12 @@ export function getAdminUserManagement(actor: AuthRecord, target: AuthRecord): A
   return {
     isSelf: false,
     canChangeRole: false,
+    canUpdateStatus: false,
+    canAdjustQuota: false,
     canRevokeSessions: false,
+    canUpdateProviderPolicy: false,
+    canAddNotes: false,
+    canTriggerPasswordReset: false,
     assignableRoles: [],
     reason: 'operator 只能管理普通用户，不能操作其他后台账号',
   }

@@ -149,7 +149,7 @@ export async function registerGenerationTaskRoutes(app: FastifyInstance) {
 
     const store = await storeRepository.read()
     const providerConfig = findStoredProviderConfigByUserId(store, user.id)
-    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: providerConfig })
+    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: providerConfig, user })
     if (resolvedProvider.error) {
       reply.code(409)
       return fail(resolvedProvider.error.code, resolvedProvider.error.message)
@@ -160,14 +160,14 @@ export async function registerGenerationTaskRoutes(app: FastifyInstance) {
     await getGenerationTaskDomainStore().insertGenerationTask({
       id: taskId,
       userId: user.id,
-      status: 'queued',
+      status: 'pending',
       progress: 0,
       createdAt: now,
       updatedAt: now,
       payload: parsed.data as StoredGenerationTask['payload'],
     })
 
-    return ok({ id: taskId, status: 'queued' as const })
+    return ok({ id: taskId, status: 'pending' as const })
   })
 
   app.post('/api/generation-tasks/:id/cancel', async (request, reply) => {
@@ -231,7 +231,7 @@ export async function registerGenerationTaskRoutes(app: FastifyInstance) {
 
     const store = await storeRepository.read()
     const providerConfig = findStoredProviderConfigByUserId(store, user.id)
-    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: providerConfig })
+    const resolvedProvider = resolveEffectiveProviderConfig({ store, config: providerConfig, user })
     if (resolvedProvider.error) {
       reply.code(409)
       return fail(resolvedProvider.error.code, resolvedProvider.error.message)

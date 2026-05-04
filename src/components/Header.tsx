@@ -3,7 +3,7 @@ import { Wand2 } from 'lucide-react'
 export function Header() {
   return (
     <header className="fixed left-0 right-0 top-0 z-50 border-b border-porcelain-50/10 bg-ink-950/[0.70] backdrop-blur-2xl">
-      <div className="mx-auto flex w-full max-w-screen-xl items-center px-4 py-4 md:px-8">
+      <div className="app-topbar-shell flex items-center">
         <a href="#top" className="group flex items-center gap-3" aria-label="Image Atelier 首页">
           <span className="relative grid h-11 w-11 place-items-center overflow-hidden rounded-2xl border border-signal-cyan/30 bg-signal-cyan/10 shadow-glow">
             <Wand2 className="h-5 w-5 text-signal-cyan transition-transform duration-500 group-hover:rotate-12" />

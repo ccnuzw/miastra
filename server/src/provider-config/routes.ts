@@ -6,6 +6,7 @@ import { getAuthDomainStore } from '../lib/domain-store'
 import { storeRepository } from '../lib/store'
 import {
   createDefaultProviderConfig,
+  getUserProviderPolicy,
   listPublicManagedProviders,
   normalizeUserProviderConfigInput,
   resolveEffectiveProviderConfig,
@@ -24,10 +25,12 @@ const providerConfigSchema = z.object({
 function buildProviderConfigPayload(params: {
   config: ReturnType<typeof normalizeUserProviderConfigInput>
   managedProviders: ReturnType<typeof listPublicManagedProviders>
+  providerPolicy: ReturnType<typeof getUserProviderPolicy>
 }) {
   return {
     config: params.config,
     managedProviders: params.managedProviders,
+    providerPolicy: params.providerPolicy,
   }
 }
 
@@ -37,12 +40,13 @@ export async function registerProviderConfigRoutes(app: FastifyInstance) {
     if (!user) return
 
     const store = await storeRepository.read()
-    const managedProviders = listPublicManagedProviders(store)
+    const managedProviders = listPublicManagedProviders(store, user)
     const config = await getAuthDomainStore().findProviderConfigByUserId(user.id)
 
     return ok(buildProviderConfigPayload({
       config: normalizeUserProviderConfigInput(config ?? createDefaultProviderConfig(user.id)),
       managedProviders,
+      providerPolicy: getUserProviderPolicy(user),
     }))
   })
 
@@ -57,7 +61,7 @@ export async function registerProviderConfigRoutes(app: FastifyInstance) {
     }
 
     const store = await storeRepository.read()
-    const managedProviders = listPublicManagedProviders(store)
+    const managedProviders = listPublicManagedProviders(store, user)
     const normalized = normalizeUserProviderConfigInput({
       userId: user.id,
       mode: parsed.data.mode,
@@ -95,11 +99,18 @@ export async function registerProviderConfigRoutes(app: FastifyInstance) {
       }
     }
 
+    const resolved = resolveEffectiveProviderConfig({ store, config: normalized, user })
+    if (resolved.error) {
+      reply.code(resolved.error.code === 'FORBIDDEN' ? 403 : 409)
+      return fail(resolved.error.code, resolved.error.message)
+    }
+
     await getAuthDomainStore().upsertProviderConfig(normalized)
 
     return ok(buildProviderConfigPayload({
       config: normalized,
       managedProviders,
+      providerPolicy: getUserProviderPolicy(user),
     }))
   })
 
@@ -109,7 +120,7 @@ export async function registerProviderConfigRoutes(app: FastifyInstance) {
 
     const store = await storeRepository.read()
     const config = await getAuthDomainStore().findProviderConfigByUserId(user.id)
-    const resolved = resolveEffectiveProviderConfig({ store, config })
+    const resolved = resolveEffectiveProviderConfig({ store, config, user })
     if (resolved.error) {
       reply.code(409)
       return fail(resolved.error.code, resolved.error.message)

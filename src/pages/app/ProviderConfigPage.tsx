@@ -6,6 +6,7 @@ export function ProviderConfigPage() {
     config,
     draftConfig,
     managedProviders,
+    providerPolicy,
     settingsOpen,
     providerDisplayName,
     requestUrl,
@@ -17,7 +18,7 @@ export function ProviderConfigPage() {
 
   return (
     <>
-      <main className="mx-auto flex min-h-screen w-full max-w-screen-xl px-4 pb-10 pt-32 md:px-8">
+      <main className="app-page-shell app-page-shell-standard">
         <section className="panel-shell w-full">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -70,6 +71,12 @@ export function ProviderConfigPage() {
                 <p className="text-xs uppercase tracking-[0.24em] text-porcelain-100/40">{config.mode === 'managed' ? '可选公共 Provider' : 'API URL'}</p>
                 <p className="mt-2 break-all text-sm text-porcelain-100/75">{config.mode === 'managed' ? `${managedProviders.length} 个` : (config.apiUrl || '留空后走服务端默认上游')}</p>
               </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-porcelain-100/40">权限范围</p>
+                <p className="mt-2 text-sm text-porcelain-100/75">
+                  公共 Provider：{providerPolicy.allowManagedProviders ? '允许' : '禁止'} / 自定义 Provider：{providerPolicy.allowCustomProvider ? '允许' : '禁止'}
+                </p>
+              </div>
             </div>
           </article>
         </section>
@@ -80,6 +87,7 @@ export function ProviderConfigPage() {
         config={config}
         draftConfig={draftConfig}
         managedProviders={managedProviders}
+        providerPolicy={providerPolicy}
         onDraftConfigChange={setDraftConfig}
         onSave={() => void saveProviderConfig()}
         onClose={() => setSettingsOpen(false)}

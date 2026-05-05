@@ -185,4 +185,27 @@ describe('promptTemplate.studioEntry', () => {
       nextAction: 'guided-refine',
     })
   })
+
+  it('keeps resolved launch next action aligned with runtime boundary overrides', () => {
+    const launch = resolvePromptTemplateStudioLaunch(
+      {
+        id: 'template-product',
+        title: '商品模板',
+        content: '做一张商品图。',
+        category: '商品',
+        tags: ['商品'],
+        createdAt: 1,
+      },
+      {
+        templateId: 'template-product',
+        mode: 'consumer',
+        intent: 'task',
+        sourceType: 'template',
+        nextAction: 'retry-version',
+      },
+    )
+
+    expect(launch.nextAction).toBe('retry-version')
+    expect(launch.sourceType).toBe('template')
+  })
 })

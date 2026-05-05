@@ -164,6 +164,61 @@ describe('generation.contract', () => {
     expect(normalized.contract?.prompt.request).toBe('合同请求')
   })
 
+  it('uses one prompt and parameter resolver for contract canonicalization', () => {
+    const contract = resolveGenerationContractSnapshot(
+      {
+        id: 'snapshot-shared',
+        createdAt: 5,
+        mode: 'text2image',
+        prompt: '旧请求',
+        requestPrompt: '旧请求',
+        workspacePrompt: '',
+        size: '1024x1024',
+        quality: 'low',
+        model: 'legacy-model',
+        providerId: 'legacy-provider',
+        apiUrl: '',
+        requestUrl: '',
+        stream: false,
+        contract: {
+          version: 1,
+          scene: getStudioFlowScene('product-shot'),
+          prompt: {
+            request: '合同请求',
+            workspace: '合同工作区',
+          },
+          parameters: {
+            mode: 'image2image',
+            size: '1536x1024',
+            quality: 'high',
+            model: 'gpt-image-1',
+            providerId: 'openai',
+            stream: true,
+          },
+          guidedFlow: null,
+        },
+      },
+      {
+        requestPrompt: '兜底请求',
+        workspacePrompt: '兜底工作区',
+        providerId: 'fallback-provider',
+      },
+    )
+
+    expect(contract.prompt).toEqual({
+      request: '合同请求',
+      workspace: '合同工作区',
+    })
+    expect(contract.parameters).toEqual({
+      mode: 'image2image',
+      size: '1536x1024',
+      quality: 'high',
+      model: 'gpt-image-1',
+      providerId: 'openai',
+      stream: true,
+    })
+  })
+
   it('resolves task payload and snapshot into the same contract source of truth', () => {
     const contract = resolveGenerationContractFromTask(
       {

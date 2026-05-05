@@ -94,6 +94,11 @@ export type ConsumerGuidedFlowRuntimeDecision = {
   }
 }
 
+export type ConsumerGuidedFlowActionPlan = {
+  defaultActionId?: StudioFlowActionId
+  actionPriority: StudioFlowActionId[]
+}
+
 export type ConsumerGuidedFlowSnapshot = {
   version: 1
   guideId: string
@@ -158,8 +163,12 @@ export function buildConsumerGuidedFlowLoopState(
   const skillId = input.templateId?.trim() ? `template:${input.templateId.trim()}` : input.guideId
   const skillLabel = input.templateTitle?.trim() || input.guideTitle.trim() || '当前 Skill'
   const currentSourceType = input.sourceType ?? 'manual'
-  const nextActionId = input.defaultActionId ?? input.actionPriority?.[0]
-  const branchActionId = input.actionPriority?.find((actionId) => actionId !== nextActionId)
+  const actionPlan = normalizeConsumerGuidedFlowActionPlan({
+    defaultActionId: input.defaultActionId,
+    actionPriority: input.actionPriority,
+  })
+  const nextActionId = actionPlan.defaultActionId
+  const branchActionId = actionPlan.actionPriority.find((actionId) => actionId !== nextActionId)
   const nextActionLabel = nextActionId ? getStudioFlowActionLabel(nextActionId) : undefined
   const branchActionLabel = branchActionId ? getStudioFlowActionLabel(branchActionId) : undefined
   const lastActionLabel = input.actionId ? getStudioFlowActionLabel(input.actionId) : undefined
@@ -261,21 +270,47 @@ export function getConsumerGuidedFlowSelectionMap(
   }, {})
 }
 
+export function normalizeConsumerGuidedFlowActionPlan(input: {
+  defaultActionId?: StudioFlowActionId
+  actionPriority?: StudioFlowActionId[]
+}): ConsumerGuidedFlowActionPlan {
+  const normalizedPriority = Array.from(new Set(input.actionPriority ?? []))
+  const defaultActionId = input.defaultActionId ?? normalizedPriority[0]
+  if (!defaultActionId) {
+    return {
+      defaultActionId: undefined,
+      actionPriority: normalizedPriority,
+    }
+  }
+
+  return {
+    defaultActionId,
+    actionPriority: [
+      defaultActionId,
+      ...normalizedPriority.filter((actionId) => actionId !== defaultActionId),
+    ],
+  }
+}
+
 export function rebaseConsumerGuidedFlowSnapshot(
   snapshot: ConsumerGuidedFlowSnapshot,
   options: RebaseConsumerGuidedFlowSnapshotOptions,
 ): ConsumerGuidedFlowSnapshot {
   const sourceType = options.sourceType ?? snapshot.sourceType
   const sceneId = options.sceneId ?? snapshot.sceneId
-  const actionPriority =
-    options.actionPriority ??
-    snapshot.actionPriority ??
-    snapshot.runtimeDecision?.result.actionPriority ??
-    []
-  const defaultActionId =
-    options.defaultActionId ??
-    snapshot.defaultActionId ??
-    snapshot.runtimeDecision?.result.defaultActionId
+  const actionPlan = normalizeConsumerGuidedFlowActionPlan({
+    defaultActionId:
+      options.defaultActionId ??
+      snapshot.defaultActionId ??
+      snapshot.runtimeDecision?.result.defaultActionId,
+    actionPriority:
+      options.actionPriority ??
+      snapshot.actionPriority ??
+      snapshot.runtimeDecision?.result.actionPriority ??
+      [],
+  })
+  const defaultActionId = actionPlan.defaultActionId
+  const actionPriority = actionPlan.actionPriority
 
   return {
     ...snapshot,

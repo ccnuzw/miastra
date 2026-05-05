@@ -135,18 +135,18 @@ export function StudioProPromptPanel({
       </div>
 
       <p className="studio-pro-panel-copy">
-        先确认工作区是否仍贴着来源版，再看字段落点和最终 Prompt，这样更容易决定是继续小改还是直接派生。
+        先确认工作区是否仍贴着来源版，再看字段落点和最终 Prompt，这样更容易把当前版连续接稳，而不是直接跳去改最终请求。
       </p>
       {hasPromptRecoveryGap ? (
         <div className="mt-4 rounded-[1.2rem] border border-signal-amber/20 bg-signal-amber/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
-          当前工作区还是空的。验收这一链路时，建议先用
+          当前工作区基线还没恢复完成。验收这一链路时，建议先用
           {hasReplayContext ? '「恢复来源 Prompt」' : '「以模板字段重对齐」'}
           建立可比较基线，再继续判断是重跑、校准还是分叉。
         </div>
       ) : null}
       {!hasPromptRecoveryGap && hasReplayReferenceGap ? (
         <div className="mt-4 rounded-[1.2rem] border border-porcelain-50/10 bg-ink-950/[0.38] px-4 py-3 text-sm text-porcelain-100/70">
-          {replayReferenceStatus}。Prompt 可以先继续校准，但如果要严格复现来源链路，仍建议先补齐参考图。
+          {replayReferenceStatus}。当前处于降级可继续状态，Prompt 可以先继续校准；如果要严格复现来源链路，仍建议先补齐参考图。
         </div>
       ) : null}
 
@@ -228,8 +228,8 @@ export function StudioProPromptPanel({
           </strong>
           <p className="studio-pro-metric-copy">
             {replayContext
-              ? '当前结果返回控制区后，可以先恢复来源 Prompt，再判断当前改动是同版重跑还是新的目标版分支。'
-              : '从作品或任务回流后，这里会提供“回到来源 Prompt”入口，避免手动摘录上一版描述。'}
+              ? '当前结果返回控制区后，可以先恢复来源工作区 Prompt，再判断当前改动是同版重跑还是新的目标版分支。'
+              : '从作品或任务回流后，这里会提供“恢复来源工作区 Prompt”入口，避免手动摘录上一版描述。'}
           </p>
           {replayContext ? (
             <p className="studio-pro-metric-copy">{replayReferenceStatus}</p>
@@ -252,7 +252,7 @@ export function StudioProPromptPanel({
               onClick={handleApplyReplayBaseline}
               disabled={!replayContext || !onApplyReplayPrompt}
             >
-              恢复来源 Prompt
+              恢复来源工作区 Prompt
             </button>
             <button
               type="button"

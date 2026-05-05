@@ -4,7 +4,6 @@ import { ImageViewerModal } from '@/features/works/ImageViewerModal'
 import { ImageWallModal } from '@/features/works/ImageWallModal'
 import { useWorksGallery } from '@/features/works/useWorksGallery'
 import {
-  getWorkReplayActionLabels,
   getWorkReplayGuide,
   getWorkReplayReferenceSummary,
   getWorkReplayStatusText,
@@ -19,7 +18,6 @@ import { createDownloadResultError, downloadImage, downloadWorksZip } from '@/sh
 export function WorksPage() {
   const works = useWorksGallery()
   const navigate = useNavigate()
-  const replayLabels = getWorkReplayActionLabels('work')
   const [busyId, setBusyId] = useState('')
   const [includeMetadata, setIncludeMetadata] = useState(true)
   const [exportError, setExportError] = useState<unknown>(null)
@@ -68,8 +66,8 @@ export function WorksPage() {
         id: 'continue-version',
         label:
           versionSource.recommendedActionId === 'continue-version'
-            ? `推荐：${replayLabels.restore}`
-            : replayLabels.restore,
+            ? '推荐：带回工作台继续'
+            : '带回工作台继续',
         autoGenerate: false,
         className:
           versionSource.recommendedActionId === 'continue-version'
@@ -80,8 +78,8 @@ export function WorksPage() {
         id: 'branch-version',
         label:
           versionSource.recommendedActionId === 'branch-version'
-            ? `推荐：${replayLabels.regenerate}`
-            : replayLabels.regenerate,
+            ? '推荐：从这一版分叉'
+            : '从这一版分叉',
         autoGenerate: true,
         className:
           versionSource.recommendedActionId === 'branch-version'
@@ -97,7 +95,7 @@ export function WorksPage() {
           <div className="flex h-56 w-full flex-col items-center justify-center rounded-2xl border border-dashed border-porcelain-50/15 bg-ink-950/[0.32] px-4 text-center">
             <p className="text-sm font-semibold text-porcelain-50">预览图暂未恢复</p>
             <p className="mt-2 text-xs leading-6 text-porcelain-100/55">
-              当前仍可继续回流参数或重跑这一版，但查看大图前建议先刷新作品库，确认资源已同步落下。
+              当前处于降级可继续状态。你仍可继续回流参数或重跑这一版，但查看大图前建议先刷新作品库，确认资源已同步落下。
             </p>
           </div>
         )}
@@ -304,17 +302,17 @@ export function WorksPage() {
           {exportError ? <ErrorNotice error={exportError} className="mt-6" /> : null}
           {works.error ? (
             <div className="mt-6 rounded-[1.3rem] border border-signal-coral/20 bg-signal-coral/10 px-4 py-3 text-sm text-porcelain-100/78">
-              作品列表没有完整加载成功。当前无法保证回流链、批量导出和标签筛选是最新状态；建议先刷新作品库后再继续从这里回到工作台。
+              作品区恢复未完成。当前无法保证回流链、批量导出和标签筛选是最新状态；建议先刷新作品库后再继续从这里回到工作台。
             </div>
           ) : null}
           {!works.loading && !works.error && replayRecoveryPendingCount > 0 ? (
             <div className="mt-6 rounded-[1.3rem] border border-signal-amber/20 bg-signal-amber/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
-              当前筛选结果里有 {replayRecoveryPendingCount} 项作品回流时需要手动补参考图。继续这一版仍可用，但自动重跑前建议先回工作台补齐参考图。
+              当前筛选结果里有 {replayRecoveryPendingCount} 项作品带回工作台后还需要手动补参考图。它们处于降级可继续状态，继续这一版仍可用，但从这一版分叉前建议先补齐参考图。
             </div>
           ) : null}
           {!works.loading && !works.error && missingPreviewCount > 0 ? (
             <div className="mt-6 rounded-[1.3rem] border border-porcelain-50/10 bg-ink-950/[0.35] px-4 py-3 text-sm text-porcelain-100/70">
-              当前筛选结果里有 {missingPreviewCount} 项作品只有参数快照、预览图未完全恢复。它们仍可继续回流控制区，但查看和人工验收前建议先刷新作品库确认资源同步完成。
+              当前筛选结果里有 {missingPreviewCount} 项作品只有参数快照、预览图未完全恢复。它们仍可继续回流控制区，但当前属于降级可继续状态；查看和人工验收前建议先刷新作品库确认资源同步完成。
             </div>
           ) : null}
           {exportMessage ? (

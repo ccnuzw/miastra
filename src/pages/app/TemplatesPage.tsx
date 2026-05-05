@@ -27,6 +27,7 @@ import {
   buildPromptTemplateStudioPath,
   resolvePromptTemplateStudioLaunch,
 } from '@/features/prompt-templates/promptTemplate.studioEntry'
+import type { PromptTemplateWorkbenchEntryMode } from '@/features/prompt-templates/promptTemplate.types'
 import type { StudioFlowSceneId } from '@/features/prompt-templates/studioFlowSemantic'
 import { getStudioFlowSceneLabel } from '@/features/prompt-templates/studioFlowSemantic'
 import {
@@ -40,6 +41,13 @@ function getTemplateActionErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim()) return error.message
   if (error) return String(error)
   return fallback
+}
+
+function orderTemplateEntries(
+  mode: PromptTemplateWorkbenchEntryMode,
+  recommendedMode: PromptTemplateWorkbenchEntryMode,
+) {
+  return mode === recommendedMode ? 0 : 1
 }
 
 export function TemplatesPage() {
@@ -146,10 +154,10 @@ export function TemplatesPage() {
       } catch (refreshError) {
         setMessageTone('error')
         setMessage(
-          `模板已保存，但模板库刷新失败：${getTemplateActionErrorMessage(
+          `模板已保存，但模板库恢复未完成：${getTemplateActionErrorMessage(
             refreshError,
             '请稍后刷新模板库重试',
-          )}。`,
+          )}。当前保存结果已生效，切换模板入口前建议先完成一次成功刷新。`,
         )
       }
     } catch (submitError) {
@@ -174,10 +182,10 @@ export function TemplatesPage() {
       } catch (refreshError) {
         setMessageTone('error')
         setMessage(
-          `模板已删除，但模板库刷新失败：${getTemplateActionErrorMessage(
+          `模板已删除，但模板库恢复未完成：${getTemplateActionErrorMessage(
             refreshError,
             '请稍后刷新模板库重试',
-          )}。`,
+          )}。当前删除结果已生效，继续验证模板入口前建议先完成一次成功刷新。`,
         )
       }
     } catch (deleteError) {
@@ -207,10 +215,10 @@ export function TemplatesPage() {
       } catch (refreshError) {
         setMessageTone('error')
         setMessage(
-          `模板已复制，但模板库刷新失败：${getTemplateActionErrorMessage(
+          `模板已复制，但模板库恢复未完成：${getTemplateActionErrorMessage(
             refreshError,
             '请稍后刷新模板库重试',
-          )}。`,
+          )}。当前复制结果已生效，继续从模板入口进入前建议先完成一次成功刷新。`,
         )
       }
     } catch (duplicateError) {
@@ -329,8 +337,8 @@ export function TemplatesPage() {
               模板暂时没有加载成功。你可以先整理左侧内容，或刷新后重新读取工作台里已保存的模板。
             </p>
             <div className="rounded-[1.2rem] border border-signal-coral/20 bg-signal-coral/10 px-4 py-3 text-sm text-porcelain-100/78">
-              当前异常：{errorMessage || '模板库读取失败'}
-              。如果是从模板入口跳转到工作台失败，建议先回到这里刷新模板，再重新进入普通版或专业版。
+              当前处于“模板库恢复未完成”状态：{errorMessage || '模板库读取失败'}
+              。如果是从模板入口跳转到工作台失败，建议先回到这里刷新模板库，再重新进入普通版或专业版。
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -346,7 +354,7 @@ export function TemplatesPage() {
         ) : null}
         {loading ? (
           <div className="mt-6 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] px-4 py-3 text-sm text-porcelain-100/60">
-            正在加载模板库，最近使用、分类和推荐入口会一起恢复。
+            模板库正在恢复中，最近使用、分类和推荐入口会一起恢复。
           </div>
         ) : null}
         {message ? (
@@ -656,6 +664,21 @@ export function TemplatesPage() {
                       <p className="mt-2 text-sm leading-6 text-porcelain-100/65">
                         {presentation.recommendedEntry.reason}
                       </p>
+                      <div className="mt-3">
+                        <Link
+                          to={buildPromptTemplateStudioPath(
+                            presentation.recommendedEntry.mode === 'consumer'
+                              ? consumerLaunch
+                              : proLaunch,
+                          )}
+                          className="inline-flex items-center gap-2 rounded-full border border-signal-cyan/40 bg-signal-cyan/[0.12] px-4 py-2 text-sm font-semibold text-signal-cyan transition hover:border-signal-cyan/60 hover:bg-signal-cyan/[0.2]"
+                        >
+                          {presentation.recommendedEntry.mode === 'consumer'
+                            ? '直接用这个模板起稿'
+                            : '直接带入专业版'}
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </div>
                       <div className="mt-3 rounded-2xl border border-signal-cyan/15 bg-signal-cyan/[0.07] px-3 py-3">
                         <p className="text-xs font-semibold text-signal-cyan">
                           {presentation.runtime.followUpLabel}
@@ -680,7 +703,13 @@ export function TemplatesPage() {
                     </div>
 
                     <div className="mt-4 grid gap-3">
-                      {presentation.entries.map((entry) => {
+                      {[...presentation.entries]
+                        .sort(
+                          (left, right) =>
+                            orderTemplateEntries(left.mode, presentation.recommendedEntry.mode) -
+                            orderTemplateEntries(right.mode, presentation.recommendedEntry.mode),
+                        )
+                        .map((entry) => {
                         const launch = entry.mode === 'consumer' ? consumerLaunch : proLaunch
                         return (
                           <Link
@@ -724,7 +753,7 @@ export function TemplatesPage() {
                             </p>
                             {entry.recommended ? (
                               <p className="mt-2 text-[11px] font-medium text-signal-cyan">
-                                推荐入口
+                                推荐入口，会优先接这条主链
                               </p>
                             ) : null}
                             {!entry.available ? (

@@ -1,10 +1,14 @@
 import type {
+  ConsumerGuidedFlowActionPlan,
   ConsumerGuidedFlowRuntimeDecision,
   ConsumerGuidedFlowRuntimeEntryDecision,
   ConsumerGuidedFlowSnapshot,
   ConsumerGuidedFlowStepSnapshot,
 } from '@/features/studio-consumer/consumerGuidedFlow'
-import { buildConsumerGuidedFlowLoopState } from '@/features/studio-consumer/consumerGuidedFlow'
+import {
+  buildConsumerGuidedFlowLoopState,
+  normalizeConsumerGuidedFlowActionPlan,
+} from '@/features/studio-consumer/consumerGuidedFlow'
 import { buildPromptTemplatePresentation } from './promptTemplate.presentation'
 import {
   getPromptTemplateStructure,
@@ -43,6 +47,13 @@ export type PromptTemplateRuntimeConsumption = {
   context: PromptTemplateRuntimeContext
   guidedFlow: ConsumerGuidedFlowSnapshot | null
   promptText: string
+}
+
+type PromptTemplateRuntimeBoundary = {
+  sceneId: StudioFlowSceneId
+  scene: StudioFlowScene
+  sourceType: StudioFlowSourceType
+  actionPlan: ConsumerGuidedFlowActionPlan
 }
 
 function isGuidedField(field: PromptTemplateFieldDefinition) {
@@ -128,6 +139,32 @@ function buildRuntimeEntryDecisions(
   }
 }
 
+function resolvePromptTemplateRuntimeBoundary(
+  template: PromptTemplateListItem,
+  options?: PromptTemplateRuntimeOptions & {
+    mode?: PromptTemplateWorkbenchEntryMode
+  },
+): PromptTemplateRuntimeBoundary {
+  const structure = getPromptTemplateStructure(template)
+  const mode = options?.mode ?? resolvePromptTemplateRuntimeMode(template, 'consumer')
+  const runtimeDecision = buildPromptTemplateRuntimeDecision(template, [], mode, {
+    nextActionId: options?.nextActionId,
+  })
+  const sceneId = options?.sceneId ?? structure.scene.id
+  const sourceType = options?.sourceType ?? 'template'
+  const actionPlan = normalizeConsumerGuidedFlowActionPlan({
+    defaultActionId: runtimeDecision.result.defaultActionId,
+    actionPriority: runtimeDecision.result.actionPriority,
+  })
+
+  return {
+    sceneId,
+    scene: getStudioFlowScene(sceneId),
+    sourceType,
+    actionPlan,
+  }
+}
+
 export function resolvePromptTemplateRuntimeMode(
   template: PromptTemplateListItem,
   preferredMode: PromptTemplateWorkbenchEntryMode,
@@ -149,20 +186,22 @@ export function buildPromptTemplateRuntimeContext(
   options?: PromptTemplateRuntimeOptions,
 ): PromptTemplateRuntimeContext {
   const resolvedMode = resolvePromptTemplateRuntimeMode(template, preferredMode)
-  const structure = getPromptTemplateStructure(template)
   const runtimeDecision = buildPromptTemplateRuntimeDecision(template, [], resolvedMode, {
     nextActionId: options?.nextActionId,
   })
   const activeEntry = runtimeDecision.activeEntry
-  const sceneId = options?.sceneId ?? structure.scene.id
+  const boundary = resolvePromptTemplateRuntimeBoundary(template, {
+    ...options,
+    mode: resolvedMode,
+  })
 
   return {
     mode: resolvedMode,
     intent: activeEntry.intent,
-    sceneId,
-    scene: getStudioFlowScene(sceneId),
-    sourceType: options?.sourceType ?? 'template',
-    nextActionId: options?.nextActionId ?? runtimeDecision.result.defaultActionId,
+    sceneId: boundary.sceneId,
+    scene: boundary.scene,
+    sourceType: boundary.sourceType,
+    nextActionId: boundary.actionPlan.defaultActionId,
   }
 }
 
@@ -185,8 +224,10 @@ export function buildPromptTemplateRuntimeDecision(
   const defaultSelectionSummary = steps.length
     ? steps.map((step) => `${step.questionTitle}：${step.optionLabel}`).join(' / ')
     : undefined
-  const actionPriority = presentation.resultBridge.actions.map((action) => action.id)
-  const defaultActionId = options?.nextActionId ?? presentation.runtime.defaultAction?.id
+  const actionPlan = normalizeConsumerGuidedFlowActionPlan({
+    defaultActionId: options?.nextActionId ?? presentation.runtime.defaultAction?.id,
+    actionPriority: presentation.resultBridge.actions.map((action) => action.id),
+  })
 
   return {
     entries,
@@ -201,8 +242,8 @@ export function buildPromptTemplateRuntimeDecision(
       defaultSelectionSummary,
     },
     result: {
-      defaultActionId,
-      actionPriority,
+      defaultActionId: actionPlan.defaultActionId,
+      actionPriority: actionPlan.actionPriority,
       summary: presentation.runtime.resultActionPrioritySummary,
     },
     contract: {
@@ -259,14 +300,16 @@ export function buildPromptTemplateGuidedFlowSnapshot(
     nextActionId: resolvedOptions.nextActionId,
   })
   const activeEntry = runtimeDecision.activeEntry
-  const sceneId = resolvedOptions.sceneId ?? structure.scene.id
-  const sourceType = resolvedOptions.sourceType ?? 'template'
+  const boundary = resolvePromptTemplateRuntimeBoundary(template, {
+    ...resolvedOptions,
+    mode: resolvedMode,
+  })
 
   return {
     version: 1,
     guideId: `template:${template.id}`,
-    sceneId,
-    scene: getStudioFlowScene(sceneId),
+    sceneId: boundary.sceneId,
+    scene: boundary.scene,
     guideTitle: `${presentation.title} · 模板追问`,
     guideDescription: `进入工作台后会先按模板字段补齐 ${fieldLabels.join(' / ')}，再接结果动作继续往下走。`,
     basePrompt: template.content.trim(),
@@ -276,25 +319,25 @@ export function buildPromptTemplateGuidedFlowSnapshot(
     totalQuestionCount: guidedFields.length,
     completedQuestionCount: steps.length,
     steps,
-    sourceType,
+    sourceType: boundary.sourceType,
     templateId: template.id,
     templateTitle: presentation.title,
     entryMode: activeEntry.mode,
     entryIntent: activeEntry.intent,
     followUpMode: 'template-guided',
     followUpLabel: `模板追问 ${steps.length}/${guidedFields.length} 步`,
-    actionPriority: runtimeDecision.result.actionPriority,
-    defaultActionId: runtimeDecision.result.defaultActionId,
+    actionPriority: boundary.actionPlan.actionPriority,
+    defaultActionId: boundary.actionPlan.defaultActionId,
     runtimeDecision,
     loopState: buildConsumerGuidedFlowLoopState({
       guideId: `template:${template.id}`,
       guideTitle: `${presentation.title} · 模板追问`,
       templateId: template.id,
       templateTitle: presentation.title,
-      sourceType,
+      sourceType: boundary.sourceType,
       stage: 'template-entry',
-      defaultActionId: runtimeDecision.result.defaultActionId,
-      actionPriority: runtimeDecision.result.actionPriority,
+      defaultActionId: boundary.actionPlan.defaultActionId,
+      actionPriority: boundary.actionPlan.actionPriority,
       versionLabel: presentation.chainContext.versionSummary,
     }),
     updatedAt: resolvedOptions.updatedAt,

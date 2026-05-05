@@ -207,4 +207,26 @@ describe('promptTemplate runtime', () => {
     expect(runtime.guidedFlow?.runtimeDecision?.result.defaultActionId).toBe('retry-version')
     expect(runtime.promptText).toBe(runtime.guidedFlow?.promptText)
   })
+
+  it('keeps overridden next action as the runtime mainline action boundary', () => {
+    const runtime = buildPromptTemplateRuntimeConsumption(
+      {
+        id: 'template-runtime-boundary',
+        title: '商品模板',
+        content: '做一张商品图。',
+        category: '商品',
+        tags: ['商品'],
+        createdAt: 1,
+      },
+      'consumer',
+      {
+        nextActionId: 'retry-version',
+      },
+    )
+
+    expect(runtime.context.nextActionId).toBe('retry-version')
+    expect(runtime.guidedFlow?.defaultActionId).toBe('retry-version')
+    expect(runtime.guidedFlow?.actionPriority?.[0]).toBe('retry-version')
+    expect(runtime.guidedFlow?.loopState?.nextActionId).toBe('retry-version')
+  })
 })

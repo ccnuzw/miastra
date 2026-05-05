@@ -470,7 +470,7 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
       {hasPreviewSource && replaySummary.missingReferenceCount > 0 ? (
         <div className="mt-4 rounded-[1.35rem] border border-signal-amber/20 bg-signal-amber/[0.08] p-4">
           <p className="text-sm font-semibold text-porcelain-50">
-            当前结果可以继续回流，但恢复还不完整
+            当前结果处于降级可继续状态
           </p>
           <p className="mt-1 text-sm leading-6 text-porcelain-100/62">
             {replayStatusText}
@@ -486,8 +486,8 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           </p>
           <p className="mt-1 text-sm leading-6 text-porcelain-100/62">
             {lastTriggeredAction.submit
-              ? '系统正在沿用这张结果继续生成下一版。'
-              : '当前结果会自动带回输入区作为基础图，你可以直接继续细调。'}
+              ? '系统正在沿用这张结果恢复当前链路，并继续生成下一版。'
+              : '当前结果会自动恢复到输入区作为基础图，你可以直接继续细调。'}
           </p>
         </div>
       ) : null}

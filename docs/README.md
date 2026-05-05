@@ -69,6 +69,10 @@
 | [image-skill-platform-phase8-review-v1.md](./image-skill-platform-phase8-review-v1.md) | 第八阶段复盘，整理第八阶段已完成能力、已暴露问题与第九阶段建议 |
 | [image-skill-platform-phase9-scope-v1.md](./image-skill-platform-phase9-scope-v1.md) | 第九阶段开发目标与范围，定义最终验收与上线执行准备阶段的目标、优先级与边界 |
 | [image-skill-platform-phase9-backlog-v1.md](./image-skill-platform-phase9-backlog-v1.md) | 第九阶段多 Agent 开发任务清单，定义第九阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase9-agent-briefs-v1.md](./image-skill-platform-phase9-agent-briefs-v1.md) | 第九阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase9-agent-prompts-v1.md](./image-skill-platform-phase9-agent-prompts-v1.md) | 第九阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase9-review-v1.md](./image-skill-platform-phase9-review-v1.md) | 第九阶段复盘，整理第九阶段已完成能力、已暴露问题与最终验收状态判断 |
+| [image-skill-platform-phase9-release-execution-v1.md](./image-skill-platform-phase9-release-execution-v1.md) | 第九阶段最终验收与上线执行清单，定义手工验收视角、回归重点与上线执行准备顺序 |
 | [image-skill-platform-consumer-components-v1.md](./image-skill-platform-consumer-components-v1.md) | 普通用户版组件清单与状态清单，定义首页、创作页、结果页的组件层级、页面状态与空态 |
 | [image-skill-platform-consumer-interactions-v1.md](./image-skill-platform-consumer-interactions-v1.md) | 普通用户版交互流与状态流，定义用户动作、系统响应、页面变化和失败恢复策略 |
 | [image-skill-platform-consumer-copy-v1.md](./image-skill-platform-consumer-copy-v1.md) | 普通用户版文案与按钮文案清单，定义标题、按钮、空态、失败态和全局反馈话术 |
@@ -139,14 +143,18 @@
 58. `image-skill-platform-phase8-review-v1.md`
 59. `image-skill-platform-phase9-scope-v1.md`
 60. `image-skill-platform-phase9-backlog-v1.md`
-61. `image-skill-platform-consumer-components-v1.md`
-62. `image-skill-platform-consumer-interactions-v1.md`
-63. `image-skill-platform-consumer-copy-v1.md`
-64. `image-skill-platform-consumer-layout-decisions-v1.md`
-65. `development-workflow.md`
-66. `testing-strategy.md`
-67. `troubleshooting.md`
-68. `current-project-status.md`
+61. `image-skill-platform-phase9-agent-briefs-v1.md`
+62. `image-skill-platform-phase9-agent-prompts-v1.md`
+63. `image-skill-platform-phase9-review-v1.md`
+64. `image-skill-platform-phase9-release-execution-v1.md`
+65. `image-skill-platform-consumer-components-v1.md`
+66. `image-skill-platform-consumer-interactions-v1.md`
+67. `image-skill-platform-consumer-copy-v1.md`
+68. `image-skill-platform-consumer-layout-decisions-v1.md`
+69. `development-workflow.md`
+70. `testing-strategy.md`
+71. `troubleshooting.md`
+72. `current-project-status.md`
 
 ## 相关入口
 

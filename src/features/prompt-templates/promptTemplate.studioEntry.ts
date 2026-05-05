@@ -68,6 +68,21 @@ function inferModeFromIntent(
   return value === 'task' ? 'consumer' : 'pro'
 }
 
+function resolveLaunchModeAndIntent(params: {
+  modeValue: string | null
+  intentValue: string | null
+}) {
+  const mode = isPromptTemplateWorkbenchEntryMode(params.modeValue)
+    ? params.modeValue
+    : inferModeFromIntent(
+        isPromptTemplateWorkbenchEntryIntent(params.intentValue) ? params.intentValue : null,
+      )
+  const intent = isPromptTemplateWorkbenchEntryIntent(params.intentValue)
+    ? params.intentValue
+    : inferIntentFromMode(mode)
+  return { mode, intent }
+}
+
 export function buildPromptTemplateStudioPath({
   templateId,
   mode,
@@ -113,12 +128,7 @@ export function readPromptTemplateStudioLaunch(
   const nextActionValue = searchParams.get(studioNextActionParam)
 
   if (!templateId) return null
-  const mode = isPromptTemplateWorkbenchEntryMode(modeValue)
-    ? modeValue
-    : inferModeFromIntent(isPromptTemplateWorkbenchEntryIntent(intentValue) ? intentValue : null)
-  const intent = isPromptTemplateWorkbenchEntryIntent(intentValue)
-    ? intentValue
-    : inferIntentFromMode(mode)
+  const { mode, intent } = resolveLaunchModeAndIntent({ modeValue, intentValue })
   if (!mode) return null
   if (!intent) return null
 

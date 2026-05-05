@@ -12,7 +12,6 @@ import {
 import {
   buildTaskReplayWork,
   getTaskVersionSourceSummary,
-  getWorkReplayActionLabels,
   getWorkReplayGuide,
   getWorkReplayHint,
   getWorkReplayReferenceSummary,
@@ -269,7 +268,6 @@ export function TasksPage() {
   const [pageVisible, setPageVisible] = useState(() =>
     typeof document === 'undefined' ? true : document.visibilityState === 'visible',
   )
-  const replayLabels = getWorkReplayActionLabels('task')
 
   const refresh = useCallback(async (background = false) => {
     if (background) setRefreshing(true)
@@ -618,7 +616,7 @@ export function TasksPage() {
         {error ? <ErrorNotice error={error} className="mt-6" /> : null}
         {error ? (
           <div className="mt-6 rounded-[1.3rem] border border-signal-coral/20 bg-signal-coral/10 px-4 py-3 text-sm text-porcelain-100/78">
-            任务列表没有完整刷新成功。当前批次进度、结果映射和回流入口可能不是最新状态；继续重试或回到工作台前，建议先完成一次成功刷新。
+            任务区恢复未完成。当前批次进度、结果映射和回流入口可能不是最新状态；继续重试或回到工作台前，建议先完成一次成功刷新。
           </div>
         ) : null}
         {autoRefreshPaused ? (
@@ -628,7 +626,7 @@ export function TasksPage() {
         ) : null}
         {!loading && pendingResultMappingCount > 0 ? (
           <div className="mt-6 rounded-[1.3rem] border border-porcelain-50/10 bg-ink-950/[0.35] px-4 py-3 text-sm text-porcelain-100/70">
-            当前有 {pendingResultMappingCount} 个任务已经返回结果，但作品映射还没完全恢复。回流控制区前建议先刷新一次，确认结果图和快照都已稳定落盘。
+            当前有 {pendingResultMappingCount} 个任务已经返回结果，但作品映射还没完全恢复。它们处于降级可继续状态；回流控制区前建议先刷新一次，确认结果图和快照都已稳定落盘。
           </div>
         ) : null}
         {!loading ? (
@@ -636,8 +634,8 @@ export function TasksPage() {
             {hasRunningTasks
               ? '当前仍有任务在运行或排队，页面会自动刷新。回到工作台继续修改时，建议确认这批任务是否已经稳定出结果。'
               : hasRecoverableFailures
-                ? '当前没有进行中的任务，但存在失败或超时项。你可以先在这里重试失败项，也可以把结果回流到工作台后再决定是否派生。'
-                : '当前任务链已稳定落盘。需要继续改时，可以直接从任务回流到工作台，普通版和专业版都会沿当前快照继续。'}
+                ? '当前没有进行中的任务，但存在失败或超时项。你可以先在这里恢复失败项，也可以把结果回流到工作台后再决定是否派生。'
+                : '当前任务链已恢复到稳定状态。需要继续改时，可以直接从任务回流到工作台，普通版和专业版都会沿当前快照继续。'}
           </div>
         ) : null}
         {actionMessage ? (
@@ -795,8 +793,8 @@ export function TasksPage() {
                             id: 'continue-version',
                             label:
                               versionSource.recommendedActionId === 'continue-version'
-                                ? `推荐：${replayLabels.restore}`
-                                : replayLabels.restore,
+                                ? '推荐：带回工作台继续'
+                                : '带回工作台继续',
                             autoGenerate: false,
                             className:
                               versionSource.recommendedActionId === 'continue-version'
@@ -807,8 +805,8 @@ export function TasksPage() {
                             id: 'retry-version',
                             label:
                               versionSource.recommendedActionId === 'retry-version'
-                                ? `推荐：${replayLabels.regenerate}`
-                                : replayLabels.regenerate,
+                                ? '推荐：直接按这次参数重跑'
+                                : '直接按这次参数重跑',
                             autoGenerate: true,
                             className:
                               versionSource.recommendedActionId === 'retry-version'
@@ -933,7 +931,7 @@ export function TasksPage() {
                                 </p>
                                 {replaySummary.missingReferenceCount > 0 ? (
                                   <p className="mt-2 text-xs text-porcelain-100/52">
-                                    回到工作台后会先恢复当前可用参数，但需要手动补齐缺失参考图，才适合继续重跑或分叉。
+                                    带回工作台后会先恢复当前可用参数，但需要手动补齐缺失参考图，才适合继续重跑。
                                   </p>
                                 ) : null}
                                 <div className="mt-3 flex flex-wrap gap-4 text-xs text-porcelain-100/45">

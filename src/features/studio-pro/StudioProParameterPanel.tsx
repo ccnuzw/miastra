@@ -107,6 +107,11 @@ export function StudioProParameterPanel({
   const replayRecommendedActionLabel = replayContext?.recommendedActionLabel ?? ''
   const replayDecisionSummary = replayContext?.decisionSummary ?? ''
   const replayActionDecisionReason = replayContext?.actionDecisionReason ?? ''
+  const replayRecoveryTone = hasReplayContext
+    ? replayContext?.hasCompleteReferenceRestore
+      ? '来源基线已恢复完成'
+      : '来源基线已部分恢复，当前处于降级可继续状态'
+    : '等待从结果继续调整'
 
   function getDecisionPillClass(state: typeof parameterDecision.state) {
     switch (state) {
@@ -259,7 +264,7 @@ export function StudioProParameterPanel({
               onClick={onApplyReplayParameters}
               disabled={!replayContext || !onApplyReplayParameters}
             >
-              恢复来源参数
+              恢复来源参数基线
             </button>
             <button
               type="button"
@@ -351,13 +356,16 @@ export function StudioProParameterPanel({
           <strong className="studio-pro-metric-value">
             {replayContext
               ? `已从${replayContext.sourceLabel}恢复${templateContext ? `「${templateContext.sceneLabel}」` : ''}参数`
-              : '等待从结果继续调整'}
+              : replayRecoveryTone}
           </strong>
           <p className="studio-pro-metric-copy">
             {replayContext
               ? `${replayContext.statusText}。${replayContext.hint}`
               : '当你从作品或任务回到专业版时，这里会提示可恢复的 Prompt、参数和参考图状态。'}
           </p>
+          {replayContext ? (
+            <p className="studio-pro-metric-copy">{replayRecoveryTone}</p>
+          ) : null}
           {replayContext ? (
             <p className="studio-pro-metric-copy">{replayContext.actionDecisionReason}</p>
           ) : null}
@@ -415,7 +423,7 @@ export function StudioProParameterPanel({
           </p>
           {hasReplayContext && !replayContext?.hasCompleteReferenceRestore ? (
             <p className="studio-pro-metric-copy">
-              由于参考图没有完整回流，这次更适合先补齐输入条件，再决定是否严格复现来源版。
+              由于参考图没有完整回流，这次处于降级可继续状态，更适合先补齐输入条件，再决定是否严格复现来源版。
             </p>
           ) : null}
           {replayContext?.parameterLabel ? (

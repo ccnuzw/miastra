@@ -179,8 +179,10 @@ export type StudioProReplayContext = {
   sourceDrawDelayMs?: number | null
   sourceDrawRetries?: number | null
   sourceDrawTimeoutSec?: number | null
+  sourceDrawSafeMode?: boolean | null
   sourceVariationStrength?: 'low' | 'medium' | 'high' | null
   sourceVariationDimensionCount?: number
+  sourceVariationDimensionIds?: string[] | null
   sourceReferenceCount?: number | null
   sourceWorkspacePrompt?: string
   requestPrompt: string
@@ -789,6 +791,30 @@ export function buildStudioProPromptDecision(input: {
       recommendation: '先写一句主体需求，或从模板 / 结果回流进入，再开始判断是重跑还是派生。',
       primaryAction: '先补工作区 Prompt',
       secondaryAction: '也可以先接入模板或来源版',
+    })
+  }
+
+  if (replayContext && !workspacePromptLength) {
+    return createStudioProDecisionCard({
+      state: 'restore',
+      title: '先接回来源工作区 Prompt',
+      summary: '当前工作区 Prompt 已经断开，虽然来源版还在，但连续判断链还没真正接稳。',
+      recommendation: '先恢复来源工作区 Prompt，让当前版重新贴回来源链，再判断这一轮是重跑、校准还是派生。',
+      primaryAction: '先恢复来源工作区 Prompt',
+      secondaryAction: '再继续参数和执行判断',
+      focusItems,
+    })
+  }
+
+  if (templateContext && !workspacePromptLength) {
+    return createStudioProDecisionCard({
+      state: 'restore',
+      title: '先回到模板 Prompt 起跑线',
+      summary: '当前工作区 Prompt 还没立住，模板字段虽然已接入，但还没有形成可连续判断的当前版。',
+      recommendation: '先按模板结构恢复工作区 Prompt，再看字段落点、参数默认值和目标版差异。',
+      primaryAction: '先恢复模板 Prompt 基线',
+      secondaryAction: '再按字段继续校准',
+      focusItems,
     })
   }
 

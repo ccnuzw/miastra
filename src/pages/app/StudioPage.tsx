@@ -97,6 +97,43 @@ function formatReplayReferenceProgress(restoredCount: number, expectedCount: num
   return `参考图已恢复 ${restoredCount}/${expectedCount} 张`
 }
 
+function resolveReplayWorkspacePrompt(context: StudioProReplayContext | null) {
+  const workspacePrompt = context?.sourceWorkspacePrompt?.trim()
+  if (workspacePrompt) return workspacePrompt
+  return context?.requestPrompt.trim() ?? ''
+}
+
+function getReplayPrimaryActionLabel(
+  context: StudioProReplayContext | null,
+  hasCompleteReferenceRestore: boolean,
+) {
+  if (!context) return '继续当前工作台'
+  if (context.recommendedActionId === 'retry-version') {
+    return hasCompleteReferenceRestore ? '直接重跑这一版' : '先补齐参考图再重跑'
+  }
+  if (context.recommendedActionId === 'branch-version') return '从这一版分叉'
+  return '继续这一版'
+}
+
+function formatReferenceRecoveryGuidance(
+  restoredCount: number,
+  expectedCount: number,
+  options?: {
+    continueLabel?: string
+    strictGoal?: string
+  },
+) {
+  if (expectedCount <= 0) {
+    return '当前链路没有额外参考图依赖，可以直接继续。'
+  }
+  if (restoredCount >= expectedCount) {
+    return `参考图已恢复 ${restoredCount}/${expectedCount} 张，可以直接继续当前链路。`
+  }
+  return `参考图已恢复 ${restoredCount}/${expectedCount} 张。当前可以${
+    options?.continueLabel ?? '继续整理当前控制区'
+  }，但如果要${options?.strictGoal ?? '严格复现上一链路'}，建议先补齐参考图。`
+}
+
 function applyResolvedSizePreset(
   size: string | undefined,
   handlers: {
@@ -299,9 +336,9 @@ export function StudioPage() {
     if (replayNeedsReferenceRecovery && proReplayContext) {
       return (
         <StudioShellCallout
-          eyebrow="回流恢复"
-          title="版本回流已恢复主体参数，但参考图还不完整"
-          description={`${proReplayContext.sourceLabel}回流只恢复了已保存的部分内容。当前更适合先补齐参考图，再决定是继续这一版、重试这一版，还是从这一版分叉。`}
+          eyebrow="降级可继续"
+          title="版本回流已部分恢复，可继续但不建议直接重跑"
+          description={`${proReplayContext.sourceLabel}回流已经恢复主体参数和版本语义，但参考图还不完整。当前可以继续校准 Prompt、参数和动作分支；如果要严格复现这一链路，建议先补齐参考图。`}
           tone="accent"
         >
           <div className="flex flex-wrap gap-2">
@@ -341,11 +378,15 @@ export function StudioPage() {
     }
 
     if (proReplayContext) {
+      const primaryActionLabel = getReplayPrimaryActionLabel(
+        proReplayContext,
+        proReplayContext.hasCompleteReferenceRestore,
+      )
       return (
         <StudioShellCallout
-          eyebrow="回流状态"
-          title={`当前已从${proReplayContext.sourceLabel}接回工作台`}
-          description={`${proReplayContext.statusText}。${proReplayContext.hint} 当前参数与 Prompt 可以继续调整，但 Provider / 模型仍以当前工作台配置为准。`}
+          eyebrow="恢复完成"
+          title={`已从${proReplayContext.sourceLabel}恢复当前工作台基线`}
+          description={`${proReplayContext.statusText}。建议先${primaryActionLabel}；如果还要改 Prompt、参数或参考图，再在这套基线上继续。`}
           tone="accent"
         >
           <div className="flex flex-wrap gap-2">
@@ -572,7 +613,7 @@ export function StudioPage() {
         ]
           .filter(Boolean)
           .join(' / ') || '未记录默认参数'
-      }。当前更适合先按模板起跑；如果继续改尺寸、质量或参考图，本轮会自然转成派生。`,
+      }。模板起跑线已经恢复完成。现在可以直接继续；如果改尺寸、质量或参考图，本轮会自然转成派生。`,
     )
   }, [activeTemplateContext, applyTemplateStructureDefaults, runtime, templates.templates])
 
@@ -583,7 +624,7 @@ export function StudioPage() {
     studio.setPrompt(template.content)
     runtime.setStatus('success')
     runtime.setStatusText(
-      `已按模板「${activeTemplateContext.title}」恢复结构化 Prompt 基线。现在更适合先按字段校准，再决定是否派生。`,
+      `已按模板「${activeTemplateContext.title}」恢复 Prompt 基线。当前可以先按字段校准；如果继续明显改写主体描述，这一轮会自然转成派生。`,
     )
   }, [activeTemplateContext, runtime, studio, templates.templates])
 
@@ -603,18 +644,19 @@ export function StudioPage() {
         ]
           .filter(Boolean)
           .join(' / ') || '默认设置'
-      }。当前更适合先按模板基线出一版，再做局部派生。`,
+      }。模板起跑线已经恢复完成，当前更适合先按模板基线出一版，再做局部派生。`,
     )
   }, [activeTemplateContext, applyTemplateStructureDefaults, runtime, studio, templates.templates])
 
   const applyReplayPromptToWorkspace = useCallback(
     (shouldAnnounce = true) => {
-      if (!proReplayContext?.requestPrompt.trim()) return
-      studio.setPrompt(proReplayContext.requestPrompt)
+      const replayWorkspacePrompt = resolveReplayWorkspacePrompt(proReplayContext)
+      if (!replayWorkspacePrompt) return
+      studio.setPrompt(replayWorkspacePrompt)
       if (shouldAnnounce) {
         runtime.setStatus('success')
         runtime.setStatusText(
-          `已将来源快照 ${proReplayContext.snapshotId} 的请求 Prompt 带回工作区。现在更适合同基线重跑；继续改字段则会形成派生。`,
+          `已恢复来源快照 ${proReplayContext?.snapshotId} 的工作区 Prompt 基线。当前可以继续沿这条来源链校准；如果继续改字段，这一轮会形成派生。`,
         )
       }
     },
@@ -649,14 +691,19 @@ export function StudioPage() {
           draw.setDrawRetries(proReplayContext.sourceDrawRetries)
         if (proReplayContext.sourceDrawTimeoutSec != null)
           draw.setDrawTimeoutSec(proReplayContext.sourceDrawTimeoutSec)
+        if (typeof proReplayContext.sourceDrawSafeMode === 'boolean')
+          draw.setDrawSafeMode(proReplayContext.sourceDrawSafeMode)
         if (proReplayContext.sourceVariationStrength)
           draw.setVariationStrength(proReplayContext.sourceVariationStrength)
+        if (proReplayContext.sourceVariationDimensionIds != null) {
+          draw.setEnabledVariationDimensions([...proReplayContext.sourceVariationDimensionIds])
+        }
       }
 
       if (shouldAnnounce) {
         runtime.setStatus('success')
         runtime.setStatusText(
-          `已恢复来源快照 ${proReplayContext.snapshotId} 的参数控制基线。当前更适合同配置重跑；改尺寸、质量、参考图或抽卡策略会形成派生。`,
+          `已恢复来源快照 ${proReplayContext.snapshotId} 的参数基线。当前可以继续沿来源配置重跑；改尺寸、质量、参考图或抽卡策略时才会形成派生。`,
         )
       }
     },
@@ -670,7 +717,7 @@ export function StudioPage() {
       if (shouldAnnounce) {
         runtime.setStatus('success')
         runtime.setStatusText(
-          `已按来源快照 ${proReplayContext.snapshotId} 对齐参数与执行判断基线。Provider / 模型仍以当前工作台配置为准；若两者也与来源一致，这一轮最接近同版重跑。`,
+          `已按来源快照 ${proReplayContext.snapshotId} 连续对齐参数与执行基线。Provider / 模型仍以当前工作台配置为准；若两者也与来源一致，这一轮最接近同版重跑。`,
         )
       }
     },
@@ -685,7 +732,7 @@ export function StudioPage() {
       if (shouldAnnounce) {
         runtime.setStatus('success')
         runtime.setStatusText(
-          `已把来源快照 ${proReplayContext.snapshotId} 的 Prompt、参数和执行判断一起带回当前控制区。现在可以直接同基线重跑，或在这套来源基线上继续派生。`,
+          `已把来源快照 ${proReplayContext.snapshotId} 的工作区 Prompt、参数和执行基线一起恢复到当前控制区。现在可以直接同基线重跑，或在这套基线上继续派生。`,
         )
       }
     },
@@ -698,13 +745,20 @@ export function StudioPage() {
     if (!proReplayContext.hasCompleteReferenceRestore) {
       runtime.setStatus('success')
       runtime.setStatusText(
-        `已恢复来源快照 ${proReplayContext.snapshotId} 的完整决策基线，但参考图仅恢复 ${proReplayContext.restoredReferenceCount}/${proReplayContext.expectedReferenceCount} 张。请先补齐参考图，再执行同基线重跑。`,
+        `已恢复来源快照 ${proReplayContext.snapshotId} 的工作区 Prompt、参数和执行基线，但当前处于降级可继续状态。${formatReferenceRecoveryGuidance(
+          proReplayContext.restoredReferenceCount,
+          proReplayContext.expectedReferenceCount,
+          {
+            continueLabel: '继续校准当前控制区',
+            strictGoal: '严格执行同基线重跑',
+          },
+        )}`,
       )
       return
     }
     runtime.setStatus('success')
     runtime.setStatusText(
-      `已恢复来源快照 ${proReplayContext.snapshotId} 的 Prompt、参数和执行判断，正在按当前 Provider / 模型发起同基线重跑。`,
+      `已恢复来源快照 ${proReplayContext.snapshotId} 的工作区 Prompt、参数和执行基线，正在按当前 Provider / 模型发起同基线重跑。`,
     )
     window.setTimeout(() => {
       submitStudioForm()
@@ -1188,8 +1242,12 @@ export function StudioPage() {
         sourceDrawDelayMs: snapshot?.draw?.delayMs ?? null,
         sourceDrawRetries: snapshot?.draw?.retries ?? null,
         sourceDrawTimeoutSec: snapshot?.draw?.timeoutSec ?? null,
+        sourceDrawSafeMode: snapshot?.draw?.safeMode ?? null,
         sourceVariationStrength: snapshot?.draw?.variationStrength ?? null,
         sourceVariationDimensionCount: snapshot?.draw?.dimensions.length ?? 0,
+        sourceVariationDimensionIds: snapshot?.draw?.dimensions
+          ? [...snapshot.draw.dimensions]
+          : null,
         sourceReferenceCount: snapshot?.references?.count ?? referenceImages.length,
         sourceWorkspacePrompt: workspacePrompt,
         requestPrompt,
@@ -1206,10 +1264,17 @@ export function StudioPage() {
       runtime.setStatus('success')
       runtime.setStatusText(
         autoGenerate && canRestoreAllReferences
-          ? `已恢复${subject}参数，正在复跑：${requestPrompt}`
+          ? `已恢复${subject}来源基线，正在按当前工作台配置复跑：${requestPrompt}`
           : expectedReferenceCount > referenceImages.length
-            ? `已恢复${subject}参数，但参考图仅恢复 ${referenceImages.length}/${expectedReferenceCount} 张。请先补齐参考图后再继续。`
-            : `已恢复${subject}参数。现在更适合同基线重跑；如果先改 Prompt、参数或执行链，这一轮会形成派生。`,
+            ? `已恢复${subject}主体参数，但当前处于降级可继续状态。${formatReferenceRecoveryGuidance(
+                referenceImages.length,
+                expectedReferenceCount,
+                {
+                  continueLabel: '继续调整当前控制区',
+                  strictGoal: '直接同基线重跑',
+                },
+              )}`
+            : `已恢复${subject}来源基线。当前可以直接继续；如果先改 Prompt、参数或执行链，这一轮会形成派生。`,
       )
       window.setTimeout(() => {
         document

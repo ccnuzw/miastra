@@ -6,6 +6,8 @@ import type {
   GenerationContractSnapshot,
   GenerationDrawSnapshot,
   GenerationMode,
+  GenerationParameterSnapshot,
+  GenerationPromptSnapshot,
   GenerationReferenceSnapshot,
   GenerationSnapshot,
 } from './generation.types'
@@ -92,6 +94,48 @@ function resolveContractScene(
   return hasReferences ? getStudioFlowScene('image-edit') : getStudioFlowScene()
 }
 
+function resolveContractPromptSnapshot(
+  snapshot?: Partial<GenerationSnapshot> | null,
+  defaults: ResolveGenerationContractSnapshotDefaults = {},
+): GenerationPromptSnapshot {
+  const contractPrompt = snapshot?.contract?.prompt
+  const request =
+    contractPrompt?.request ??
+    snapshot?.requestPrompt ??
+    snapshot?.prompt ??
+    defaults.requestPrompt ??
+    ''
+  return {
+    request,
+    workspace:
+      contractPrompt?.workspace ??
+      snapshot?.workspacePrompt ??
+      defaults.workspacePrompt ??
+      snapshot?.requestPrompt ??
+      snapshot?.prompt ??
+      defaults.requestPrompt ??
+      '',
+  }
+}
+
+function resolveContractParameterSnapshot(
+  snapshot?: Partial<GenerationSnapshot> | null,
+  defaults: ResolveGenerationContractSnapshotDefaults = {},
+): GenerationParameterSnapshot {
+  return {
+    mode: snapshot?.contract?.parameters.mode ?? snapshot?.mode ?? defaults.mode ?? 'text2image',
+    size: snapshot?.contract?.parameters.size ?? snapshot?.size ?? defaults.size ?? '',
+    quality: snapshot?.contract?.parameters.quality ?? snapshot?.quality ?? defaults.quality ?? '',
+    model: snapshot?.contract?.parameters.model ?? snapshot?.model ?? defaults.model ?? '',
+    providerId:
+      snapshot?.contract?.parameters.providerId ??
+      snapshot?.providerId ??
+      defaults.providerId ??
+      '',
+    stream: snapshot?.contract?.parameters.stream ?? snapshot?.stream ?? defaults.stream ?? false,
+  }
+}
+
 export function getGenerationSnapshotReferenceCount(
   snapshot?: Partial<GenerationSnapshot> | null,
 ) {
@@ -152,6 +196,8 @@ export function resolveGenerationContractSnapshot(
   const contract = snapshot?.contract
   const guidedFlow = contract?.guidedFlow ?? snapshot?.guidedFlow ?? defaults.guidedFlow ?? null
   const references = contract?.references ?? snapshot?.references ?? defaults.references
+  const prompt = resolveContractPromptSnapshot(snapshot, defaults)
+  const parameters = resolveContractParameterSnapshot(snapshot, defaults)
   const resolvedScene =
     contract?.scene ??
     snapshot?.scene ??
@@ -159,50 +205,14 @@ export function resolveGenerationContractSnapshot(
     resolveContractScene(undefined, guidedFlow, Boolean(references?.count ?? defaults.hasReferences))
   return buildGenerationContractSnapshot({
     scene: resolvedScene,
-    requestPrompt:
-      contract?.prompt.request ??
-      snapshot?.requestPrompt ??
-      snapshot?.prompt ??
-      defaults.requestPrompt ??
-      '',
-    workspacePrompt:
-      contract?.prompt.workspace ??
-      snapshot?.workspacePrompt ??
-      defaults.workspacePrompt ??
-      snapshot?.requestPrompt ??
-      snapshot?.prompt ??
-      defaults.requestPrompt ??
-      '',
-    mode:
-      contract?.parameters.mode ??
-      snapshot?.mode ??
-      defaults.mode ??
-      'text2image',
-    size:
-      contract?.parameters.size ??
-      snapshot?.size ??
-      defaults.size ??
-      '',
-    quality:
-      contract?.parameters.quality ??
-      snapshot?.quality ??
-      defaults.quality ??
-      '',
-    model:
-      contract?.parameters.model ??
-      snapshot?.model ??
-      defaults.model ??
-      '',
-    providerId:
-      contract?.parameters.providerId ??
-      snapshot?.providerId ??
-      defaults.providerId ??
-      '',
-    stream:
-      contract?.parameters.stream ??
-      snapshot?.stream ??
-      defaults.stream ??
-      false,
+    requestPrompt: prompt.request,
+    workspacePrompt: prompt.workspace,
+    mode: parameters.mode,
+    size: parameters.size,
+    quality: parameters.quality,
+    model: parameters.model,
+    providerId: parameters.providerId,
+    stream: parameters.stream,
     references,
     draw: contract?.draw ?? snapshot?.draw ?? defaults.draw,
     guidedFlow,

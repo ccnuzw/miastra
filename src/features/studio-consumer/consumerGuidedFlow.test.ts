@@ -108,8 +108,48 @@ describe('consumerGuidedFlow', () => {
     expect(next.promptText).toContain('请换个风格。')
     expect(next.runtimeDecision?.contract.sourceType).toBe('result-action')
     expect(next.runtimeDecision?.result.defaultActionId).toBe('continue-edit')
+    expect(next.runtimeDecision?.result.actionPriority).toEqual([
+      'continue-edit',
+      'branch-version',
+    ])
     expect(next.loopState?.stage).toBe('result-action')
     expect(next.loopState?.lastActionId).toBe('branch-version')
     expect(next.loopState?.runLabel).toContain('Skill')
+  })
+
+  it('normalizes default action to the front of action priority during rebase', () => {
+    const snapshot: ConsumerGuidedFlowSnapshot = {
+      version: 1,
+      guideId: 'template:product',
+      sceneId: 'product-shot',
+      scene: getStudioFlowScene('product-shot'),
+      guideTitle: '商品模板 · 模板追问',
+      guideDescription: '模板追问',
+      basePrompt: '做一张商品图。',
+      promptText: '做一张商品图。',
+      summary: '已带入商品用途',
+      questionOrder: [],
+      totalQuestionCount: 0,
+      completedQuestionCount: 0,
+      steps: [],
+      sourceType: 'template',
+      defaultActionId: 'continue-edit',
+      actionPriority: ['continue-edit', 'guided-refine', 'retry-version'],
+      updatedAt: 1,
+    }
+
+    const next = rebaseConsumerGuidedFlowSnapshot(snapshot, {
+      stage: 'version-replay',
+      defaultActionId: 'retry-version',
+      actionPriority: ['continue-edit', 'guided-refine', 'retry-version'],
+    })
+
+    expect(next.defaultActionId).toBe('retry-version')
+    expect(next.actionPriority).toEqual([
+      'retry-version',
+      'continue-edit',
+      'guided-refine',
+    ])
+    expect(next.loopState?.nextActionId).toBe('retry-version')
   })
 })

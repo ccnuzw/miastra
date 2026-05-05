@@ -120,7 +120,7 @@ export function StudioProExecutionPanel({
       ) : null}
       {!loading && hasReplayReferenceGap ? (
         <div className="mt-4 rounded-[1.2rem] border border-signal-amber/20 bg-signal-amber/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
-          {replayReferenceStatus}。当前可以继续核对执行链，但如果要验证“同链重跑”是否稳定，仍建议先把参考图补齐。
+          {replayReferenceStatus}。当前处于降级可继续状态，可以继续核对执行链；如果要验证“同链重跑”是否稳定，仍建议先把参考图补齐。
         </div>
       ) : null}
 

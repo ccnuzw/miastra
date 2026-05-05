@@ -17,7 +17,10 @@ import {
   getStudioFlowActionLabel,
   getStudioFlowScene,
 } from '@/features/prompt-templates/studioFlowSemantic'
-import { buildConsumerGuidedFlowLoopState } from '@/features/studio-consumer/consumerGuidedFlow'
+import {
+  normalizeConsumerGuidedFlowActionPlan,
+  rebaseConsumerGuidedFlowSnapshot,
+} from '@/features/studio-consumer/consumerGuidedFlow'
 import type { ReferenceImage } from '@/features/references/reference.types'
 import type { GalleryImage } from './works.types'
 
@@ -1063,22 +1066,35 @@ function decorateReplayGuidedFlow(params: {
 }) {
   const { guidedFlow } = params
   if (!guidedFlow) return null
-  return {
-    ...guidedFlow,
+  const actionPlan = normalizeConsumerGuidedFlowActionPlan({
+    defaultActionId: guidedFlow.defaultActionId,
+    actionPriority:
+      guidedFlow.actionPriority ?? guidedFlow.runtimeDecision?.result.actionPriority ?? [],
+  })
+  return rebaseConsumerGuidedFlowSnapshot(guidedFlow, {
     sourceType: params.sourceType,
-    loopState: buildConsumerGuidedFlowLoopState({
-      guideId: guidedFlow.guideId,
-      guideTitle: guidedFlow.guideTitle,
-      templateId: guidedFlow.templateId,
-      templateTitle: guidedFlow.templateTitle,
-      sourceType: params.sourceType,
-      stage: 'version-replay',
-      actionId: params.actionId,
-      defaultActionId: guidedFlow.defaultActionId,
-      actionPriority: guidedFlow.actionPriority,
-      versionLabel: guidedFlow.loopState?.versionLabel,
-    }),
-  }
+    stage: 'version-replay',
+    actionId: params.actionId,
+    defaultActionId: actionPlan.defaultActionId,
+    actionPriority: actionPlan.actionPriority,
+  })
+}
+
+function buildCanonicalGenerationSnapshot(input: {
+  contract: GenerationContractSnapshot
+  snapshot?: Partial<GenerationSnapshot> | null
+  id?: string
+  createdAt?: number
+  apiUrl?: string
+  requestUrl?: string
+}) {
+  return resolveGenerationSnapshotRecord(input.snapshot, {
+    sourceContract: input.contract,
+    id: input.id,
+    createdAt: input.createdAt,
+    apiUrl: input.apiUrl ?? '',
+    requestUrl: input.requestUrl ?? '',
+  })
 }
 
 function buildWorkContext(
@@ -1285,16 +1301,16 @@ export function buildTaskReplayWork(
     actionId: toReplayIntent(generationContract.guidedFlow?.actionId),
   })
 
-  const generationSnapshot = resolveGenerationSnapshotRecord(existingSnapshot, {
-    sourceContract: {
+  const generationSnapshot = buildCanonicalGenerationSnapshot({
+    contract: {
       ...generationContract,
       guidedFlow: replayGuidedFlow,
     },
+    snapshot: existingSnapshot,
     id: fallbackSnapshotId,
     createdAt: fallbackCreatedAt,
     apiUrl: existingSnapshot?.apiUrl ?? '',
     requestUrl: existingSnapshot?.requestUrl ?? '',
-    hasReferences,
   })
   const snapshotContract = generationSnapshot.contract
 
@@ -1322,25 +1338,21 @@ export function buildTaskReplayWork(
     createdAt: resultWork?.createdAt ?? toTimestamp(task.createdAt),
     mode:
       snapshotContract.parameters.mode ??
-      generationSnapshot.mode ??
       resultWork?.mode ??
       task.result?.mode ??
       task.payload.mode,
     providerModel:
       snapshotContract.parameters.model ??
-      generationSnapshot.model ??
       resultWork?.providerModel ??
       task.result?.providerModel ??
       task.payload.model,
     size:
       snapshotContract.parameters.size ??
-      generationSnapshot.size ??
       resultWork?.size ??
       task.result?.size ??
       task.payload.size,
     quality:
       snapshotContract.parameters.quality ??
-      generationSnapshot.quality ??
       resultWork?.quality ??
       task.result?.quality ??
       task.payload.quality,
@@ -1355,13 +1367,13 @@ export function buildTaskReplayWork(
       snapshotContract.prompt.request ??
       resultWork?.promptText ??
       task.result?.promptText ??
-      generationSnapshot.requestPrompt,
+      task.payload.requestPrompt,
     promptSnippet:
       buildPromptSnippet(
         snapshotContract.prompt.request ||
           resultWork?.promptText ||
           task.result?.promptText ||
-          generationSnapshot.requestPrompt,
+          task.payload.requestPrompt,
         resultWork?.promptSnippet ?? task.result?.promptSnippet ?? task.payload.title,
       ),
     error: task.errorMessage,
@@ -1497,16 +1509,16 @@ export function getTaskVersionSourceSummary(
         draw: task.payload.draw as GenerationDrawSnapshot | undefined,
       })
   const hasReferences = (replayContract.references?.count ?? task.payload.referenceImages?.length ?? 0) > 0
-  const sceneSnapshot = resolveGenerationSnapshotRecord(replaySnapshot, {
-    sourceContract: {
+  const sceneSnapshot = buildCanonicalGenerationSnapshot({
+    contract: {
       ...replayContract,
       guidedFlow: replayGuidedFlow ?? replayContract.guidedFlow,
     },
+    snapshot: replaySnapshot,
     id: replaySnapshot?.id ?? task.payload.snapshotId,
     createdAt: replaySnapshot?.createdAt,
     apiUrl: replaySnapshot?.apiUrl ?? '',
     requestUrl: replaySnapshot?.requestUrl ?? '',
-    hasReferences,
   })
   const canonicalReplayContract = sceneSnapshot.contract
   const sourceKind = resolveSourceKind({

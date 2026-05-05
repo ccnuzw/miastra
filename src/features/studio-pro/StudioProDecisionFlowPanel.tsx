@@ -152,6 +152,16 @@ export function StudioProDecisionFlowPanel({
   const directLinkSummaries = replayContext?.directLinks?.slice(0, 3) ?? []
   const primaryReplayActionLabel = replayContext?.canAutoRerun ? '恢复来源基线并重跑' : '恢复来源基线'
   const canRunCurrentTarget = workspacePromptLength > 0 || referenceCount > 0
+  const currentTargetActionLabel =
+    executionDecision.state === 'branch' ||
+    parameterDecision.state === 'branch' ||
+    promptDecision.state === 'branch'
+      ? '按当前版直接派生目标版'
+      : executionDecision.state === 'rerun' &&
+          parameterDecision.state === 'rerun' &&
+          promptDecision.state === 'rerun'
+        ? '按当前同链生成目标版'
+        : '按当前校准版生成目标版'
 
   function getDecisionPillClass(state: typeof promptDecision.state) {
     switch (state) {
@@ -177,7 +187,7 @@ export function StudioProDecisionFlowPanel({
         replayContext?.promptLabel ??
         (templateContext ? `模板起跑线：${templateContext.recommendedNextStep}` : workspaceBaseline.deltaLabel),
       actionLabel: replayContext
-        ? '恢复来源 Prompt'
+        ? '恢复来源工作区 Prompt'
         : templateContext
           ? '恢复模板 Prompt'
           : '',
@@ -230,7 +240,7 @@ export function StudioProDecisionFlowPanel({
       </div>
 
       <p className="studio-pro-panel-copy">
-        先看来源版，再看当前版，最后决定目标版是同基线重跑、沿当前版校准，还是直接沉成新派生。
+        先看来源版，再接稳当前版的 Prompt、参数和执行链，最后决定目标版是同基线重跑、沿当前版校准，还是直接沉成新派生。
       </p>
 
       {replayContext ? (
@@ -319,7 +329,7 @@ export function StudioProDecisionFlowPanel({
           onClick={onRunCurrentTarget}
           disabled={actionsDisabled || !onRunCurrentTarget || !canRunCurrentTarget}
         >
-          按当前版生成目标版
+          {currentTargetActionLabel}
         </button>
         {templateContext && !replayContext ? (
           <button

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Copy, Eye, Layers3, Sparkles } from 'lucide-react'
 import type { StyleToken } from '@/features/studio/studio.types'
-import type { StudioProPromptSection } from './studioPro.utils'
+import type { StudioProPromptSection, StudioProTemplateContext } from './studioPro.utils'
 
 type StudioProPromptPanelProps = {
   workspacePrompt: string
@@ -12,6 +12,7 @@ type StudioProPromptPanelProps = {
   finalPromptLength: number
   workspacePromptLength: number
   enabledSectionCount: number
+  templateContext?: StudioProTemplateContext | null
 }
 
 export function StudioProPromptPanel({
@@ -23,6 +24,7 @@ export function StudioProPromptPanel({
   finalPromptLength,
   workspacePromptLength,
   enabledSectionCount,
+  templateContext = null,
 }: StudioProPromptPanelProps) {
   const [copiedTarget, setCopiedTarget] = useState<string | null>(null)
 
@@ -60,6 +62,49 @@ export function StudioProPromptPanel({
         这里把工作区描述、风格补充、细节控制和 Negative Prompt 拆开展示，方便你对照
         最终请求是如何组装出来的。
       </p>
+
+      <article
+        className={`studio-pro-metric-card mt-4 ${templateContext ? 'studio-pro-emphasis-card' : ''}`}
+      >
+        <span className="studio-pro-metric-label">结构模板上下文</span>
+        <strong className="studio-pro-metric-value">
+          {templateContext ? templateContext.title : '当前按自由输入基线组装'}
+        </strong>
+        {templateContext ? (
+          <>
+            <p className="studio-pro-metric-copy">
+              {templateContext.sourceLabel} · {templateContext.familyLabel} · {templateContext.sceneLabel}
+            </p>
+            <p className="studio-pro-metric-copy">
+              {templateContext.structureStatusLabel}。{templateContext.sceneDescription}
+            </p>
+            <p className="studio-pro-metric-copy">
+              默认参数：{templateContext.defaultSettingsLabel}。当前优先关注字段：
+              {templateContext.structureFields.join(' / ')}。
+            </p>
+            <div className="studio-pro-tag-wrap">
+              {templateContext.useCases.map((item) => (
+                <span key={item} className="studio-pro-tag">
+                  {item}
+                </span>
+              ))}
+            </div>
+            <p className="studio-pro-metric-copy">
+              {templateContext.recommendedLabel}。{templateContext.recommendedReason}
+            </p>
+            {templateContext.structureSummary.slice(0, 3).map((item) => (
+              <p key={item.id} className="studio-pro-metric-copy">
+                {item.label}：{item.value}
+              </p>
+            ))}
+            <p className="studio-pro-metric-copy">{templateContext.metadataHint}</p>
+          </>
+        ) : (
+          <p className="studio-pro-metric-copy">
+            当前还没有挂接结构模板，专业版会直接把工作区描述当作本轮 Prompt 基线。后续从模板页或模板库进入时，这里会补上字段摘要和推荐承接方式。
+          </p>
+        )}
+      </article>
 
       <div className="studio-pro-chain-grid">
         {promptSections.map((section) => (

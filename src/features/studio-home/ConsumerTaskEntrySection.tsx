@@ -1,22 +1,34 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { History, ImagePlus, Megaphone, Package, Type, UserRound } from 'lucide-react'
+import { getStudioFlowSceneLabel } from '@/features/prompt-templates/studioFlowSemantic'
 import {
+  buildConsumerGuidedFlowSnapshot,
+  buildGuidedPrompt,
+  buildGuidedSelectionSummary,
   consumerExamplePrompts,
   consumerGuidedFlowPresets,
   consumerScenePresets,
   consumerTaskPresets,
+  findConsumerGuidedFlowById,
   findConsumerGuidedFlowBySceneId,
   findConsumerGuidedFlowByTaskId,
+  getConsumerGuidedFlowNextQuestionIndex,
   type ConsumerGuidedFlowPreset,
   type ConsumerScenePreset,
   type ConsumerTaskPreset,
 } from './consumerHomePresets'
+import {
+  getConsumerGuidedFlowSelectionMap,
+  type ConsumerGuidedFlowSnapshot,
+} from '@/features/studio-consumer/consumerGuidedFlow'
 
 type ConsumerTaskEntrySectionProps = {
   onSelectTask: (task: ConsumerTaskPreset) => void
   onSelectScene: (scene: ConsumerScenePreset) => void
   onUseExample: (prompt: string) => void
+  onGuidedFlowChange?: (value: ConsumerGuidedFlowSnapshot | null) => void
   activeEntryLabel?: string | null
+  guidedFlowValue?: ConsumerGuidedFlowSnapshot | null
   onJumpToInput?: () => void
 }
 
@@ -31,32 +43,19 @@ const iconMap = {
   history: History,
 } as const
 
-function buildGuidedPrompt(guide: ConsumerGuidedFlowPreset, selections: GuidedSelectionMap) {
-  const details = guide.questions
-    .map((question) => question.options.find((option) => option.id === selections[question.id])?.prompt)
-    .filter(Boolean)
-
-  return [guide.prompt, ...details].join('\n')
-}
-
-function buildGuidedSelectionSummary(guide: ConsumerGuidedFlowPreset, selections: GuidedSelectionMap) {
-  const labels = guide.questions
-    .map((question) => question.options.find((option) => option.id === selections[question.id])?.label)
-    .filter(Boolean)
-
-  return labels.length ? labels.join(' / ') : '还没选细节'
-}
-
 export function ConsumerTaskEntrySection({
   onSelectTask,
   onSelectScene,
   onUseExample,
+  onGuidedFlowChange,
   activeEntryLabel = null,
+  guidedFlowValue = null,
   onJumpToInput,
 }: ConsumerTaskEntrySectionProps) {
   const defaultGuideId = consumerGuidedFlowPresets[0]?.id ?? ''
   const [activeGuideId, setActiveGuideId] = useState(defaultGuideId)
   const [guideSelections, setGuideSelections] = useState<Record<string, GuidedSelectionMap>>({})
+  const [guideStepIndexes, setGuideStepIndexes] = useState<Record<string, number>>({})
   const [selectionHint, setSelectionHint] = useState('先选一个起手方式，或者直接用下面的高频追问补出第一版描述。')
 
   const activeGuide = useMemo(
@@ -66,24 +65,72 @@ export function ConsumerTaskEntrySection({
   const activeSelections = activeGuide ? (guideSelections[activeGuide.id] ?? {}) : {}
   const activeGuidePrompt = activeGuide ? buildGuidedPrompt(activeGuide, activeSelections) : ''
   const activeGuideSummary = activeGuide ? buildGuidedSelectionSummary(activeGuide, activeSelections) : ''
+  const activeGuideCompletedCount = activeGuide
+    ? activeGuide.questions.filter((question) => Boolean(activeSelections[question.id])).length
+    : 0
+  const activeQuestionIndex = activeGuide
+    ? Math.min(
+        guideStepIndexes[activeGuide.id] ?? getConsumerGuidedFlowNextQuestionIndex(activeGuide, activeSelections),
+        Math.max(0, activeGuide.questions.length - 1),
+      )
+    : 0
+  const activeQuestion = activeGuide?.questions[activeQuestionIndex]
+
+  useEffect(() => {
+    if (!guidedFlowValue) return
+    const guide = findConsumerGuidedFlowById(guidedFlowValue.guideId)
+    if (!guide) return
+    const selections = getConsumerGuidedFlowSelectionMap(guidedFlowValue)
+    setActiveGuideId(guide.id)
+    setGuideSelections((current) => ({
+      ...current,
+      [guide.id]: selections,
+    }))
+    setGuideStepIndexes((current) => ({
+      ...current,
+      [guide.id]: getConsumerGuidedFlowNextQuestionIndex(guide, selections),
+    }))
+    setSelectionHint(
+      guidedFlowValue.completedQuestionCount > 0
+        ? `已恢复「${guide.title}」追问，当前已完成 ${guidedFlowValue.completedQuestionCount}/${guidedFlowValue.totalQuestionCount} 步。`
+        : `已恢复「${guide.title}」起步描述。继续点 2 到 3 个按钮，输入框会同步补全描述。`,
+    )
+  }, [guidedFlowValue])
+
+  function emitGuidedFlowChange(guide: ConsumerGuidedFlowPreset, selections: GuidedSelectionMap) {
+    onGuidedFlowChange?.(buildConsumerGuidedFlowSnapshot(guide, selections))
+  }
 
   function activateGuide(guide: ConsumerGuidedFlowPreset, hint?: string) {
+    const nextSelections = guideSelections[guide.id] ?? {}
     setActiveGuideId(guide.id)
-    setSelectionHint(hint || '已切到这个高频场景。继续点 2 到 3 个按钮，输入框会同步补全描述。')
-    onUseExample(buildGuidedPrompt(guide, guideSelections[guide.id] ?? {}))
+    setGuideStepIndexes((current) => ({
+      ...current,
+      [guide.id]: getConsumerGuidedFlowNextQuestionIndex(guide, nextSelections),
+    }))
+    setSelectionHint(
+      hint || `已切到「${getStudioFlowSceneLabel(guide.sceneId)}」场景。继续点 2 到 3 个按钮，输入框会同步补全描述。`,
+    )
+    onUseExample(buildGuidedPrompt(guide, nextSelections))
+    emitGuidedFlowChange(guide, nextSelections)
   }
 
   function handleGuideOptionSelect(guide: ConsumerGuidedFlowPreset, questionId: string, optionId: string) {
-    const nextGuideSelections = {
+    const nextSelections = {
       ...(guideSelections[guide.id] ?? {}),
       [questionId]: optionId,
     }
     setGuideSelections((current) => ({
       ...current,
-      [guide.id]: nextGuideSelections,
+      [guide.id]: nextSelections,
     }))
-    setSelectionHint('已根据你的选择更新输入框。还可以再补一两个按钮，让第一版更接近目标。')
-    onUseExample(buildGuidedPrompt(guide, nextGuideSelections))
+    setGuideStepIndexes((current) => ({
+      ...current,
+      [guide.id]: getConsumerGuidedFlowNextQuestionIndex(guide, nextSelections),
+    }))
+    setSelectionHint(`已按「${getStudioFlowSceneLabel(guide.sceneId)}」更新输入框。还可以再补一两个按钮，让第一版更接近目标。`)
+    onUseExample(buildGuidedPrompt(guide, nextSelections))
+    emitGuidedFlowChange(guide, nextSelections)
   }
 
   function handleResetGuide(guide: ConsumerGuidedFlowPreset) {
@@ -91,26 +138,38 @@ export function ConsumerTaskEntrySection({
       ...current,
       [guide.id]: {},
     }))
+    setGuideStepIndexes((current) => ({
+      ...current,
+      [guide.id]: 0,
+    }))
     setSelectionHint('已回到这个场景的基础描述。你可以重新选择细节。')
     onUseExample(guide.prompt)
+    emitGuidedFlowChange(guide, {})
   }
 
   function handleTaskSelect(task: ConsumerTaskPreset) {
     onSelectTask(task)
     const guide = findConsumerGuidedFlowByTaskId(task.id)
     if (guide) activateGuide(guide, task.afterSelectHint)
-    else if (task.afterSelectHint) setSelectionHint(task.afterSelectHint)
+    else {
+      onGuidedFlowChange?.(null)
+      if (task.afterSelectHint) setSelectionHint(task.afterSelectHint)
+    }
   }
 
   function handleSceneSelect(scene: ConsumerScenePreset) {
     onSelectScene(scene)
     const guide = findConsumerGuidedFlowBySceneId(scene.id)
     if (guide) activateGuide(guide, scene.afterSelectHint)
-    else if (scene.afterSelectHint) setSelectionHint(scene.afterSelectHint)
+    else {
+      onGuidedFlowChange?.(null)
+      if (scene.afterSelectHint) setSelectionHint(scene.afterSelectHint)
+    }
   }
 
   function handleUseExample(prompt: string) {
     onUseExample(prompt)
+    onGuidedFlowChange?.(null)
     setSelectionHint('已带入一句示例。你可以直接开始，也可以继续用高频追问把描述补完整。')
   }
 
@@ -205,7 +264,7 @@ export function ConsumerTaskEntrySection({
           <div>
             <p className="text-sm font-semibold text-porcelain-50">高频场景追问</p>
             <p className="mt-1 text-sm leading-6 text-porcelain-100/48">
-              先选一个常见方向，再补 2 到 3 个按钮，描述会直接进入普通版输入框。
+              先选一个统一场景，再按步骤补 2 到 3 个按钮，描述会直接进入普通版输入框。
             </p>
           </div>
           <p className="text-sm text-porcelain-100/55">首批先做商品图、海报宣传图、头像与人像 3 个高频场景。</p>
@@ -225,7 +284,12 @@ export function ConsumerTaskEntrySection({
                     : 'border-porcelain-50/10 bg-porcelain-50/[0.04] hover:border-signal-cyan/35'
                 }`}
               >
-                <p className="text-base font-semibold text-porcelain-50">{guide.title}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-base font-semibold text-porcelain-50">{guide.title}</p>
+                  <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-2.5 py-1 text-[10px] font-bold text-porcelain-100/55">
+                    {getStudioFlowSceneLabel(guide.sceneId)}
+                  </span>
+                </div>
                 <p className="mt-2 text-sm leading-6 text-porcelain-100/55">{guide.description}</p>
               </button>
             )
@@ -235,12 +299,57 @@ export function ConsumerTaskEntrySection({
         {activeGuide ? (
           <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
             <div className="grid gap-3">
-              {activeGuide.questions.map((question) => (
-                <div key={question.id} className="rounded-[1.35rem] border border-porcelain-50/10 bg-porcelain-50/[0.035] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-porcelain-100/40">{question.title}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {question.options.map((option) => {
-                      const selected = activeSelections[question.id] === option.id
+              <div className="rounded-[1.35rem] border border-porcelain-50/10 bg-porcelain-50/[0.035] p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.10] px-3 py-1 text-xs font-bold text-signal-cyan">
+                    已完成 {activeGuideCompletedCount}/{activeGuide.questions.length} 步
+                  </span>
+                  {activeGuide.questions.map((question, index) => {
+                    const answered = Boolean(activeSelections[question.id])
+                    const current = index === activeQuestionIndex
+                    return (
+                      <button
+                        key={question.id}
+                        type="button"
+                        onClick={() =>
+                          setGuideStepIndexes((currentIndexes) => ({
+                            ...currentIndexes,
+                            [activeGuide.id]: index,
+                          }))
+                        }
+                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                          current
+                            ? 'border-signal-cyan/45 bg-signal-cyan/[0.12] text-signal-cyan'
+                            : answered
+                              ? 'border-emerald-300/25 bg-emerald-300/[0.10] text-emerald-200'
+                              : 'border-porcelain-50/10 bg-porcelain-50/[0.04] text-porcelain-100/60 hover:border-signal-cyan/30 hover:text-signal-cyan'
+                        }`}
+                      >
+                        {index + 1}. {question.title}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {activeQuestion ? (
+                <div className="rounded-[1.35rem] border border-signal-cyan/18 bg-signal-cyan/[0.06] p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-signal-cyan/70">
+                      第 {activeQuestionIndex + 1} 步
+                    </p>
+                    {activeQuestion.defaultOptionId ? (
+                      <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-xs text-porcelain-100/55">
+                        默认建议：
+                        {activeQuestion.options.find((option) => option.id === activeQuestion.defaultOptionId)?.label ?? '未设置'}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-3 text-base font-semibold text-porcelain-50">{activeQuestion.title}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {activeQuestion.options.map((option) => {
+                      const selected = activeSelections[activeQuestion.id] === option.id
+                      const isDefault = option.id === activeQuestion.defaultOptionId
                       return (
                         <button
                           key={option.id}
@@ -250,20 +359,45 @@ export function ConsumerTaskEntrySection({
                               ? 'border-signal-cyan/45 bg-signal-cyan/[0.12] text-signal-cyan'
                               : 'border-porcelain-50/10 bg-porcelain-50/[0.04] text-porcelain-100/72 hover:border-signal-cyan/35 hover:text-signal-cyan'
                           }`}
-                          onClick={() => handleGuideOptionSelect(activeGuide, question.id, option.id)}
+                          onClick={() => handleGuideOptionSelect(activeGuide, activeQuestion.id, option.id)}
                         >
                           {option.label}
+                          {isDefault ? ' · 默认' : ''}
                         </button>
                       )
                     })}
                   </div>
                 </div>
-              ))}
+              ) : null}
+
+              <div className="rounded-[1.35rem] border border-porcelain-50/10 bg-porcelain-50/[0.035] p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-porcelain-100/40">已选步骤</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {activeGuide.questions.map((question) => {
+                    const selectedLabel = question.options.find((option) => option.id === activeSelections[question.id])?.label
+                    return (
+                      <span
+                        key={question.id}
+                        className={`rounded-full border px-3 py-2 text-sm ${
+                          selectedLabel
+                            ? 'border-emerald-300/25 bg-emerald-300/[0.10] text-emerald-100'
+                            : 'border-porcelain-50/10 bg-porcelain-50/[0.04] text-porcelain-100/42'
+                        }`}
+                      >
+                        {question.title}：{selectedLabel ?? '待补'}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
 
             <div className="rounded-[1.45rem] border border-signal-cyan/15 bg-signal-cyan/[0.06] p-4">
               <p className="text-sm font-semibold text-porcelain-50">已带入的场景描述</p>
-              <p className="mt-2 text-sm text-porcelain-100/55">当前选择：{activeGuideSummary}</p>
+              <p className="mt-2 text-sm text-porcelain-100/55">统一场景：{getStudioFlowSceneLabel(activeGuide.sceneId)}</p>
+              <p className="mt-2 text-sm text-porcelain-100/55">
+                当前选择：{activeGuideSummary} · 已完成 {activeGuideCompletedCount}/{activeGuide.questions.length} 步
+              </p>
               <div className="mt-4 rounded-[1.2rem] border border-porcelain-50/10 bg-ink-950/[0.48] p-4 text-sm leading-6 text-porcelain-100/72">
                 {activeGuidePrompt}
               </div>

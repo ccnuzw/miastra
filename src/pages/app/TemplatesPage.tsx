@@ -24,6 +24,8 @@ import {
   resolvePromptTemplateFamily,
 } from '@/features/prompt-templates/promptTemplate.presentation'
 import { buildPromptTemplateStudioPath } from '@/features/prompt-templates/promptTemplate.studioEntry'
+import type { StudioFlowSceneId } from '@/features/prompt-templates/studioFlowSemantic'
+import { getStudioFlowSceneLabel } from '@/features/prompt-templates/studioFlowSemantic'
 import {
   createDuplicatedPromptTemplateTitle,
   normalizePromptTemplateTags,
@@ -86,6 +88,8 @@ export function TemplatesPage() {
     const presentation = buildPromptTemplatePresentation(template)
     return presentation.recommendedEntry.mode === 'consumer'
   }).length
+  const structuredTemplateCount = filteredTemplates.filter((template) => template.structure).length
+  const alignedSceneIds: StudioFlowSceneId[] = ['product-shot', 'poster-campaign', 'portrait-avatar']
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -167,6 +171,10 @@ export function TemplatesPage() {
             <span className="status-pill">共 {templates.length} 个模板</span>
             <span className="status-pill">当前筛出 {filteredTemplates.length} 个</span>
             <span className="status-pill">推荐普通版起手 {recommendedCount} 个</span>
+            <span className="status-pill">已读出结构信息 {structuredTemplateCount} 个</span>
+            <span className="status-pill">
+              统一场景 {alignedSceneIds.map((sceneId) => getStudioFlowSceneLabel(sceneId)).join(' / ')}
+            </span>
             <button
               className="rounded-full border border-porcelain-50/10 bg-ink-950/[0.65] px-4 py-2 text-sm font-semibold text-porcelain-50 transition hover:border-signal-cyan/50 hover:text-signal-cyan"
               type="button"
@@ -204,7 +212,7 @@ export function TemplatesPage() {
           <div className="grid gap-3 rounded-[1.5rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-5">
             <div>
               <p className="field-label">结构模板预留</p>
-              <h2 className="mt-2 text-xl font-semibold text-porcelain-50">下一步会补字段、默认值和追问顺序</h2>
+              <h2 className="mt-2 text-xl font-semibold text-porcelain-50">这一轮先把场景、字段和默认参数立起来</h2>
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="status-pill">字段 schema</span>
@@ -213,7 +221,7 @@ export function TemplatesPage() {
               <span className="status-pill">轻量追问</span>
             </div>
             <p className="text-sm leading-6 text-porcelain-100/65">
-              这一页已经先留出元信息表达位。后续模板升级成结构模板时，可以直接把模板字段、默认参数和问题顺序接进来，不需要再改页面定位。
+              这一页现在已经开始直接读取模板结构信息。后续补正式追问或更细的模板版本时，可以沿用同一套场景、字段和入口语义继续扩展。
             </p>
           </div>
         </div>
@@ -462,6 +470,13 @@ export function TemplatesPage() {
                     <p className="mt-3 text-sm leading-6 text-porcelain-100/70">
                       {presentation.family.description}
                     </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="status-pill">{presentation.structureMeta.sceneLabel}</span>
+                      <span className="status-pill">{presentation.structureMeta.statusLabel}</span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-porcelain-100/62">
+                      {presentation.structureMeta.sceneDescription}
+                    </p>
                     <p className="mt-3 line-clamp-4 text-sm leading-6 text-porcelain-100/58">
                       {presentation.preview}
                     </p>
@@ -499,6 +514,8 @@ export function TemplatesPage() {
                             templateId: template.id,
                             mode: entry.mode,
                             intent: entry.intent,
+                            sceneId: presentation.structureMeta.sceneId as never,
+                            sourceType: 'template',
                           })}
                           className={`rounded-[1.1rem] border px-4 py-3 transition ${
                             entry.recommended
@@ -534,11 +551,21 @@ export function TemplatesPage() {
                         <Tags className="h-4 w-4 text-signal-cyan" />
                         {presentation.structureMeta.statusLabel}
                       </div>
+                      <p className="mt-2 text-sm leading-6 text-porcelain-100/62">
+                        {presentation.structureMeta.sceneLabel} · {presentation.structureMeta.sceneDescription}
+                      </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {presentation.structureMeta.fields.map((field) => (
                           <span key={field} className="status-pill">
                             {field}
                           </span>
+                        ))}
+                      </div>
+                      <div className="mt-3 grid gap-1 text-xs leading-5 text-porcelain-100/58">
+                        {presentation.structureMeta.summary.map((item) => (
+                          <p key={item.id}>
+                            {item.label}：{item.value}
+                          </p>
                         ))}
                       </div>
                       <p className="mt-3 text-xs leading-5 text-porcelain-100/55">

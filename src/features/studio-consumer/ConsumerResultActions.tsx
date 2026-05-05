@@ -1,5 +1,9 @@
-import { useEffect, useState } from 'react'
 import { Crop, Images, Mountain, Palette, RotateCcw, Wand2 } from 'lucide-react'
+import { useState } from 'react'
+import {
+  getStudioFlowActionLabel,
+  getStudioFlowSceneLabel,
+} from '@/features/prompt-templates/studioFlowSemantic'
 import { getWorkVersionSourceSummary } from '@/features/works/workReplay'
 import type { GalleryImage } from '@/features/works/works.types'
 import { dispatchStudioConsumerIntent } from './consumerFlow.events'
@@ -14,6 +18,11 @@ export type StudioConsumerResultActionDetail = {
   actionId: string
   actionTitle: string
   actionDescription: string
+  sceneId: 'image-edit'
+  sourceType: 'result-action'
+  semanticActionId: 'continue-version' | 'retry-version' | 'branch-version'
+  workflowKind: 'continue' | 'retry' | 'branch'
+  workflowLabel: string
   preview: {
     id: string
     src: string
@@ -32,7 +41,10 @@ const actionDefinitions = [
     icon: Wand2,
     text: '请沿用这张结果图的主体、光线和构图，再生成一版更接近我想要的效果。',
     submit: false,
-    badge: '先回输入区',
+    semanticActionId: 'continue-version',
+    workflowKind: 'continue',
+    workflowLabel: '继续这一版',
+    badge: '继续这一版',
   },
   {
     id: 'style',
@@ -41,7 +53,10 @@ const actionDefinitions = [
     icon: Palette,
     text: '请保留这张结果图的主要内容不变，换一种更有风格感的表现方式。',
     submit: false,
-    badge: '先回输入区',
+    semanticActionId: 'branch-version',
+    workflowKind: 'branch',
+    workflowLabel: '从这一版分叉',
+    badge: '从这一版分叉',
   },
   {
     id: 'partial',
@@ -50,7 +65,10 @@ const actionDefinitions = [
     icon: Crop,
     text: '请只调整这张结果图里最需要修改的一小部分，其余内容尽量保持不变。',
     submit: false,
-    badge: '先回输入区',
+    semanticActionId: 'continue-version',
+    workflowKind: 'continue',
+    workflowLabel: '继续这一版',
+    badge: '继续这一版',
   },
   {
     id: 'background',
@@ -59,7 +77,10 @@ const actionDefinitions = [
     icon: Mountain,
     text: '请保留这张结果图的主体不变，把背景换成更合适的环境，构图尽量自然。',
     submit: false,
-    badge: '先回输入区',
+    semanticActionId: 'branch-version',
+    workflowKind: 'branch',
+    workflowLabel: '从这一版分叉',
+    badge: '从这一版分叉',
   },
   {
     id: 'more',
@@ -68,18 +89,46 @@ const actionDefinitions = [
     icon: Images,
     text: '请基于这张结果图再多生成几张相近方案，保留主体和整体方向。',
     submit: true,
-    badge: '直接继续做',
+    semanticActionId: 'continue-version',
+    workflowKind: 'continue',
+    workflowLabel: '继续这一版',
+    badge: '继续这一版',
   },
   {
     id: 'retry',
-    title: '回到输入区细调',
-    description: '不清空现有内容，保留这张图和方向，回到输入区补一句再试。',
+    title: '重试这一版',
+    description: '保留这张图和当前方向，把它带回输入区补一句后重试，适合修正不稳定或不清楚的结果。',
     icon: RotateCcw,
     text: '请保留这张结果图的主体和核心方向，再试一版更稳定、更清楚的结果。',
     submit: false,
-    badge: '先回输入区',
+    semanticActionId: 'retry-version',
+    workflowKind: 'retry',
+    workflowLabel: '重试这一版',
+    badge: '重试这一版',
   },
 ] as const
+
+const workflowDescriptions: Array<{
+  kind: 'continue' | 'retry' | 'branch'
+  label: string
+  description: string
+}> = [
+  {
+    kind: 'continue',
+    label: '继续这一版',
+    description: '沿用当前结果的主体和方向，在这条线上继续细调。',
+  },
+  {
+    kind: 'retry',
+    label: '重试这一版',
+    description: '保留当前版本意图，但针对不稳定结果再试一次。',
+  },
+  {
+    kind: 'branch',
+    label: '从这一版分叉',
+    description: '把当前结果当父版，换一种风格或局部方向，起一个新分支。',
+  },
+]
 
 function trimText(value?: string, fallback = '当前结果') {
   const normalized = value?.trim()
@@ -91,10 +140,6 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
   const [lastTriggeredActionId, setLastTriggeredActionId] = useState<string | null>(null)
   const versionSource = getWorkVersionSourceSummary(preview)
 
-  useEffect(() => {
-    setLastTriggeredActionId(null)
-  }, [preview.id, preview.src])
-
   function handleAction(action: (typeof actionDefinitions)[number]) {
     if (!preview.src) return
     setLastTriggeredActionId(action.id)
@@ -102,6 +147,9 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
     dispatchStudioConsumerIntent({
       type: 'prompt',
       mode: 'followup',
+      sceneId: 'image-edit',
+      sourceType: 'result-action',
+      actionId: action.semanticActionId,
       text: action.text,
       attachPreview: {
         src: preview.src,
@@ -112,8 +160,12 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
     })
 
     const nextStep = action.submit
-      ? '系统会沿用这张结果图继续生成，你可以直接等下一版出来。'
-      : '这张结果图会回到输入区作为基础图，你可以直接点“先试试看”，也可以再补一句。'
+      ? '系统会沿用这张结果图直接继续这一版，你可以直接等下一版出来。'
+      : action.workflowKind === 'retry'
+        ? '这张结果图会回到输入区作为本版基础图，你可以直接点“先试试看”，也可以先补一句后重试这一版。'
+        : action.workflowKind === 'branch'
+          ? '这张结果图会回到输入区作为父版参考图，你可以直接点“先试试看”，也可以先补一句再从这一版分叉。'
+          : '这张结果图会回到输入区作为基础图，你可以直接点“先试试看”，也可以再补一句继续这一版。'
 
     window.dispatchEvent(
       new CustomEvent<StudioConsumerResultActionDetail>(studioConsumerResultActionEvent, {
@@ -121,6 +173,11 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           actionId: action.id,
           actionTitle: action.title,
           actionDescription: action.description,
+          sceneId: 'image-edit',
+          sourceType: 'result-action',
+          semanticActionId: action.semanticActionId,
+          workflowKind: action.workflowKind,
+          workflowLabel: action.workflowLabel,
           preview: {
             id: preview.id,
             src: preview.src,
@@ -136,28 +193,40 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
 
   const previewTitle = trimText(preview.title, '这张刚生成的结果')
   const previewMeta = trimText(preview.meta, '点击任一动作时，都会沿用这张图继续往下改。')
-  const lastTriggeredAction = actionDefinitions.find((action) => action.id === lastTriggeredActionId)
+  const lastTriggeredAction = actionDefinitions.find(
+    (action) => action.id === lastTriggeredActionId,
+  )
 
   return (
     <section className="mt-5 rounded-[1.7rem] border border-porcelain-50/10 bg-ink-950/[0.52] p-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="eyebrow">Continue</p>
-          <h3 className="mt-2 text-xl font-semibold tracking-tight text-porcelain-50">基于这一版继续往下改</h3>
+          <h3 className="mt-2 text-xl font-semibold tracking-tight text-porcelain-50">
+            基于这一版继续往下改
+          </h3>
         </div>
         <p className="max-w-md text-sm leading-6 text-porcelain-100/55">
-          不用重新开始，下面每个动作都会自动沿用当前结果，再决定是直接继续做，还是先回输入区补一句。
+          不用重新开始。下面的动作都会自动沿用当前结果，但会明确告诉你这是继续这一版、重试这一版，还是从这一版分叉。
         </p>
       </div>
 
       <div className="mt-4 rounded-[1.4rem] border border-signal-cyan/15 bg-signal-cyan/[0.06] p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-signal-cyan/70">当前继续来源</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-signal-cyan/70">
+          当前继续来源
+        </p>
         <div className="mt-2 flex flex-wrap gap-2">
           <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.1] px-3 py-1 text-sm font-semibold text-signal-cyan">
             {versionSource.originLabel}
           </span>
+          <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.1] px-3 py-1 text-sm font-semibold text-signal-cyan">
+            {getStudioFlowSceneLabel('image-edit')}
+          </span>
           <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
             {versionSource.detailLabel}
+          </span>
+          <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
+            {versionSource.parentLabel}
           </span>
           <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.1] px-3 py-1 text-sm font-semibold text-signal-cyan">
             {previewTitle}
@@ -170,7 +239,9 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
 
       {lastTriggeredAction ? (
         <div className="mt-4 rounded-[1.35rem] border border-emerald-300/20 bg-emerald-300/[0.08] p-4">
-          <p className="text-sm font-semibold text-porcelain-50">已选“{lastTriggeredAction.title}”</p>
+          <p className="text-sm font-semibold text-porcelain-50">
+            已选“{lastTriggeredAction.title}”
+          </p>
           <p className="mt-1 text-sm leading-6 text-porcelain-100/62">
             {lastTriggeredAction.submit
               ? '系统正在沿用这张结果继续生成下一版。'
@@ -179,20 +250,44 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
         </div>
       ) : null}
 
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
+        {workflowDescriptions.map((workflow) => (
+          <div
+            key={workflow.kind}
+            className="rounded-[1.25rem] border border-porcelain-50/10 bg-porcelain-50/[0.03] p-3"
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-porcelain-100/40">
+              {workflow.label}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-porcelain-100/58">{workflow.description}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {actionDefinitions.map((action) => {
           const Icon = action.icon
           const isActive = action.id === lastTriggeredActionId
+          const cardTone =
+            action.workflowKind === 'retry'
+              ? 'hover:border-signal-amber/45 hover:bg-signal-amber/[0.10]'
+              : action.workflowKind === 'branch'
+                ? 'hover:border-emerald-300/35 hover:bg-emerald-300/[0.08]'
+                : 'hover:border-signal-cyan/45 hover:bg-signal-cyan/[0.10]'
+          const activeTone =
+            action.workflowKind === 'retry'
+              ? 'border-signal-amber/45 bg-signal-amber/[0.12]'
+              : action.workflowKind === 'branch'
+                ? 'border-emerald-300/35 bg-emerald-300/[0.1]'
+                : 'border-signal-cyan/45 bg-signal-cyan/[0.12]'
           return (
             <button
               key={action.id}
               type="button"
               onClick={() => handleAction(action)}
               aria-pressed={isActive}
-              className={`group flex min-h-[140px] flex-col items-start gap-3 rounded-[1.4rem] border p-4 text-left transition hover:-translate-y-0.5 hover:border-signal-cyan/45 hover:bg-signal-cyan/[0.10] ${
-                isActive
-                  ? 'border-signal-cyan/45 bg-signal-cyan/[0.12]'
-                  : 'border-porcelain-50/10 bg-porcelain-50/[0.04]'
+              className={`group flex min-h-[140px] flex-col items-start gap-3 rounded-[1.4rem] border p-4 text-left transition hover:-translate-y-0.5 ${cardTone} ${
+                isActive ? activeTone : 'border-porcelain-50/10 bg-porcelain-50/[0.04]'
               }`}
             >
               <div className="flex w-full items-start justify-between gap-3">
@@ -200,7 +295,7 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
                   <Icon className="h-5 w-5" />
                 </span>
                 <span className="rounded-full border border-porcelain-50/10 bg-ink-950/45 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-porcelain-100/55">
-                  {action.badge}
+                  {action.badge} · {getStudioFlowActionLabel(action.semanticActionId)}
                 </span>
               </div>
               <div>
@@ -210,7 +305,11 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
               <p className="mt-auto text-xs leading-5 text-porcelain-100/42">
                 {action.submit
                   ? '会沿用这张结果图，直接开始下一轮生成。'
-                  : '会把这张结果图带回输入区，保留当前方向继续改。'}
+                  : action.workflowKind === 'retry'
+                    ? '会把这张结果图带回输入区，按同一版方向补一句后再试。'
+                    : action.workflowKind === 'branch'
+                      ? '会把这张结果图带回输入区，当作父版参考图分出新方向。'
+                      : '会把这张结果图带回输入区，保留当前方向继续改。'}
               </p>
             </button>
           )

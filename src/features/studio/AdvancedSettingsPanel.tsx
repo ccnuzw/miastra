@@ -1,4 +1,8 @@
 import { StudioProExecutionPanel } from '@/features/studio-pro/StudioProExecutionPanel'
+import type {
+  StudioProControlStep,
+  StudioProReplayContext,
+} from '@/features/studio-pro/studioPro.utils'
 
 type AdvancedSettingsPanelProps = {
   detailStrength: number
@@ -17,6 +21,8 @@ type AdvancedSettingsPanelProps = {
     requestUrl: string
     editRequestUrl: string
     loading: boolean
+    controlSteps: StudioProControlStep[]
+    replayContext?: StudioProReplayContext | null
     onOpenProviderSettings: () => void
   } | null
 }

@@ -67,6 +67,7 @@ function createGenerationSnapshot(
     stream: options.streamValue ?? context.stream,
     references: createReferenceSnapshot(context.referenceImages),
     draw: options.drawSnapshot,
+    guidedFlow: options.guidedFlow ?? null,
   }
 }
 

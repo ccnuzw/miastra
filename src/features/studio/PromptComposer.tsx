@@ -1,11 +1,12 @@
 import { type ChangeEvent, type RefObject, useEffect, useRef, useState } from 'react'
 import { BookmarkPlus, ImagePlus, Library, Wand2, X } from 'lucide-react'
 import type { ReferenceImage } from '@/features/references/reference.types'
+import type { ConsumerGuidedFlowSnapshot } from '@/features/studio-consumer/consumerGuidedFlow'
 import { studioConsumerIntentEvent, type StudioConsumerIntent } from '@/features/studio-consumer/consumerFlow.events'
 import { ConsumerTaskEntrySection } from '@/features/studio-home/ConsumerTaskEntrySection'
 import type { ConsumerScenePreset, ConsumerTaskPreset } from '@/features/studio-home/consumerHomePresets'
 import { StudioProPromptPanel } from '@/features/studio-pro/StudioProPromptPanel'
-import type { StudioProPromptSection } from '@/features/studio-pro/studioPro.utils'
+import type { StudioProPromptSection, StudioProTemplateContext } from '@/features/studio-pro/studioPro.utils'
 import type { StyleToken } from './studio.types'
 
 type PromptComposerProps = {
@@ -21,6 +22,8 @@ type PromptComposerProps = {
   onSaveTemplate: () => void
   onOpenTemplateLibrary: () => void
   templateActionDisabled?: boolean
+  consumerGuidedFlow?: ConsumerGuidedFlowSnapshot | null
+  onConsumerGuidedFlowChange?: (value: ConsumerGuidedFlowSnapshot | null) => void
   proPanel?: {
     workspacePrompt: string
     finalPrompt: string
@@ -29,6 +32,7 @@ type PromptComposerProps = {
     finalPromptLength: number
     workspacePromptLength: number
     enabledSectionCount: number
+    templateContext?: StudioProTemplateContext | null
   } | null
 }
 
@@ -66,6 +70,8 @@ export function PromptComposer({
   onSaveTemplate,
   onOpenTemplateLibrary,
   templateActionDisabled = false,
+  consumerGuidedFlow = null,
+  onConsumerGuidedFlowChange,
   proPanel = null,
 }: PromptComposerProps) {
   const hasPrompt = prompt.trim().length > 0
@@ -81,6 +87,21 @@ export function PromptComposer({
   useEffect(() => {
     if (!prompt.trim()) setActiveEntry(null)
   }, [prompt])
+
+  useEffect(() => {
+    if (!prompt.trim() && consumerGuidedFlow) onConsumerGuidedFlowChange?.(null)
+  }, [consumerGuidedFlow, onConsumerGuidedFlowChange, prompt])
+
+  useEffect(() => {
+    if (!consumerGuidedFlow) return
+    setActiveEntry({
+      label: consumerGuidedFlow.guideTitle,
+      note:
+        consumerGuidedFlow.completedQuestionCount > 0
+          ? `已恢复这组轻量追问，当前已完成 ${consumerGuidedFlow.completedQuestionCount}/${consumerGuidedFlow.totalQuestionCount} 步。`
+          : '已恢复这个场景的起步描述。继续补几步追问，输入区会同步更新。',
+    })
+  }, [consumerGuidedFlow])
 
   function focusComposer() {
     textareaRef.current?.focus()
@@ -155,6 +176,7 @@ export function PromptComposer({
       return
     }
     if (task.prompt) onPromptChange(task.prompt)
+    onConsumerGuidedFlowChange?.(null)
     setActiveEntry({
       label: task.title,
       note:
@@ -169,6 +191,7 @@ export function PromptComposer({
 
   function handleSceneSelect(scene: ConsumerScenePreset) {
     onPromptChange(scene.prompt)
+    onConsumerGuidedFlowChange?.(null)
     setActiveEntry({
       label: scene.title,
       note: scene.afterSelectHint || '已带入常见场景描述。继续补一句你最在意的效果，结果会更贴近需求。',
@@ -248,6 +271,7 @@ export function PromptComposer({
           finalPromptLength={proPanel.finalPromptLength}
           workspacePromptLength={proPanel.workspacePromptLength}
           enabledSectionCount={proPanel.enabledSectionCount}
+          templateContext={proPanel.templateContext}
         />
         <div className="reference-tray">
           <div className="reference-strip">
@@ -287,7 +311,9 @@ export function PromptComposer({
         onSelectTask={handleTaskSelect}
         onSelectScene={handleSceneSelect}
         onUseExample={handleUseExample}
+        onGuidedFlowChange={onConsumerGuidedFlowChange}
         activeEntryLabel={activeEntry?.label ?? null}
+        guidedFlowValue={consumerGuidedFlow}
         onJumpToInput={focusComposer}
       />
 
@@ -364,6 +390,19 @@ export function PromptComposer({
                 : '比如：做一张高级感新品海报，用在首页首屏，画面干净有质感'
             }
           />
+          {consumerGuidedFlow ? (
+            <div className="mt-4 rounded-[1.3rem] border border-signal-cyan/18 bg-signal-cyan/[0.06] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.10] px-3 py-1 text-xs font-bold text-signal-cyan">
+                  {consumerGuidedFlow.guideTitle}
+                </span>
+                <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-xs text-porcelain-100/60">
+                  追问进度 {consumerGuidedFlow.completedQuestionCount}/{consumerGuidedFlow.totalQuestionCount}
+                </span>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-porcelain-100/62">{consumerGuidedFlow.summary}</p>
+            </div>
+          ) : null}
         </div>
 
         <div className="grid gap-3 rounded-[1.7rem] border border-porcelain-50/10 bg-ink-950/[0.5] p-4">

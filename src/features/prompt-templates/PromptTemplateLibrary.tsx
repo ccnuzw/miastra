@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BookOpen, Check, ClipboardCopy, Clock3, Copy, Filter, Loader2, RefreshCw, Search, Sparkles, Tag, Trash2, X } from 'lucide-react'
 import type { PromptTemplateListItem } from './promptTemplate.types'
+import { buildPromptTemplatePresentation } from './promptTemplate.presentation'
 import { createDuplicatedPromptTemplateTitle, normalizePromptTemplateTags } from './promptTemplate.utils'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
 
@@ -40,7 +41,16 @@ function getTemplateTitle(template: PromptTemplateListItem) {
 }
 
 function getTemplateSearchText(template: PromptTemplateListItem) {
-  return `${template.title ?? ''} ${template.content ?? ''} ${template.category ?? ''} ${template.tags?.join(' ') ?? ''}`.toLowerCase()
+  const presentation = buildPromptTemplatePresentation(template)
+  return [
+    template.title ?? '',
+    template.content ?? '',
+    template.category ?? '',
+    template.tags?.join(' ') ?? '',
+    presentation.family.label,
+    presentation.structureMeta.sceneLabel,
+    presentation.structureMeta.fields.join(' '),
+  ].join(' ').toLowerCase()
 }
 
 function getTemplateCategory(template: PromptTemplateListItem) {
@@ -256,7 +266,9 @@ export function PromptTemplateLibrary({
                 )}
             </div>
           ) : (
-            filteredTemplates.map((template) => (
+            filteredTemplates.map((template) => {
+              const presentation = buildPromptTemplatePresentation(template)
+              return (
               <article key={template.id} className="prompt-template-card">
                 <div className="flex min-w-0 flex-1 flex-col gap-3">
                   <div className="flex flex-wrap items-center gap-2">
@@ -267,9 +279,29 @@ export function PromptTemplateLibrary({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <span className="prompt-template-chip">{getTemplateCategory(template)}</span>
+                    <span className="prompt-template-chip">{presentation.structureMeta.sceneLabel}</span>
+                    <span className="prompt-template-chip">
+                      {presentation.recommendedEntry.mode === 'consumer' ? '普通版起手' : '专业版起手'}
+                    </span>
                     {getTemplateTags(template).map((tag) => <span key={tag} className="prompt-template-chip prompt-template-chip-tag">{tag}</span>)}
                   </div>
                   <p className="prompt-template-preview">{getPromptPreview(template.content)}</p>
+                  <div className="rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.26] p-3">
+                    <p className="text-xs font-semibold text-porcelain-50">{presentation.structureMeta.statusLabel}</p>
+                    <p className="mt-1 text-xs leading-5 text-porcelain-100/60">{presentation.structureMeta.sceneDescription}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {presentation.structureMeta.fields.slice(0, 3).map((field) => (
+                        <span key={field} className="status-pill">{field}</span>
+                      ))}
+                    </div>
+                    <div className="mt-2 grid gap-1 text-[11px] leading-5 text-porcelain-100/52">
+                      {presentation.structureMeta.summary.slice(0, 3).map((item) => (
+                        <p key={item.id}>
+                          {item.label}：{item.value}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <div className="prompt-template-actions">
                   <button type="button" className="settings-button" onClick={() => onApply(template)}>
@@ -289,7 +321,8 @@ export function PromptTemplateLibrary({
                   </button>
                 </div>
               </article>
-            ))
+              )
+            })
           )}
         </div>
       </div>

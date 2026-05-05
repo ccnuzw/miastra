@@ -1,4 +1,8 @@
 import { StudioProParameterPanel } from '@/features/studio-pro/StudioProParameterPanel'
+import type {
+  StudioProReplayContext,
+  StudioProTemplateContext,
+} from '@/features/studio-pro/studioPro.utils'
 import { aspectOptions, qualityOptions, resolutionOptions } from './studio.constants'
 import type { ResolutionTier } from './studio.types'
 
@@ -27,12 +31,10 @@ type ParameterPanelProps = {
     drawTimeoutSec: number
     variationStrength: 'low' | 'medium' | 'high'
     variationDimensionCount: number
-    replayContext?: {
-      sourceLabel: string
-      actionLabel: string
-      statusText: string
-      hint: string
-    } | null
+    providerLabel: string
+    modelLabel: string
+    templateContext?: StudioProTemplateContext | null
+    replayContext?: StudioProReplayContext | null
   } | null
 }
 
@@ -149,6 +151,9 @@ export function ParameterPanel(props: ParameterPanelProps) {
           drawTimeoutSec={props.proPanel.drawTimeoutSec}
           variationStrength={props.proPanel.variationStrength}
           variationDimensionCount={props.proPanel.variationDimensionCount}
+          providerLabel={props.proPanel.providerLabel}
+          modelLabel={props.proPanel.modelLabel}
+          templateContext={props.proPanel.templateContext}
           replayContext={props.proPanel.replayContext}
         />
       </div>

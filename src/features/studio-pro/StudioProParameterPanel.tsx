@@ -1,3 +1,6 @@
+import type { StudioProReplayContext, StudioProTemplateContext } from './studioPro.utils'
+import { getStudioFlowSceneLabel } from '@/features/prompt-templates/studioFlowSemantic'
+
 type StudioProParameterPanelProps = {
   studioMode: 'create' | 'draw'
   size: string
@@ -17,12 +20,10 @@ type StudioProParameterPanelProps = {
   drawTimeoutSec: number
   variationStrength: 'low' | 'medium' | 'high'
   variationDimensionCount: number
-  replayContext?: {
-    sourceLabel: string
-    actionLabel: string
-    statusText: string
-    hint: string
-  } | null
+  providerLabel: string
+  modelLabel: string
+  templateContext?: StudioProTemplateContext | null
+  replayContext?: StudioProReplayContext | null
 }
 
 const qualityLabelMap: Record<string, string> = {
@@ -63,6 +64,9 @@ export function StudioProParameterPanel({
   drawTimeoutSec,
   variationStrength,
   variationDimensionCount,
+  providerLabel,
+  modelLabel,
+  templateContext = null,
   replayContext = null,
 }: StudioProParameterPanelProps) {
   const hasReplayContext = Boolean(replayContext)
@@ -165,13 +169,67 @@ export function StudioProParameterPanel({
         <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
           <span className="studio-pro-metric-label">结果回到控制区</span>
           <strong className="studio-pro-metric-value">
-            {replayContext ? `已从${replayContext.sourceLabel}恢复参数` : '等待从结果继续调整'}
+            {replayContext
+              ? `已从${replayContext.sourceLabel}恢复${templateContext ? `「${getStudioFlowSceneLabel(templateContext.sceneId as never)}」` : ''}参数`
+              : '等待从结果继续调整'}
           </strong>
           <p className="studio-pro-metric-copy">
             {replayContext
               ? `${replayContext.statusText}。${replayContext.hint}`
               : '当你从作品或任务回到专业版时，这里会提示可恢复的 Prompt、参数和参考图状态。'}
           </p>
+        </article>
+      </div>
+
+      <div className="studio-pro-meta-grid">
+        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <span className="studio-pro-metric-label">参数快照复用提示</span>
+          <strong className="studio-pro-metric-value">
+            {hasReplayContext ? `优先沿用快照 ${replayContext?.snapshotId}` : '当前设置会沉淀为下一轮快照'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? `如果继续沿用 ${providerLabel} / ${modelLabel}，这组参数最适合同基线重跑；如果改尺寸、质量、抽卡策略或 Provider，会自然形成新的派生版本。`
+              : '本轮生成完成后，尺寸、质量、参考图、抽卡策略和执行方式会一起进入结果快照，后续可一键带回专业版继续调整。'}
+          </p>
+          <p className="studio-pro-metric-copy">
+            {templateContext
+              ? `当前结构模板默认参数：${templateContext.defaultSettingsLabel}。关注字段：${templateContext.structureFields.join(' / ')}。复用参数时可以优先确认这些字段是否仍然成立。`
+              : '当前没有结构模板基线，复用参数时建议先确认主体描述、尺寸和参考图关系是否仍然适用。'}
+          </p>
+        </article>
+
+        <article className="studio-pro-metric-card">
+          <span className="studio-pro-metric-label">参数差异对比预留</span>
+          <strong className="studio-pro-metric-value">
+            {hasReplayContext ? '上一版快照 vs 当前控制区' : '等待挂接一版结果作为对照基线'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            这一块先为后续快照 diff 预留结构位，当前用于固定展示“来源快照”和“当前设置”的对照位置，避免后面再改版面。
+          </p>
+          <div className="mt-4 grid gap-3 xl:grid-cols-2">
+            <article className="rounded-[1.2rem] border border-porcelain-50/[0.08] bg-ink-950/[0.72] p-4">
+              <span className="studio-pro-metric-label">来源快照</span>
+              <strong className="studio-pro-metric-value">
+                {hasReplayContext ? replayContext?.snapshotId : '未接入'}
+              </strong>
+              <p className="studio-pro-metric-copy">
+                {hasReplayContext
+                  ? `${replayContext?.sourceProviderId} / ${replayContext?.sourceModelLabel} · ${replayContext?.sourceRequestKindLabel}`
+                  : '从作品或任务恢复一版后，这里会固定显示来源 Provider、模型和执行路径。'}
+              </p>
+            </article>
+            <article className="rounded-[1.2rem] border border-porcelain-50/[0.08] bg-ink-950/[0.72] p-4">
+              <span className="studio-pro-metric-label">当前设置</span>
+              <strong className="studio-pro-metric-value">
+                {providerLabel} / {modelLabel}
+              </strong>
+              <p className="studio-pro-metric-copy">
+                {size} · {resolutionLabel} · 质量 {qualityLabelMap[quality] ?? quality} ·{' '}
+                {studioMode === 'draw' ? `${drawCount} 次抽卡` : '单次生成'}
+              </p>
+            </article>
+          </div>
         </article>
       </div>
     </section>

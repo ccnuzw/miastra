@@ -1,3 +1,5 @@
+import type { ConsumerGuidedFlowSnapshot } from '@/features/studio-consumer/consumerGuidedFlow'
+
 export type GenerationMode = 'text2image' | 'image2image' | 'draw-text2image' | 'draw-image2image'
 
 export type GenerationReferenceSnapshot = {
@@ -67,6 +69,7 @@ export type GenerationRequestOptions = {
   onReceiveImage?: (src: string) => void
   snapshotId?: string
   drawSnapshot?: GenerationDrawSnapshot
+  guidedFlow?: ConsumerGuidedFlowSnapshot | null
 }
 
 export type GenerationSnapshot = {
@@ -85,6 +88,7 @@ export type GenerationSnapshot = {
   stream: boolean
   references?: GenerationReferenceSnapshot
   draw?: GenerationDrawSnapshot
+  guidedFlow?: ConsumerGuidedFlowSnapshot | null
 }
 
 export type GenerationStatus = 'idle' | 'loading' | 'success' | 'error'

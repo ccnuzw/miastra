@@ -27,6 +27,7 @@ import type {
   GenerationStage,
   GenerationStatus,
 } from '@/features/generation/generation.types'
+import type { ConsumerGuidedFlowSnapshot } from '@/features/studio-consumer/consumerGuidedFlow'
 import { validateGenerationInputState } from '@/features/generation/generation.validation'
 import type { ProviderConfig } from '@/features/provider/provider.types'
 import type { ReferenceImage } from '@/features/references/reference.types'
@@ -56,6 +57,7 @@ type UseGenerationFlowOptions = {
   drawRetries: number
   variationStrength: VariationStrength
   enabledVariationDimensions: string[]
+  consumerGuidedFlow?: ConsumerGuidedFlowSnapshot | null
   buildPrompt: (extraPrompt?: string) => string
   setSettingsOpen: (open: boolean) => void
   setGallery: Dispatch<SetStateAction<GalleryImage[]>>
@@ -177,6 +179,7 @@ export function useGenerationFlow({
   drawRetries,
   variationStrength,
   enabledVariationDimensions,
+  consumerGuidedFlow = null,
   buildPrompt,
   setSettingsOpen,
   setGallery,
@@ -386,6 +389,7 @@ export function useGenerationFlow({
       const nextImage = await requestGeneration({
         promptText: requestPrompt,
         workspacePrompt,
+        guidedFlow: consumerGuidedFlow,
         mode,
         title,
         meta,
@@ -462,6 +466,7 @@ export function useGenerationFlow({
       timeoutSec: drawTimeoutSec,
       qualityValue: drawSafeMode ? 'low' : quality,
       streamValue: true,
+      guidedFlow: consumerGuidedFlow,
       previewMode: 'none',
       abortController,
       drawSnapshot: {

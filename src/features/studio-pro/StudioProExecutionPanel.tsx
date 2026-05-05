@@ -1,3 +1,9 @@
+import {
+  truncateStudioProText,
+  type StudioProControlStep,
+  type StudioProReplayContext,
+} from './studioPro.utils'
+
 type StudioProExecutionPanelProps = {
   connectionLabel: string
   providerStatusLabel: string
@@ -11,6 +17,8 @@ type StudioProExecutionPanelProps = {
   requestUrl: string
   editRequestUrl: string
   loading: boolean
+  controlSteps: StudioProControlStep[]
+  replayContext?: StudioProReplayContext | null
   onOpenProviderSettings: () => void
 }
 
@@ -27,10 +35,17 @@ export function StudioProExecutionPanel({
   requestUrl,
   editRequestUrl,
   loading,
+  controlSteps,
+  replayContext = null,
   onOpenProviderSettings,
 }: StudioProExecutionPanelProps) {
   const activeRequestUrl = requestKindLabel === '图生图' ? editRequestUrl : requestUrl
   const standbyRequestUrl = requestKindLabel === '图生图' ? requestUrl : editRequestUrl
+  const hasReplayContext = Boolean(replayContext)
+  const keepsSameExecutionBaseline =
+    replayContext?.sourceProviderId === providerId &&
+    replayContext?.sourceModelLabel === modelLabel &&
+    replayContext?.sourceRequestKindLabel === requestKindLabel
 
   return (
     <section className="studio-pro-panel studio-pro-panel-tight">
@@ -51,6 +66,22 @@ export function StudioProExecutionPanel({
       <p className="studio-pro-panel-copy">
         这里明确展示当前 Provider 来源、模型上下文和请求路由，避免复跑时不知道这一轮到底是按哪套配置执行的。
       </p>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-4">
+        {controlSteps.map((step, index) => (
+          <article
+            key={step.id}
+            className="relative rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.52] p-4 pl-12"
+          >
+            <span className="absolute left-4 top-4 inline-flex h-6 w-6 items-center justify-center rounded-full border border-signal-cyan/30 bg-signal-cyan/[0.12] text-xs font-bold text-signal-cyan">
+              {index + 1}
+            </span>
+            <span className="studio-pro-metric-label">{step.label}</span>
+            <strong className="studio-pro-metric-value">{step.value}</strong>
+            <p className="studio-pro-metric-copy">{step.detail}</p>
+          </article>
+        ))}
+      </div>
 
       <div className="studio-pro-metric-grid">
         <article className="studio-pro-metric-card">
@@ -83,6 +114,45 @@ export function StudioProExecutionPanel({
           </p>
           <p className="studio-pro-metric-copy">
             备用路由：<span className="studio-pro-code">{standbyRequestUrl}</span>
+          </p>
+        </article>
+        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <span className="studio-pro-metric-label">来源版本基线</span>
+          <strong className="studio-pro-metric-value">
+            {hasReplayContext ? `快照 ${replayContext?.snapshotId}` : '当前未挂接来源版本'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? `${replayContext?.originLabel}。${replayContext?.detailLabel}`
+              : '从作品或任务回到专业版后，这里会固定显示来源版本摘要，帮助判断当前是在继续、重跑还是派生。'}
+          </p>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? `来源执行：${replayContext?.sourceProviderId} / ${replayContext?.sourceModelLabel} · ${replayContext?.sourceRequestKindLabel}。${replayContext?.referenceSummaryLabel}`
+              : '当前没有历史快照约束，执行链会直接以现在的工作区和参数为准。'}
+          </p>
+          {hasReplayContext ? (
+            <p className="studio-pro-metric-copy">
+              来源请求摘要：{truncateStudioProText(replayContext?.requestPrompt || '', 84) || '未记录'}
+            </p>
+          ) : null}
+        </article>
+        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <span className="studio-pro-metric-label">重跑与派生控制</span>
+          <strong className="studio-pro-metric-value">
+            {hasReplayContext ? replayContext?.actionLabel : '等待从结果进入控制链'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? `当前重跑目标：${providerLabel} / ${modelLabel} · ${requestKindLabel}。${replayContext?.hint}`
+              : '当结果回流到专业版后，这里会提示当前快照如何回到控制区，以及下一轮会按哪套 Provider / 模型继续执行。'}
+          </p>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? keepsSameExecutionBaseline
+                ? '当前 Provider、模型和执行路径与来源快照一致，更适合同基线复跑。'
+                : '你已经改动了 Provider、模型或执行路径，下一轮会在来源快照基础上形成新的派生版本。'
+              : '后续这里还会接入来源快照与当前控制区的自动差异提示。'}
           </p>
         </article>
       </div>

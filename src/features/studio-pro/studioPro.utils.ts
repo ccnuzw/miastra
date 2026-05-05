@@ -1,5 +1,13 @@
 import type { StyleToken } from '@/features/studio/studio.types'
 import { styleTokens } from '@/features/studio/studio.constants'
+import { buildPromptTemplatePresentation } from '@/features/prompt-templates/promptTemplate.presentation'
+import {
+  buildPromptTemplateStructure,
+  getPromptTemplateStructureFieldDigest,
+  getPromptTemplateStructureStatusLabel,
+} from '@/features/prompt-templates/promptTemplate.schema'
+import { mapPromptScenarioToFlowSceneId } from '@/features/prompt-templates/studioFlowSemantic'
+import type { PromptTemplateListItem } from '@/features/prompt-templates/promptTemplate.types'
 
 export type StudioProPromptSection = {
   id: 'workspace' | 'styles' | 'detail' | 'negative'
@@ -17,8 +25,97 @@ type BuildStudioProPromptPreviewInput = {
   selectedStyleTokens: StyleToken[]
 }
 
+export type StudioProTemplateContext = {
+  id: string
+  title: string
+  category: string
+  familyLabel: string
+  familyDescription: string
+  sceneLabel: string
+  sceneId: string
+  sceneDescription: string
+  structureStatusLabel: string
+  recommendedLabel: string
+  recommendedReason: string
+  structureFields: string[]
+  structureSummary: Array<{
+    id: string
+    label: string
+    value: string
+  }>
+  defaultSettingsLabel: string
+  metadataHint: string
+  useCases: string[]
+  sourceLabel: string
+}
+
+export type StudioProReplayContext = {
+  sourceLabel: string
+  actionLabel: string
+  statusText: string
+  hint: string
+  originLabel: string
+  detailLabel: string
+  snapshotId: string
+  sourceProviderId: string
+  sourceModelLabel: string
+  sourceRequestKindLabel: string
+  requestPrompt: string
+  referenceSummaryLabel: string
+}
+
+export type StudioProControlStep = {
+  id: string
+  label: string
+  value: string
+  detail: string
+}
+
 export function resolveSelectedStudioStyleTokens(selectedIds: string[]) {
   return styleTokens.filter((token) => selectedIds.includes(token.id))
+}
+
+export function buildStudioProTemplateContext(
+  template: PromptTemplateListItem,
+  sourceLabel: string,
+): StudioProTemplateContext {
+  const presentation = buildPromptTemplatePresentation(template)
+  const structure = template.structure ?? buildPromptTemplateStructure(template)
+  const defaultSettingsLabel = [
+    structure.defaults.aspectLabel ? `${structure.defaults.aspectLabel} 画幅` : '',
+    structure.defaults.resolutionTier ? structure.defaults.resolutionTier.toUpperCase() : '',
+    structure.defaults.quality ? `质量 ${structure.defaults.quality}` : '',
+  ].filter(Boolean).join(' / ') || '未设置默认参数'
+
+  return {
+    id: template.id,
+    title: presentation.title,
+    category: presentation.category,
+    familyLabel: presentation.family.label,
+    familyDescription: presentation.family.description,
+    sceneId: mapPromptScenarioToFlowSceneId(structure.scenarioId),
+    sceneLabel: presentation.structureMeta.sceneLabel,
+    sceneDescription: presentation.structureMeta.sceneDescription,
+    structureStatusLabel: getPromptTemplateStructureStatusLabel(structure.status),
+    recommendedLabel: presentation.recommendedEntry.label,
+    recommendedReason: presentation.recommendedEntry.reason,
+    structureFields: getPromptTemplateStructureFieldDigest(structure.fields, 4),
+    structureSummary: structure.summary,
+    defaultSettingsLabel,
+    metadataHint: presentation.structureMeta.metadataHint,
+    useCases: presentation.useCases,
+    sourceLabel,
+  }
+}
+
+export function getStudioProRequestKindLabel(mode?: string) {
+  return mode?.includes('image2image') ? '图生图' : '文生图'
+}
+
+export function truncateStudioProText(value: string, maxLength = 96) {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (!normalized) return ''
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}…` : normalized
 }
 
 export function buildStudioProPromptArtifacts({

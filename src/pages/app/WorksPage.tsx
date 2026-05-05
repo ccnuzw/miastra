@@ -10,6 +10,7 @@ import {
   getWorkReplayGuide,
   getWorkReplayReferenceSummary,
   getWorkReplayStatusText,
+  getWorkVersionSourceSummary,
   queueWorkReplayPayload,
 } from '@/features/works/workReplay'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
@@ -38,6 +39,7 @@ export function WorksPage() {
     const assetSyncLabel = getAssetSyncLabel(work.assetSyncStatus)
     const replaySummary = getWorkReplayReferenceSummary(work)
     const replayStatusText = getWorkReplayStatusText(replaySummary)
+    const versionSource = getWorkVersionSourceSummary(work)
     return (
       <article key={work.id} className="progress-card">
         {work.src ? <img className="h-56 w-full rounded-2xl object-cover" src={work.src} alt={work.title} /> : null}
@@ -47,6 +49,14 @@ export function WorksPage() {
         </div>
         <p className="mt-2 text-sm text-porcelain-100/60">{work.meta}</p>
         <p className="mt-2 text-xs text-porcelain-100/45">{[work.providerModel, work.size, work.quality].filter(Boolean).join(' · ') || '—'}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-3 py-1 text-[11px] font-semibold text-signal-cyan">
+            {versionSource.originLabel}
+          </span>
+          <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
+            {versionSource.detailLabel}
+          </span>
+        </div>
         <p className={`mt-2 text-xs ${replaySummary.missingReferenceCount > 0 ? 'text-signal-coral' : 'text-signal-cyan'}`}>{replayStatusText}</p>
         {assetSyncLabel ? <p className="mt-2 text-xs text-signal-cyan">{assetSyncLabel}{work.assetRemoteKey ? ` · ${work.assetRemoteKey}` : ''}</p> : null}
         {work.error ? <ErrorNotice error={work.error} className="mt-3" compact /> : null}

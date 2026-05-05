@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuthSession } from '@/features/auth/useAuthSession'
 import { apiRequest } from '@/shared/http/client'
-import type { PromptTemplateListItem } from './PromptTemplateLibrary'
+import type { PromptTemplateListItem } from './promptTemplate.types'
 import { normalizePromptTemplateTags } from './promptTemplate.utils'
 
 type SavePromptTemplateInput = {

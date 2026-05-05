@@ -15,6 +15,11 @@ export type WorkReplayReferenceSummary = {
   canAutoGenerate: boolean
 }
 
+export type WorkVersionSourceSummary = {
+  originLabel: string
+  detailLabel: string
+}
+
 type SerializableWork = Pick<GalleryImage,
   | 'id'
   | 'title'
@@ -116,6 +121,37 @@ function buildPromptSnippet(promptText: string, fallback: string) {
   return text.length > 80 ? `${text.slice(0, 80)}…` : text
 }
 
+function countReferenceOrigins(
+  references?: GenerationSnapshot['references'] | GenerationTaskRecord['payload']['referenceImages'],
+) {
+  const sources = Array.isArray(references) ? references : references?.sources ?? []
+  const workCount = sources.filter((item) => item.source === 'work').length
+  const uploadCount = sources.filter((item) => item.source === 'upload').length
+  return { workCount, uploadCount }
+}
+
+function buildOriginLabel(params: {
+  mode?: GenerationMode
+  drawIndex?: number
+  workReferenceCount: number
+  uploadReferenceCount: number
+}) {
+  const { drawIndex, mode, uploadReferenceCount, workReferenceCount } = params
+  if (workReferenceCount > 0 && uploadReferenceCount > 0) return '来自上一版 + 上传图继续改'
+  if (workReferenceCount > 0) return workReferenceCount > 1 ? `来自 ${workReferenceCount} 张作品参考继续改` : '来自上一版继续改'
+  if (uploadReferenceCount > 0) return uploadReferenceCount > 1 ? `来自 ${uploadReferenceCount} 张上传图继续改` : '来自上传图继续改'
+  if (mode?.includes('draw')) return drawIndex === undefined ? '来自抽卡批次' : `来自抽卡批次第 ${drawIndex + 1} 张`
+  return '来自文字起稿首版'
+}
+
+function buildWorkDetailLabel(work: Pick<GalleryImage, 'variation' | 'drawIndex' | 'promptText' | 'promptSnippet' | 'mode'>) {
+  if (work.variation) return `这一版重点：${work.variation}`
+  if (work.mode?.includes('draw') && work.drawIndex !== undefined) return `当前是这一组里的第 ${work.drawIndex + 1} 张变体`
+  const promptSnippet = buildPromptSnippet(work.promptText || work.promptSnippet || '', '')
+  if (promptSnippet) return `当前描述：${promptSnippet}`
+  return '可以直接接着这一版继续改'
+}
+
 function buildTaskReferenceSnapshot(task: GenerationTaskRecord): GenerationReferenceSnapshot | undefined {
   const references = task.payload.referenceImages ?? []
   if (!references.length) return undefined
@@ -207,6 +243,58 @@ export function buildTaskReplayWork(task: GenerationTaskRecord, resultWork?: Gal
   }
 }
 
+export function getWorkVersionSourceSummary(
+  work: Pick<GalleryImage, 'mode' | 'drawIndex' | 'variation' | 'promptText' | 'promptSnippet' | 'generationSnapshot'>,
+): WorkVersionSourceSummary {
+  const originCounts = countReferenceOrigins(work.generationSnapshot?.references)
+  return {
+    originLabel: buildOriginLabel({
+      mode: work.mode ?? work.generationSnapshot?.mode,
+      drawIndex: work.generationSnapshot?.draw?.drawIndex ?? work.drawIndex,
+      workReferenceCount: originCounts.workCount,
+      uploadReferenceCount: originCounts.uploadCount,
+    }),
+    detailLabel: buildWorkDetailLabel({
+      variation: work.generationSnapshot?.draw?.variation ?? work.variation,
+      drawIndex: work.generationSnapshot?.draw?.drawIndex ?? work.drawIndex,
+      promptText: work.generationSnapshot?.workspacePrompt || work.promptText,
+      promptSnippet: work.promptSnippet,
+      mode: work.mode ?? work.generationSnapshot?.mode,
+    }),
+  }
+}
+
+export function getTaskVersionSourceSummary(
+  task: Pick<GenerationTaskRecord, 'parentTaskId' | 'retryAttempt' | 'drawIndex' | 'variation' | 'payload'>,
+): WorkVersionSourceSummary {
+  const originCounts = countReferenceOrigins(task.payload.referenceImages)
+  const originLabel = task.parentTaskId
+    ? task.retryAttempt > 0
+      ? '接着上一轮结果继续重试'
+      : '接着上一轮结果继续生成'
+    : buildOriginLabel({
+        mode: task.payload.mode,
+        drawIndex: task.payload.draw?.drawIndex ?? task.drawIndex,
+        workReferenceCount: originCounts.workCount,
+        uploadReferenceCount: originCounts.uploadCount,
+      })
+
+  const detailLabel = task.retryAttempt > 0
+    ? `当前是第 ${task.retryAttempt + 1} 次尝试`
+    : task.payload.draw?.variation || task.variation
+      ? `这一轮重点：${task.payload.draw?.variation ?? task.variation}`
+      : task.payload.draw?.drawIndex !== undefined
+        ? `当前是这一组里的第 ${task.payload.draw.drawIndex + 1} 张`
+        : task.payload.requestPrompt
+          ? `当前描述：${buildPromptSnippet(task.payload.requestPrompt, task.payload.title)}`
+          : '可以恢复到工作台继续改'
+
+  return {
+    originLabel,
+    detailLabel,
+  }
+}
+
 export function getWorkReplayReferenceSummary(work: Pick<GalleryImage, 'generationSnapshot'>): WorkReplayReferenceSummary {
   const expectedReferenceCount = work.generationSnapshot?.references?.count ?? 0
   const restorableReferenceCount = (work.generationSnapshot?.references?.sources ?? []).filter((item) => Boolean(item.src)).length
@@ -229,31 +317,31 @@ export function getWorkReplayHint(origin: WorkReplayOrigin, autoGenerate: boolea
   const subject = origin === 'work' ? '这张作品' : '这次任务'
   if (autoGenerate) {
     if (summary.missingReferenceCount > 0) {
-      return `${subject}会带回工作台恢复 Prompt、参数和已保存参考图，但还缺 ${summary.missingReferenceCount} 张参考图。`
+      return `${subject}会带回工作台恢复这一版的描述、参数和已保存参考图，但还缺 ${summary.missingReferenceCount} 张参考图。`
     }
-    return `${subject}会带回工作台并按当前参数准备下一次生成。`
+    return `${subject}会带回工作台，并按这一版的参数准备下一次生成。`
   }
   if (summary.missingReferenceCount > 0) {
-    return `${subject}会带回工作台恢复 Prompt、参数和已保存参考图，缺失参考图需要你手动补齐。`
+    return `${subject}会带回工作台恢复这一版的描述、参数和已保存参考图，缺失参考图需要你手动补齐。`
   }
-  return `${subject}会带回工作台恢复 Prompt、参数和参考图，方便继续调整。`
+  return `${subject}会带回工作台恢复这一版的描述、参数和参考图，方便继续调整。`
 }
 
 export function getWorkReplayActionLabels(origin: WorkReplayOrigin) {
   if (origin === 'task') {
     return {
-      restore: '恢复到工作台',
-      regenerate: '按任务参数重跑',
+      restore: '继续这次结果',
+      regenerate: '按这次参数再跑一版',
     }
   }
 
   return {
-    restore: '继续做',
-    regenerate: '再做一版',
+    restore: '继续这一版',
+    regenerate: '从这一版再做一版',
   }
 }
 
 export function getWorkReplayGuide(origin: WorkReplayOrigin) {
   const labels = getWorkReplayActionLabels(origin)
-  return `${labels.restore} 会把 Prompt、参数和已保存参考图带回工作台；${labels.regenerate} 会在可恢复时按当前参数准备下一次生成。`
+  return `${labels.restore} 会把这一版的描述、参数和已保存参考图带回工作台；${labels.regenerate} 会在可恢复时按这一版的参数准备下一次生成。`
 }

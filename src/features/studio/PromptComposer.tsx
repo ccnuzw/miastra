@@ -5,6 +5,7 @@ import { studioConsumerIntentEvent, type StudioConsumerIntent } from '@/features
 import { ConsumerTaskEntrySection } from '@/features/studio-home/ConsumerTaskEntrySection'
 import type { ConsumerScenePreset, ConsumerTaskPreset } from '@/features/studio-home/consumerHomePresets'
 import { StudioProPromptPanel } from '@/features/studio-pro/StudioProPromptPanel'
+import type { StudioProPromptSection } from '@/features/studio-pro/studioPro.utils'
 import type { StyleToken } from './studio.types'
 
 type PromptComposerProps = {
@@ -21,9 +22,19 @@ type PromptComposerProps = {
   onOpenTemplateLibrary: () => void
   templateActionDisabled?: boolean
   proPanel?: {
+    workspacePrompt: string
     finalPrompt: string
     selectedStyleTokens: StyleToken[]
+    promptSections: StudioProPromptSection[]
+    finalPromptLength: number
+    workspacePromptLength: number
+    enabledSectionCount: number
   } | null
+}
+
+type ConsumerEntryState = {
+  label: string
+  note: string
 }
 
 function appendPrompt(base: string, text: string) {
@@ -59,11 +70,16 @@ export function PromptComposer({
 }: PromptComposerProps) {
   const hasPrompt = prompt.trim().length > 0
   const [completionSummary, setCompletionSummary] = useState('')
+  const [activeEntry, setActiveEntry] = useState<ConsumerEntryState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const promptRef = useRef(prompt)
 
   useEffect(() => {
     promptRef.current = prompt
+  }, [prompt])
+
+  useEffect(() => {
+    if (!prompt.trim()) setActiveEntry(null)
   }, [prompt])
 
   function focusComposer() {
@@ -131,16 +147,32 @@ export function PromptComposer({
 
   function handleTaskSelect(task: ConsumerTaskPreset) {
     if (task.action === 'continue') {
+      setActiveEntry({
+        label: task.title,
+        note: '最近结果区已经在下方，选一张你刚做过的图，就能继续往下改。',
+      })
       document.querySelector('.studio-works-column')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       return
     }
     if (task.prompt) onPromptChange(task.prompt)
+    setActiveEntry({
+      label: task.title,
+      note:
+        task.afterSelectHint ||
+        (task.openUpload
+          ? '已带入继续修改的起步描述。上传原图后，再补一句最想改哪里就可以开始。'
+          : '已带入起步描述。继续补一句主体、感觉或用途，就可以直接开始。'),
+    })
     if (task.openUpload) inputRef.current?.click()
     focusComposer()
   }
 
   function handleSceneSelect(scene: ConsumerScenePreset) {
     onPromptChange(scene.prompt)
+    setActiveEntry({
+      label: scene.title,
+      note: scene.afterSelectHint || '已带入常见场景描述。继续补一句你最在意的效果，结果会更贴近需求。',
+    })
     focusComposer()
   }
 
@@ -151,16 +183,20 @@ export function PromptComposer({
 
   function handleUseExample(text: string) {
     onPromptChange(text)
+    setActiveEntry({
+      label: '示例起手',
+      note: '已带入一句现成描述。继续改成你自己的商品、人物或场景即可。',
+    })
     focusComposer()
   }
 
   function handleCompleteDetails() {
     const summary = hasReferenceImage
-      ? '将优先保留主体，并补全背景、光线和构图。'
-      : '将按你的描述补全背景、光线和构图，先做出一版接近需求的结果。'
+      ? '会优先保留主体，再帮你补全背景、光线和整体氛围。'
+      : '会按你现在的描述，先把背景、光线和构图补得更完整。'
     const addition = hasReferenceImage
-      ? '请优先保留主体，并把背景、光线和构图补全得更自然。'
-      : '请根据我的描述补全背景、光线和构图细节，让第一版更完整。'
+      ? '请优先保留主体，并把背景、光线和整体氛围补全得更自然。'
+      : '请根据我的描述补全背景、光线和构图细节，让第一版更完整、更接近真实需求。'
 
     setCompletionSummary(summary)
     onPromptChange(appendPrompt(promptRef.current, addition))
@@ -204,10 +240,14 @@ export function PromptComposer({
           />
         </label>
         <StudioProPromptPanel
+          workspacePrompt={proPanel.workspacePrompt}
           finalPrompt={proPanel.finalPrompt}
-          negativePrompt={negativePrompt}
           referenceCount={referenceImages.length}
           selectedStyleTokens={proPanel.selectedStyleTokens}
+          promptSections={proPanel.promptSections}
+          finalPromptLength={proPanel.finalPromptLength}
+          workspacePromptLength={proPanel.workspacePromptLength}
+          enabledSectionCount={proPanel.enabledSectionCount}
         />
         <div className="reference-tray">
           <div className="reference-strip">
@@ -247,13 +287,28 @@ export function PromptComposer({
         onSelectTask={handleTaskSelect}
         onSelectScene={handleSceneSelect}
         onUseExample={handleUseExample}
+        activeEntryLabel={activeEntry?.label ?? null}
+        onJumpToInput={focusComposer}
       />
 
       <div className="prompt-composer-header">
-        <span className="field-label">
-          <Wand2 className="h-4 w-4" />
-          第一步 · 描述一下你想做的图片
-        </span>
+        <div className="space-y-2">
+          <span className="field-label">
+            <Wand2 className="h-4 w-4" />
+            把需求告诉我
+          </span>
+          <div>
+            <p className="text-xl font-semibold tracking-tight text-porcelain-50 sm:text-[1.55rem]">
+              {activeEntry ? `继续补一句，让「${activeEntry.label}」更接近你想要的效果` : '先说主体、感觉或用途就够了'}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-porcelain-100/55">
+              {activeEntry?.note ||
+                (hasReferenceImage
+                  ? '如果你已经上传图片，直接告诉我想保留什么、想改哪里，我会按这张图继续做。'
+                  : '不知道怎么开头也没关系，先说你要做什么图、想要什么感觉，或者这张图用在哪里。')}
+            </p>
+          </div>
+        </div>
         <div className="prompt-template-entry-group">
           <button
             type="button"
@@ -272,28 +327,55 @@ export function PromptComposer({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.72fr)]">
-        <div className="rounded-[1.7rem] border border-porcelain-50/10 bg-ink-950/[0.5]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.74fr)]">
+        <div className="rounded-[1.85rem] border border-signal-cyan/18 bg-[linear-gradient(160deg,rgba(94,234,212,0.10),rgba(255,250,240,0.04)_22%,rgba(7,8,10,0.68)_72%)] p-4 shadow-card">
+          <div className="rounded-[1.4rem] border border-porcelain-50/10 bg-ink-950/[0.55] px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.10] px-3 py-1 text-xs font-bold text-signal-cyan">
+                {hasPrompt ? '输入区已准备好' : '还没想完整也没关系'}
+              </span>
+              {activeEntry ? (
+                <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.05] px-3 py-1 text-xs font-semibold text-porcelain-100/68">
+                  已从「{activeEntry.label}」带入起步内容
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-3 text-sm leading-6 text-porcelain-100/58">
+              {hasPrompt
+                ? '现在可以直接生成，也可以再补一句你最在意的地方，比如主体、风格、氛围、用途或想保留的内容。'
+                : '不知道怎么写时，就按这 3 点说：做什么、想要什么感觉、这张图用在哪里。'}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-porcelain-100/58">
+              <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.05] px-3 py-1.5">主体是什么</span>
+              <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.05] px-3 py-1.5">想做成什么感觉</span>
+              <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.05] px-3 py-1.5">主要用在哪里</span>
+            </div>
+          </div>
+
           <textarea
             ref={textareaRef}
             value={prompt}
             onChange={(event) => onPromptChange(event.target.value)}
-            className="prompt-area"
-            rows={8}
-            placeholder="比如：做一张高级感新品海报"
+            className="prompt-area mt-4"
+            rows={9}
+            placeholder={
+              hasReferenceImage
+                ? '比如：保留主体，把背景换成更干净的影棚风格，整体更高级一点'
+                : '比如：做一张高级感新品海报，用在首页首屏，画面干净有质感'
+            }
           />
         </div>
 
         <div className="grid gap-3 rounded-[1.7rem] border border-porcelain-50/10 bg-ink-950/[0.5] p-4">
           <div>
-            <p className="text-sm font-semibold text-porcelain-50">再确认一个小问题，结果会更准</p>
+            <p className="text-sm font-semibold text-porcelain-50">还想再补一点方向的话，点一下就行</p>
             <p className="mt-1 text-sm leading-6 text-porcelain-100/52">
-              不想回答也没关系，先试一版也可以。
+              这些都是可选的，不想选也可以直接先出一版。
             </p>
           </div>
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-porcelain-100/40">你更偏向哪种效果？</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-porcelain-100/40">这版更想往哪边走？</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {[
                 ['更简洁', '整体更简洁，画面更干净。'],
@@ -315,7 +397,7 @@ export function PromptComposer({
 
           {hasReferenceImage ? (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-porcelain-100/40">你更想保留主体，还是更想换背景？</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-porcelain-100/40">这张原图你更想怎么延续？</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {[
                   ['保留主体', '请优先保留主体和主要构图。'],
@@ -336,19 +418,23 @@ export function PromptComposer({
           ) : null}
 
           <div className="rounded-[1.35rem] border border-signal-cyan/15 bg-signal-cyan/[0.06] p-4">
-            <p className="text-sm font-semibold text-porcelain-50">让我们先帮你补全细节</p>
+            <p className="text-sm font-semibold text-porcelain-50">如果你只想先快点看到一版</p>
             <p className="mt-1 text-sm leading-6 text-porcelain-100/52">
-              {completionSummary || '系统会优先补全背景、光线和构图细节，让你更快看到第一版。'}
+              {completionSummary || '我可以先帮你把背景、光线和构图补完整，让第一版更像一个可继续修改的结果。'}
             </p>
             <button
               type="button"
               className="mt-3 rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.10] px-4 py-2 text-sm font-bold text-signal-cyan transition hover:-translate-y-0.5 hover:border-signal-cyan/45 hover:bg-signal-cyan/15"
               onClick={handleCompleteDetails}
             >
-              帮我补全细节
+              先帮我补完整一点
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-[1.5rem] border border-porcelain-50/10 bg-ink-950/[0.34] px-4 py-3 text-sm leading-6 text-porcelain-100/55">
+        有原图的话，也可以一起上传。我会按这张图继续修改，不用你从头重写。
       </div>
 
       <details className="rounded-[1.5rem] border border-porcelain-50/10 bg-ink-950/[0.38] p-4">

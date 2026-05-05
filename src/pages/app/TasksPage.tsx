@@ -17,6 +17,7 @@ import {
   getWorkReplayHint,
   getWorkReplayReferenceSummary,
   getWorkReplayStatusText,
+  getTaskVersionSourceSummary,
   queueWorkReplayPayload,
 } from '@/features/works/workReplay'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
@@ -587,6 +588,7 @@ export function TasksPage() {
                       const replayWork = buildTaskReplayWork(task, resultWork)
                       const replaySummary = getWorkReplayReferenceSummary(replayWork)
                       const replayStatusText = getWorkReplayStatusText(replaySummary)
+                      const versionSource = getTaskVersionSourceSummary(task)
                       const recoverHint = getWorkReplayHint('task', false, replaySummary)
                       const rerunHint = getWorkReplayHint('task', true, replaySummary)
                       const imageUrl = task.result?.imageUrl ?? resultWork?.src
@@ -614,6 +616,14 @@ export function TasksPage() {
                                 {resultWork ? <span className="status-pill">结果已入库</span> : null}
                               </div>
                               <p className="mt-2 text-sm text-porcelain-100/60">{task.payload.meta}</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-3 py-1 text-[11px] font-semibold text-signal-cyan">
+                                  {versionSource.originLabel}
+                                </span>
+                                <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
+                                  {versionSource.detailLabel}
+                                </span>
+                              </div>
                               <p className={`mt-2 text-xs ${replaySummary.missingReferenceCount > 0 ? 'text-signal-coral' : 'text-signal-cyan'}`}>{replayStatusText}</p>
                               <div className="mt-3 flex flex-wrap gap-4 text-xs text-porcelain-100/45">
                                 <span>模式：{modeLabel(task.payload.mode)}</span>
@@ -669,6 +679,14 @@ export function TasksPage() {
                             <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_320px]">
                               <div className="space-y-4">
                                 <div className="grid gap-3 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-4 md:grid-cols-2">
+                                  <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-porcelain-100/40">版本来源</p>
+                                    <div className="mt-3 grid gap-2 text-sm text-porcelain-100/72">
+                                      <p>当前来源：{versionSource.originLabel}</p>
+                                      <p>当前说明：{versionSource.detailLabel}</p>
+                                      <p>恢复状态：{replayStatusText}</p>
+                                    </div>
+                                  </div>
                                   <div>
                                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-porcelain-100/40">追踪信息</p>
                                     <div className="mt-3 grid gap-2 text-sm text-porcelain-100/72">

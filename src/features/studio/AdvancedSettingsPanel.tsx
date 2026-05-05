@@ -5,9 +5,13 @@ type AdvancedSettingsPanelProps = {
   detailTone: string
   onDetailStrengthChange: (value: number) => void
   proPanel?: {
+    connectionLabel: string
+    providerStatusLabel: string
     providerLabel: string
     providerId: string
     providerModeLabel: string
+    credentialStatusLabel: string
+    modelStatusLabel: string
     modelLabel: string
     requestKindLabel: string
     requestUrl: string

@@ -18,6 +18,21 @@ type ParameterPanelProps = {
     detailStrength: number
     detailTone: string
     referenceCount: number
+    requestKindLabel: string
+    drawCount: number
+    drawStrategy: 'linear' | 'smart' | 'turbo'
+    drawConcurrency: number
+    drawDelayMs: number
+    drawRetries: number
+    drawTimeoutSec: number
+    variationStrength: 'low' | 'medium' | 'high'
+    variationDimensionCount: number
+    replayContext?: {
+      sourceLabel: string
+      actionLabel: string
+      statusText: string
+      hint: string
+    } | null
   } | null
 }
 
@@ -125,6 +140,16 @@ export function ParameterPanel(props: ParameterPanelProps) {
           detailStrength={props.proPanel.detailStrength}
           detailTone={props.proPanel.detailTone}
           referenceCount={props.proPanel.referenceCount}
+          requestKindLabel={props.proPanel.requestKindLabel}
+          drawCount={props.proPanel.drawCount}
+          drawStrategy={props.proPanel.drawStrategy}
+          drawConcurrency={props.proPanel.drawConcurrency}
+          drawDelayMs={props.proPanel.drawDelayMs}
+          drawRetries={props.proPanel.drawRetries}
+          drawTimeoutSec={props.proPanel.drawTimeoutSec}
+          variationStrength={props.proPanel.variationStrength}
+          variationDimensionCount={props.proPanel.variationDimensionCount}
+          replayContext={props.proPanel.replayContext}
         />
       </div>
     )
@@ -134,17 +159,17 @@ export function ParameterPanel(props: ParameterPanelProps) {
     <div className="parameter-panel">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="eyebrow">Guide</p>
-          <h3 className="mt-2 text-xl font-semibold tracking-tight text-porcelain-50">第二步 · 选一下你更偏向的效果</h3>
+          <p className="eyebrow">微调</p>
+          <h3 className="mt-2 text-xl font-semibold tracking-tight text-porcelain-50">想更贴近一点时，再选一下这些就够了</h3>
         </div>
-        <span className="status-pill">不想纠结也没关系，默认已经能直接出图</span>
+        <span className="status-pill">这一步可直接跳过</span>
       </div>
 
       <div className="rounded-[1.55rem] border border-porcelain-50/10 bg-ink-950/[0.4] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-porcelain-50">画面比例</p>
-            <p className="mt-1 text-sm leading-6 text-porcelain-100/48">先决定这张图更适合方图、竖图还是横图。</p>
+            <p className="mt-1 text-sm leading-6 text-porcelain-100/48">先决定更适合方图、竖图还是横图，不改也会按默认比例先出图。</p>
           </div>
           <span className="param-value">{props.size}</span>
         </div>
@@ -165,10 +190,10 @@ export function ParameterPanel(props: ParameterPanelProps) {
 
       <details className="rounded-[1.55rem] border border-porcelain-50/10 bg-ink-950/[0.35] p-4">
         <summary className="cursor-pointer list-none text-sm font-semibold text-porcelain-50">
-          更多设置
+          需要时再微调
         </summary>
         <p className="mt-2 text-sm leading-6 text-porcelain-100/48">
-          需要更清楚、更多细节或边出边看时，再展开这里调整就够了。
+          想让画面更清楚、出图更精细，或者希望边生成边预览时，再展开这里就够了。
         </p>
 
         <div className="parameter-top-row mt-4">
@@ -194,7 +219,7 @@ export function ParameterPanel(props: ParameterPanelProps) {
           </div>
 
           <div className="field-block parameter-card generation-card studio-balanced-card">
-            <span className="field-label">生成节奏</span>
+            <span className="field-label">出图节奏</span>
             <div className="generation-controls">
               <div className="quality-grid">
                 {qualityOptions.map((option) => (

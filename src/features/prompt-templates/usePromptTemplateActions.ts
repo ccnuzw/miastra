@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { PromptTemplateListItem } from './PromptTemplateLibrary'
+import type { PromptTemplateListItem } from './promptTemplate.types'
 import { createDuplicatedPromptTemplateTitle, createPromptTemplateTitle } from './promptTemplate.utils'
 import { getErrorDisplay } from '@/shared/errors/app-error'
 

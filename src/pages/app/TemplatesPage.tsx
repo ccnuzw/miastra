@@ -1,5 +1,29 @@
-import { ClipboardCopy, Clock3, Copy, Filter, RefreshCw, Search, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import {
+  ArrowRight,
+  ClipboardCopy,
+  Clock3,
+  Copy,
+  Filter,
+  LayoutPanelTop,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Tags,
+  Trash2,
+  Wand2,
+} from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import {
+  buildPromptTemplateCategoryOverview,
+  buildPromptTemplatePresentation,
+  formatPromptTemplateDate,
+  getPromptTemplateSearchText,
+  getPromptTemplateSortDate,
+  getPromptTemplateSortTime,
+  resolvePromptTemplateFamily,
+} from '@/features/prompt-templates/promptTemplate.presentation'
+import { buildPromptTemplateStudioPath } from '@/features/prompt-templates/promptTemplate.studioEntry'
 import {
   createDuplicatedPromptTemplateTitle,
   normalizePromptTemplateTags,
@@ -17,6 +41,7 @@ export function TemplatesPage() {
   const [busyId, setBusyId] = useState('')
   const [message, setMessage] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [familyFilter, setFamilyFilter] = useState('全部类型')
   const [categoryFilter, setCategoryFilter] = useState('全部分类')
   const [sortMode, setSortMode] = useState<'updated' | 'used'>('updated')
 
@@ -34,30 +59,33 @@ export function TemplatesPage() {
   const categories = Array.from(
     new Set(templates.map((template) => template.category?.trim() || '未分类')),
   ).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
-  const filteredTemplates = [...templates]
-    .sort((a, b) => {
-      const left =
-        sortMode === 'used'
-          ? (b.lastUsedAt ?? b.updatedAt ?? b.createdAt)
-          : (b.updatedAt ?? b.createdAt)
-      const right =
-        sortMode === 'used'
-          ? (a.lastUsedAt ?? a.updatedAt ?? a.createdAt)
-          : (a.updatedAt ?? a.createdAt)
-      return Number(new Date(left)) - Number(new Date(right))
-    })
-    .filter((template) => {
-      if (
-        categoryFilter !== '全部分类' &&
-        (template.category?.trim() || '未分类') !== categoryFilter
-      )
-        return false
-      const haystack =
-        `${template.title ?? ''} ${template.content ?? ''} ${template.category ?? ''} ${(template.tags ?? []).join(' ')}`.toLowerCase()
-      return haystack.includes(searchQuery.trim().toLowerCase())
-    })
-  const hasActiveFilters = Boolean(searchQuery.trim()) || categoryFilter !== '全部分类'
+  const categoryOverview = useMemo(
+    () => buildPromptTemplateCategoryOverview(templates),
+    [templates],
+  )
+  const filteredTemplates = useMemo(
+    () =>
+      [...templates]
+        .sort((a, b) => getPromptTemplateSortTime(b, sortMode) - getPromptTemplateSortTime(a, sortMode))
+        .filter((template) => {
+          const family = resolvePromptTemplateFamily(template)
+          if (familyFilter !== '全部类型' && family.label !== familyFilter) return false
+          if (
+            categoryFilter !== '全部分类' &&
+            (template.category?.trim() || '未分类') !== categoryFilter
+          )
+            return false
+          return getPromptTemplateSearchText(template).includes(searchQuery.trim().toLowerCase())
+        }),
+    [categoryFilter, familyFilter, searchQuery, sortMode, templates],
+  )
+  const hasActiveFilters =
+    Boolean(searchQuery.trim()) || categoryFilter !== '全部分类' || familyFilter !== '全部类型'
   const hasTemplates = templates.length > 0
+  const recommendedCount = filteredTemplates.filter((template) => {
+    const presentation = buildPromptTemplatePresentation(template)
+    return presentation.recommendedEntry.mode === 'consumer'
+  }).length
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -129,16 +157,16 @@ export function TemplatesPage() {
       <section className="panel-shell w-full">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="eyebrow">Templates</p>
+            <p className="eyebrow">Template Library</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight">模板库</h1>
             <p className="mt-2 max-w-3xl text-sm text-porcelain-100/60">
-              把常用 Prompt
-              整理成模板，方便你在工作台里快速套用、继续修改，或补充分类和标签做长期复用。
+              这里不只是保存 Prompt。你可以按模板类型整理用途、决定更适合从普通版还是专业版起手，并为后续结构模板字段预留位置。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="status-pill">共 {templates.length} 个模板</span>
             <span className="status-pill">当前筛出 {filteredTemplates.length} 个</span>
+            <span className="status-pill">推荐普通版起手 {recommendedCount} 个</span>
             <button
               className="rounded-full border border-porcelain-50/10 bg-ink-950/[0.65] px-4 py-2 text-sm font-semibold text-porcelain-50 transition hover:border-signal-cyan/50 hover:text-signal-cyan"
               type="button"
@@ -147,6 +175,46 @@ export function TemplatesPage() {
               <RefreshCw className="mr-2 inline h-4 w-4" />
               刷新模板
             </button>
+          </div>
+        </div>
+
+        <div className="mt-8 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+          <div className="rounded-[1.5rem] border border-signal-cyan/15 bg-[linear-gradient(135deg,rgba(34,211,238,0.14),rgba(15,23,42,0.65))] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-2xl">
+                <p className="field-label">模板如何接工作台</p>
+                <h2 className="mt-2 text-xl font-semibold text-porcelain-50">先选模板，再决定从哪里开始</h2>
+                <p className="mt-2 text-sm leading-6 text-porcelain-100/70">
+                  普通版更适合先把模板当成任务起点，快速出第一版；专业版更适合把模板当成底稿，继续补参数、负面提示词和风格控制。
+                </p>
+              </div>
+              <div className="grid gap-2 text-sm text-porcelain-100/65">
+                <div className="rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-4 py-3">
+                  <span className="font-semibold text-porcelain-50">普通版入口</span>
+                  <p className="mt-1">更适合先出图、先验证方向。</p>
+                </div>
+                <div className="rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-4 py-3">
+                  <span className="font-semibold text-porcelain-50">专业版入口</span>
+                  <p className="mt-1">更适合需要细控 Prompt 和参数的模板。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 rounded-[1.5rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-5">
+            <div>
+              <p className="field-label">结构模板预留</p>
+              <h2 className="mt-2 text-xl font-semibold text-porcelain-50">下一步会补字段、默认值和追问顺序</h2>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="status-pill">字段 schema</span>
+              <span className="status-pill">推荐尺寸</span>
+              <span className="status-pill">默认风格</span>
+              <span className="status-pill">轻量追问</span>
+            </div>
+            <p className="text-sm leading-6 text-porcelain-100/65">
+              这一页已经先留出元信息表达位。后续模板升级成结构模板时，可以直接把模板字段、默认参数和问题顺序接进来，不需要再改页面定位。
+            </p>
           </div>
         </div>
 
@@ -160,97 +228,133 @@ export function TemplatesPage() {
         ) : null}
         {loading ? (
           <div className="mt-6 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] px-4 py-3 text-sm text-porcelain-100/60">
-            正在加载模板库，最近使用、分类和标签会一起恢复。
+            正在加载模板库，最近使用、分类和推荐入口会一起恢复。
           </div>
         ) : null}
         {message ? <p className="mt-6 text-sm text-signal-cyan">{message}</p> : null}
 
-        <div className="mt-8 grid gap-6 min-[1480px]:grid-cols-[minmax(400px,0.82fr)_minmax(0,1.18fr)]">
-          <form
-            className="grid gap-4 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-5 min-[1480px]:sticky min-[1480px]:top-28 min-[1480px]:self-start"
-            onSubmit={handleSubmit}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="field-label">模板编辑器</p>
-                <p className="mt-2 text-sm text-porcelain-100/60">
-                  在工作台保存当前 Prompt
-                  后，可以回到这里补标题、分类和标签，后续在模板库里更快复用。
-                </p>
+        <div className="mt-8 grid gap-6 min-[1560px]:grid-cols-[minmax(430px,0.8fr)_minmax(0,1.2fr)]">
+          <div className="space-y-6 min-[1560px]:sticky min-[1560px]:top-28 min-[1560px]:self-start">
+            <div className="grid gap-4 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="field-label">模板分类概览</p>
+                  <p className="mt-2 text-sm text-porcelain-100/60">
+                    先看模板主要落在哪些场景，后续这些分类也会承接结构字段和推荐入口策略。
+                  </p>
+                </div>
+                <Tags className="h-5 w-5 text-signal-cyan" />
               </div>
-              {editingId ? (
-                <span className="status-pill">正在编辑</span>
-              ) : (
-                <span className="status-pill">新建模板</span>
-              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                {categoryOverview.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`rounded-[1.2rem] border px-4 py-4 text-left transition ${
+                      familyFilter === item.label
+                        ? 'border-signal-cyan/55 bg-signal-cyan/[0.12]'
+                        : 'border-porcelain-50/10 bg-ink-950/[0.35] hover:border-signal-cyan/30'
+                    }`}
+                    onClick={() => setFamilyFilter(familyFilter === item.label ? '全部类型' : item.label)}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold text-porcelain-50">{item.label}</span>
+                      <span className="status-pill">{item.count} 个</span>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-porcelain-100/60">{item.description}</p>
+                    <p className="mt-2 text-[11px] font-medium text-signal-cyan/90">
+                      推荐先从{item.recommendedMode === 'consumer' ? '普通版' : '专业版'}进入
+                    </p>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <form
+              className="grid gap-4 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-5"
+              onSubmit={handleSubmit}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="field-label">模板编辑器</p>
+                  <p className="mt-2 text-sm text-porcelain-100/60">
+                    在工作台保存当前 Prompt 后，可以回到这里补标题、分类和标签。现在也建议顺手补充适用场景，让模板更像真正可复用的模板库资产。
+                  </p>
+                </div>
+                {editingId ? (
+                  <span className="status-pill">正在编辑</span>
+                ) : (
+                  <span className="status-pill">新建模板</span>
+                )}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="field-block">
+                  <span className="field-label">标题</span>
+                  <input
+                    className="input-shell"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    required
+                  />
+                </label>
+                <label className="field-block">
+                  <span className="field-label">分类</span>
+                  <input
+                    className="input-shell"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    placeholder="如：海报 / 角色 / 电商"
+                  />
+                </label>
+              </div>
               <label className="field-block">
-                <span className="field-label">标题</span>
-                <input
-                  className="input-shell"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                <span className="field-label">内容</span>
+                <textarea
+                  className="prompt-area min-h-52"
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
                   required
                 />
               </label>
               <label className="field-block">
-                <span className="field-label">分类</span>
+                <span className="field-label">标签</span>
                 <input
                   className="input-shell"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder="如：海报 / 角色 / 电商"
+                  value={tagsText}
+                  onChange={(e) => setTagsText(e.target.value)}
+                  placeholder="用逗号分隔，例如：产品, 营销, 轻奢"
                 />
               </label>
-            </div>
-            <label className="field-block">
-              <span className="field-label">内容</span>
-              <textarea
-                className="prompt-area min-h-52"
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                required
-              />
-            </label>
-            <label className="field-block">
-              <span className="field-label">标签</span>
-              <input
-                className="input-shell"
-                value={tagsText}
-                onChange={(e) => setTagsText(e.target.value)}
-                placeholder="用逗号分隔，例如：产品, 营销, 轻奢"
-              />
-            </label>
-            <div className="flex flex-wrap gap-3">
-              <button
-                className="rounded-2xl bg-signal-cyan px-4 py-3 text-sm font-bold text-ink-950"
-                type="submit"
-                disabled={busyId === 'save'}
-              >
-                {busyId === 'save' ? '保存中…' : editingId ? '保存修改' : '保存模板'}
-              </button>
-              {editingId ? (
+              <div className="flex flex-wrap gap-3">
                 <button
-                  type="button"
-                  className="rounded-2xl border border-porcelain-50/10 px-4 py-3 text-sm"
-                  onClick={() => {
-                    setEditingId('')
-                    setTitle('')
-                    setContent('')
-                    setCategory('')
-                    setTagsText('')
-                  }}
+                  className="rounded-2xl bg-signal-cyan px-4 py-3 text-sm font-bold text-ink-950"
+                  type="submit"
+                  disabled={busyId === 'save'}
                 >
-                  取消编辑
+                  {busyId === 'save' ? '保存中…' : editingId ? '保存修改' : '保存模板'}
                 </button>
-              ) : null}
-            </div>
-          </form>
+                {editingId ? (
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-porcelain-50/10 px-4 py-3 text-sm"
+                    onClick={() => {
+                      setEditingId('')
+                      setTitle('')
+                      setContent('')
+                      setCategory('')
+                      setTagsText('')
+                    }}
+                  >
+                    取消编辑
+                  </button>
+                ) : null}
+              </div>
+            </form>
+          </div>
 
           <div className="space-y-6">
-            <div className="grid gap-4 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-4 lg:grid-cols-[1.4fr_0.8fr_0.8fr]">
+            <div className="grid gap-4 rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-4 lg:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
               <label className="field-block">
                 <span className="field-label">
                   <Search className="h-3.5 w-3.5" />
@@ -260,8 +364,26 @@ export function TemplatesPage() {
                   className="input-shell"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜索模板名称、标签或适用场景"
+                  placeholder="搜索模板名称、标签、适用场景或说明"
                 />
+              </label>
+              <label className="field-block">
+                <span className="field-label">
+                  <Filter className="h-3.5 w-3.5" />
+                  类型筛选
+                </span>
+                <select
+                  className="input-shell"
+                  value={familyFilter}
+                  onChange={(e) => setFamilyFilter(e.target.value)}
+                >
+                  <option value="全部类型">全部类型</option>
+                  {categoryOverview.map((item) => (
+                    <option key={item.id} value={item.label}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="field-block">
                 <span className="field-label">
@@ -301,97 +423,178 @@ export function TemplatesPage() {
               <div className="rounded-[1.35rem] border border-dashed border-porcelain-50/15 bg-ink-950/[0.32] p-5 text-sm text-porcelain-100/65">
                 <p className="text-base font-semibold text-porcelain-50">还没有模板</p>
                 <p className="mt-2 leading-6">
-                  先在工作台里把当前 Prompt
-                  保存为模板，再回到这里补分类和标签；之后你就可以按场景快速复用。
+                  先在工作台里把当前 Prompt 保存为模板，再回到这里补分类、标签和适用场景；之后你就可以直接把它带回普通版或专业版继续创作。
                 </p>
               </div>
             ) : null}
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 min-[1680px]:grid-cols-4">
-              {filteredTemplates.map((template) => (
-                <article key={template.id} className="progress-card">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h2 className="truncate text-lg font-semibold text-porcelain-50">
-                        {template.title || '未命名模板'}
-                      </h2>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <span className="prompt-template-chip">
-                          {template.category?.trim() || '未分类'}
+            <div className="grid gap-4 xl:grid-cols-2 min-[1760px]:grid-cols-3">
+              {filteredTemplates.map((template) => {
+                const presentation = buildPromptTemplatePresentation(template)
+                const activityDate = formatPromptTemplateDate(
+                  getPromptTemplateSortDate(template, sortMode),
+                )
+
+                return (
+                  <article
+                    key={template.id}
+                    className="rounded-[1.4rem] border border-porcelain-50/10 bg-ink-950/[0.4] p-5 shadow-[0_18px_45px_rgba(2,6,23,0.18)]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap gap-2">
+                          <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-signal-cyan">
+                            {presentation.family.label}
+                          </span>
+                          <span className="rounded-full border border-porcelain-50/10 bg-ink-950/55 px-2.5 py-1 text-[10px] font-bold text-porcelain-100/45">
+                            {presentation.category}
+                          </span>
+                        </div>
+                        <h2 className="mt-3 truncate text-lg font-semibold text-porcelain-50">
+                          {presentation.title}
+                        </h2>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-porcelain-50/10 bg-ink-950/55 px-2.5 py-1 text-[10px] font-bold text-porcelain-100/45">
+                        {activityDate}
+                      </span>
+                    </div>
+
+                    <p className="mt-3 text-sm leading-6 text-porcelain-100/70">
+                      {presentation.family.description}
+                    </p>
+                    <p className="mt-3 line-clamp-4 text-sm leading-6 text-porcelain-100/58">
+                      {presentation.preview}
+                    </p>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(presentation.tags.length ? presentation.tags : ['待补标签']).map((tag) => (
+                        <span key={tag} className="prompt-template-chip prompt-template-chip-tag">
+                          {tag}
                         </span>
-                        {(template.tags ?? []).map((tag) => (
-                          <span key={tag} className="prompt-template-chip prompt-template-chip-tag">
-                            {tag}
+                      ))}
+                    </div>
+
+                    <div className="mt-5 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.34] p-4">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
+                        <Sparkles className="h-4 w-4 text-signal-cyan" />
+                        适用说明
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-porcelain-100/65">
+                        {presentation.recommendedEntry.reason}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {presentation.useCases.map((useCase) => (
+                          <span key={useCase} className="status-pill">
+                            {useCase}
                           </span>
                         ))}
                       </div>
                     </div>
-                    <span className="shrink-0 rounded-full border border-porcelain-50/10 bg-ink-950/55 px-2.5 py-1 text-[10px] font-bold text-porcelain-100/45">
-                      {new Intl.DateTimeFormat('zh-CN', {
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      }).format(
-                        new Date(
-                          sortMode === 'used'
-                            ? (template.lastUsedAt ?? template.updatedAt ?? template.createdAt)
-                            : (template.updatedAt ?? template.createdAt),
-                        ),
-                      )}
-                    </span>
-                  </div>
-                  <p className="mt-3 line-clamp-6 text-sm leading-6 text-porcelain-100/60">
-                    {template.content}
-                  </p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs"
-                      onClick={() => setEditingId(template.id)}
-                      disabled={busyId === template.id}
-                    >
-                      编辑
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs"
-                      onClick={() => void handleDuplicate(template)}
-                      disabled={busyId === template.id}
-                    >
-                      <Copy className="mr-1 inline h-3.5 w-3.5" />
-                      复制为新模板
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs"
-                      onClick={() => void handleCopyContent(template.content, template.id)}
-                      disabled={busyId === template.id}
-                    >
-                      <ClipboardCopy className="mr-1 inline h-3.5 w-3.5" />
-                      复制内容
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-full border border-signal-coral/25 bg-signal-coral/10 px-3 py-2 text-xs text-signal-coral"
-                      onClick={() => void handleDelete(template.id)}
-                      disabled={busyId === template.id}
-                    >
-                      <Trash2 className="mr-1 inline h-3.5 w-3.5" />
-                      {busyId === template.id ? '处理中…' : '删除'}
-                    </button>
-                  </div>
-                </article>
-              ))}
+
+                    <div className="mt-4 grid gap-3">
+                      {presentation.entries.map((entry) => (
+                        <Link
+                          key={`${template.id}:${entry.mode}`}
+                          to={buildPromptTemplateStudioPath({
+                            templateId: template.id,
+                            mode: entry.mode,
+                            intent: entry.intent,
+                          })}
+                          className={`rounded-[1.1rem] border px-4 py-3 transition ${
+                            entry.recommended
+                              ? 'border-signal-cyan/45 bg-signal-cyan/[0.1]'
+                              : 'border-porcelain-50/10 bg-ink-950/[0.3] hover:border-porcelain-50/25'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
+                              {entry.mode === 'consumer' ? (
+                                <Wand2 className="h-4 w-4 text-signal-cyan" />
+                              ) : (
+                                <LayoutPanelTop className="h-4 w-4 text-signal-cyan" />
+                              )}
+                              {entry.label}
+                            </div>
+                            <ArrowRight className="h-4 w-4 text-signal-cyan" />
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-porcelain-100/62">
+                            {entry.description}
+                          </p>
+                          {entry.recommended ? (
+                            <p className="mt-2 text-[11px] font-medium text-signal-cyan">
+                              推荐入口
+                            </p>
+                          ) : null}
+                        </Link>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 rounded-[1.1rem] border border-dashed border-porcelain-50/15 bg-ink-950/[0.26] p-4">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
+                        <Tags className="h-4 w-4 text-signal-cyan" />
+                        {presentation.structureMeta.statusLabel}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {presentation.structureMeta.fields.map((field) => (
+                          <span key={field} className="status-pill">
+                            {field}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="mt-3 text-xs leading-5 text-porcelain-100/55">
+                        {presentation.structureMeta.metadataHint}
+                      </p>
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs"
+                        onClick={() => setEditingId(template.id)}
+                        disabled={busyId === template.id}
+                      >
+                        编辑
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs"
+                        onClick={() => void handleDuplicate(template)}
+                        disabled={busyId === template.id}
+                      >
+                        <Copy className="mr-1 inline h-3.5 w-3.5" />
+                        复制为新模板
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs"
+                        onClick={() => void handleCopyContent(template.content, template.id)}
+                        disabled={busyId === template.id}
+                      >
+                        <ClipboardCopy className="mr-1 inline h-3.5 w-3.5" />
+                        复制内容
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-signal-coral/25 bg-signal-coral/10 px-3 py-2 text-xs text-signal-coral"
+                        onClick={() => void handleDelete(template.id)}
+                        disabled={busyId === template.id}
+                      >
+                        <Trash2 className="mr-1 inline h-3.5 w-3.5" />
+                        {busyId === template.id ? '处理中…' : '删除'}
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
               {!loading && hasTemplates && filteredTemplates.length === 0 ? (
-                <div className="progress-card">
+                <div className="rounded-[1.4rem] border border-porcelain-50/10 bg-ink-950/[0.4] p-5">
                   <p className="text-base font-semibold text-porcelain-50">
                     {hasActiveFilters ? '没有找到匹配的模板' : '当前还没有可用模板'}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-porcelain-100/60">
                     {hasActiveFilters
                       ? '换个关键词、分类或排序试试，或者清空筛选后查看全部模板。'
-                      : '先创建一个模板，后续就可以在工作台和模板库里反复复用。'}
+                      : '先创建一个模板，后续就可以把它直接带回工作台作为普通版任务入口或专业版底稿。'}
                   </p>
                 </div>
               ) : null}

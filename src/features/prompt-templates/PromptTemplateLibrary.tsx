@@ -1,18 +1,8 @@
 import { useEffect, useState } from 'react'
 import { BookOpen, Check, ClipboardCopy, Clock3, Copy, Filter, Loader2, RefreshCw, Search, Sparkles, Tag, Trash2, X } from 'lucide-react'
+import type { PromptTemplateListItem } from './promptTemplate.types'
 import { createDuplicatedPromptTemplateTitle, normalizePromptTemplateTags } from './promptTemplate.utils'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
-
-export type PromptTemplateListItem = {
-  id: string
-  title?: string
-  content: string
-  category?: string
-  tags?: string[]
-  createdAt: string | number | Date
-  updatedAt?: string | number | Date
-  lastUsedAt?: string | number | Date
-}
 
 type PromptTemplateLibraryProps = {
   open: boolean

@@ -1,5 +1,10 @@
+import { useEffect, useState } from 'react'
 import { ImagePlus, Sparkles } from 'lucide-react'
-import { ConsumerResultActions } from '@/features/studio-consumer/ConsumerResultActions'
+import {
+  ConsumerResultActions,
+  studioConsumerResultActionEvent,
+  type StudioConsumerResultActionDetail,
+} from '@/features/studio-consumer/ConsumerResultActions'
 import type { GalleryImage } from '@/features/works/works.types'
 
 type PreviewStageProps = {
@@ -8,6 +13,28 @@ type PreviewStageProps = {
 }
 
 export function PreviewStage({ activePreview, onPreview }: PreviewStageProps) {
+  const [resultActionFeedback, setResultActionFeedback] = useState<StudioConsumerResultActionDetail | null>(null)
+  const hasFinalPreview = Boolean(activePreview?.src) && activePreview?.id !== 'live-preview-image'
+
+  useEffect(() => {
+    function handleResultAction(rawEvent: Event) {
+      const event = rawEvent as CustomEvent<StudioConsumerResultActionDetail>
+      setResultActionFeedback((current) => {
+        if (!activePreview?.src || event.detail.preview.src !== activePreview.src) return current
+        return event.detail
+      })
+    }
+
+    window.addEventListener(studioConsumerResultActionEvent, handleResultAction as EventListener)
+    return () => {
+      window.removeEventListener(studioConsumerResultActionEvent, handleResultAction as EventListener)
+    }
+  }, [activePreview?.src])
+
+  useEffect(() => {
+    setResultActionFeedback(null)
+  }, [activePreview?.id, activePreview?.src])
+
   return (
     <div className="preview-stage">
       <div className="preview-orb" />
@@ -19,11 +46,13 @@ export function PreviewStage({ activePreview, onPreview }: PreviewStageProps) {
 
         <div className="mt-5 rounded-[1.6rem] border border-porcelain-50/10 bg-ink-950/[0.48] p-4">
           <p className="text-lg font-semibold text-porcelain-50">
-            {activePreview?.src ? '这是刚生成的结果' : '第一版会显示在这里'}
+            {hasFinalPreview ? '先确认这版方向，再顺手继续改' : activePreview?.src ? '这版结果还在接收中' : '第一版会显示在这里'}
           </p>
           <p className="mt-2 text-sm leading-6 text-porcelain-100/55">
-            {activePreview?.src
-              ? '先看看这版效果，如果还不够满意，可以直接在下方继续改。'
+            {hasFinalPreview
+              ? '不满意时，不需要重新开始。可以直接沿用当前结果继续做，或者先把它带回输入区补一句。'
+              : activePreview?.src
+                ? '等这版结果接收完成后，就可以直接基于它继续修改，不会丢掉当前方向。'
               : '先从左边说一句你想做什么，或上传一张图，然后点“先试试看”。'}
           </p>
         </div>
@@ -47,7 +76,19 @@ export function PreviewStage({ activePreview, onPreview }: PreviewStageProps) {
               </span>
               <span className="preview-image-hint">点击放大预览</span>
             </button>
-            <ConsumerResultActions preview={activePreview} />
+            {hasFinalPreview && resultActionFeedback ? (
+              <div className="mt-4 rounded-[1.35rem] border border-signal-cyan/20 bg-signal-cyan/[0.08] p-4">
+                <p className="text-sm font-semibold text-porcelain-50">
+                  {resultActionFeedback.submit
+                    ? `已按“${resultActionFeedback.actionTitle}”继续这一版`
+                    : `已把这张图按“${resultActionFeedback.actionTitle}”带回输入区`}
+                </p>
+                <p className="mt-1 text-sm leading-6 text-porcelain-100/60">
+                  {resultActionFeedback.nextStep}
+                </p>
+              </div>
+            ) : null}
+            {hasFinalPreview ? <ConsumerResultActions preview={activePreview} /> : null}
           </>
         ) : (
           <div className="preview-placeholder">

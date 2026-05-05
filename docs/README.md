@@ -29,6 +29,8 @@
 | [image-skill-platform-product-map-v1.md](./image-skill-platform-product-map-v1.md) | 普通版与专业版完整产品地图，定义统一前台产品层、共享资产主线与页面角色分工 |
 | [image-skill-platform-implementation-plan-v1.md](./image-skill-platform-implementation-plan-v1.md) | 第一阶段开发实施方案，定义从现有工作台到双模式统一创作平台的改造顺序与代码落点 |
 | [image-skill-platform-phase1-backlog-v1.md](./image-skill-platform-phase1-backlog-v1.md) | 第一阶段开发任务清单，定义 Epic、任务包、并行边界、多 Agent 分工与分支策略 |
+| [image-skill-platform-phase1-agent-briefs-v1.md](./image-skill-platform-phase1-agent-briefs-v1.md) | 第一阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase1-agent-prompts-v1.md](./image-skill-platform-phase1-agent-prompts-v1.md) | 第一阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
 | [image-skill-platform-consumer-components-v1.md](./image-skill-platform-consumer-components-v1.md) | 普通用户版组件清单与状态清单，定义首页、创作页、结果页的组件层级、页面状态与空态 |
 | [image-skill-platform-consumer-interactions-v1.md](./image-skill-platform-consumer-interactions-v1.md) | 普通用户版交互流与状态流，定义用户动作、系统响应、页面变化和失败恢复策略 |
 | [image-skill-platform-consumer-copy-v1.md](./image-skill-platform-consumer-copy-v1.md) | 普通用户版文案与按钮文案清单，定义标题、按钮、空态、失败态和全局反馈话术 |
@@ -59,14 +61,16 @@
 18. `image-skill-platform-product-map-v1.md`
 19. `image-skill-platform-implementation-plan-v1.md`
 20. `image-skill-platform-phase1-backlog-v1.md`
-21. `image-skill-platform-consumer-components-v1.md`
-22. `image-skill-platform-consumer-interactions-v1.md`
-23. `image-skill-platform-consumer-copy-v1.md`
-24. `image-skill-platform-consumer-layout-decisions-v1.md`
-25. `development-workflow.md`
-26. `testing-strategy.md`
-27. `troubleshooting.md`
-28. `current-project-status.md`
+21. `image-skill-platform-phase1-agent-briefs-v1.md`
+22. `image-skill-platform-phase1-agent-prompts-v1.md`
+23. `image-skill-platform-consumer-components-v1.md`
+24. `image-skill-platform-consumer-interactions-v1.md`
+25. `image-skill-platform-consumer-copy-v1.md`
+26. `image-skill-platform-consumer-layout-decisions-v1.md`
+27. `development-workflow.md`
+28. `testing-strategy.md`
+29. `troubleshooting.md`
+30. `current-project-status.md`
 
 ## 相关入口
 

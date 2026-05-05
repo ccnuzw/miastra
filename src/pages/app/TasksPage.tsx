@@ -427,6 +427,8 @@ export function TasksPage() {
     overallStats.slotCount > 0
       ? Math.round((overallStats.succeeded / overallStats.slotCount) * 100)
       : 0
+  const hasRecoverableFailures = overallStats.failed > 0
+  const hasRunningTasks = overallStats.running > 0
 
   const workIndexes = useMemo<WorkIndexes>(() => {
     const byId = new Map<string, GalleryImage>()
@@ -581,6 +583,20 @@ export function TasksPage() {
         </div>
 
         {error ? <ErrorNotice error={error} className="mt-6" /> : null}
+        {error ? (
+          <div className="mt-6 rounded-[1.3rem] border border-signal-coral/20 bg-signal-coral/10 px-4 py-3 text-sm text-porcelain-100/78">
+            任务列表没有完整刷新成功。当前批次进度、结果映射和回流入口可能不是最新状态；继续重试或回到工作台前，建议先完成一次成功刷新。
+          </div>
+        ) : null}
+        {!loading ? (
+          <div className="mt-6 rounded-[1.3rem] border border-porcelain-50/10 bg-ink-950/[0.35] px-4 py-3 text-sm text-porcelain-100/70">
+            {hasRunningTasks
+              ? '当前仍有任务在运行或排队，页面会自动刷新。回到工作台继续修改时，建议确认这批任务是否已经稳定出结果。'
+              : hasRecoverableFailures
+                ? '当前没有进行中的任务，但存在失败或超时项。你可以先在这里重试失败项，也可以把结果回流到工作台后再决定是否派生。'
+                : '当前任务链已稳定落盘。需要继续改时，可以直接从任务回流到工作台，普通版和专业版都会沿当前快照继续。'}
+          </div>
+        ) : null}
         {actionMessage ? (
           <p className="mt-6 rounded-[1.3rem] border border-signal-cyan/25 bg-signal-cyan/[0.08] px-4 py-3 text-sm text-signal-cyan">
             {actionMessage}
@@ -749,6 +765,9 @@ export function TasksPage() {
                                   <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.08] px-3 py-1 text-[11px] font-semibold text-emerald-200">
                                     {versionSource.sourceKindLabel}
                                   </span>
+                                  <span className="rounded-full border border-signal-amber/20 bg-signal-amber/[0.08] px-3 py-1 text-[11px] font-semibold text-signal-amber">
+                                    建议：{versionSource.recommendedActionLabel}
+                                  </span>
                                   <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
                                     场景：{versionSource.sceneLabel}
                                   </span>
@@ -766,16 +785,34 @@ export function TasksPage() {
                                 </div>
                                 <div className="mt-3 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.32] p-3 text-xs text-porcelain-100/58">
                                   <p className="font-semibold text-porcelain-50">
-                                    {versionSource.deltaHeadline}
+                                    {versionSource.decisionSummary}
                                   </p>
-                                  <p className="mt-1">{versionSource.parentDeltaLabel}</p>
-                                  <p>{versionSource.sourceDeltaLabel}</p>
+                                  <p className="mt-1">{versionSource.actionDecisionReason}</p>
+                                  <p className="mt-2">{versionSource.deltaHeadline}</p>
+                                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                    {versionSource.directLinks.slice(0, 2).map((item) => (
+                                      <div
+                                        key={`${slot.slotId}:${item.id}`}
+                                        className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2"
+                                      >
+                                        <p className="text-[11px] font-semibold text-porcelain-50">
+                                          {item.label}
+                                        </p>
+                                        <p className="mt-1">{item.summary}</p>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
                                 <p
                                   className={`mt-2 text-xs ${replaySummary.missingReferenceCount > 0 ? 'text-signal-coral' : 'text-signal-cyan'}`}
                                 >
                                   {replayStatusText}
                                 </p>
+                                {replaySummary.missingReferenceCount > 0 ? (
+                                  <p className="mt-2 text-xs text-porcelain-100/52">
+                                    回到工作台后会先恢复当前可用参数，但需要手动补齐缺失参考图，才适合继续重跑或分叉。
+                                  </p>
+                                ) : null}
                                 <div className="mt-3 flex flex-wrap gap-4 text-xs text-porcelain-100/45">
                                   <span>模式：{modeLabel(task.payload.mode)}</span>
                                   <span>模型：{task.payload.model}</span>
@@ -846,6 +883,9 @@ export function TasksPage() {
                                       <div className="mt-3 grid gap-2 text-sm text-porcelain-100/72">
                                         <p>当前来源：{versionSource.originLabel}</p>
                                         <p>来源类型：{versionSource.sourceKindLabel}</p>
+                                        <p>动作建议：{versionSource.recommendedActionLabel}</p>
+                                        <p>{versionSource.decisionSummary}</p>
+                                        <p>{versionSource.actionDecisionReason}</p>
                                         <p>统一场景：{versionSource.sceneLabel}</p>
                                         <p className="font-semibold text-porcelain-50">
                                           {versionSource.deltaHeadline}
@@ -950,6 +990,27 @@ export function TasksPage() {
                                             : '—'}
                                         </p>
                                       </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-4">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-porcelain-100/40">
+                                      版本直达关系
+                                    </p>
+                                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                      {versionSource.directLinks.map((item) => (
+                                        <article
+                                          key={`${slot.slotId}:link:${item.id}`}
+                                          className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.035] p-3"
+                                        >
+                                          <p className="text-xs font-semibold text-porcelain-50">
+                                            {item.label}
+                                          </p>
+                                          <p className="mt-2 text-sm text-porcelain-100/72">
+                                            {item.summary}
+                                          </p>
+                                        </article>
+                                      ))}
                                     </div>
                                   </div>
 
@@ -1106,7 +1167,7 @@ export function TasksPage() {
                       })
                     ) : (
                       <div className="rounded-[1.5rem] border border-dashed border-porcelain-50/15 bg-porcelain-50/[0.03] px-4 py-6 text-sm text-porcelain-100/55">
-                        该批次暂时没有可展示的任务记录。
+                        该批次暂时没有可展示的任务记录。当前属于空批次态，建议先刷新；如果仍为空，说明这条批次还没有形成可回看的任务快照。
                       </div>
                     )}
                   </div>
@@ -1116,7 +1177,12 @@ export function TasksPage() {
           })}
 
           {!loading && batchViews.length === 0 ? (
-            <div className="progress-card text-sm text-porcelain-100/60">当前还没有生成任务。</div>
+            <div className="progress-card">
+              <p className="text-base font-semibold text-porcelain-50">当前还没有生成任务</p>
+              <p className="mt-2 text-sm leading-6 text-porcelain-100/60">
+                先去工作台发起一次生成后，这里才会出现批次、失败恢复和任务回流入口。没有任务时，不代表模板或作品链路异常。
+              </p>
+            </div>
           ) : null}
         </div>
       </section>

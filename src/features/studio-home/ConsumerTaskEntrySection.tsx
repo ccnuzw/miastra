@@ -56,6 +56,7 @@ export function ConsumerTaskEntrySection({
   const defaultGuideId = consumerGuidedFlowPresets[0]?.id ?? ''
   const [activeGuideId, setActiveGuideId] = useState(defaultGuideId)
   const [guideSelections, setGuideSelections] = useState<Record<string, GuidedSelectionMap>>({})
+  const [guideBasePrompts, setGuideBasePrompts] = useState<Record<string, string>>({})
   const [guideStepIndexes, setGuideStepIndexes] = useState<Record<string, number>>({})
   const [selectionHint, setSelectionHint] = useState('先选一个起手方式，或者直接用下面的高频追问补出第一版描述。')
 
@@ -64,7 +65,12 @@ export function ConsumerTaskEntrySection({
     [activeGuideId],
   )
   const activeSelections = activeGuide ? (guideSelections[activeGuide.id] ?? {}) : {}
-  const activeGuidePrompt = activeGuide ? buildGuidedPrompt(activeGuide, activeSelections) : ''
+  const activeGuideBasePrompt = activeGuide
+    ? (guideBasePrompts[activeGuide.id] ?? activeGuide.prompt)
+    : ''
+  const activeGuidePrompt = activeGuide
+    ? buildGuidedPrompt(activeGuide, activeSelections, undefined, activeGuideBasePrompt)
+    : ''
   const activeGuideSummary = activeGuide ? buildGuidedSelectionSummary(activeGuide, activeSelections) : ''
   const activeGuideCompletedCount = activeGuide
     ? activeGuide.questions.filter((question) => Boolean(activeSelections[question.id])).length
@@ -87,6 +93,10 @@ export function ConsumerTaskEntrySection({
       ...current,
       [guide.id]: selections,
     }))
+    setGuideBasePrompts((current) => ({
+      ...current,
+      [guide.id]: guidedFlowValue.basePrompt?.trim() || guide.prompt,
+    }))
     setGuideStepIndexes((current) => ({
       ...current,
       [guide.id]: getConsumerGuidedFlowNextQuestionIndex(guide, selections),
@@ -102,9 +112,11 @@ export function ConsumerTaskEntrySection({
     guide: ConsumerGuidedFlowPreset,
     selections: GuidedSelectionMap,
     sourceType: 'scene-preset' | 'task-preset' | 'guided-flow' = 'guided-flow',
+    basePrompt = guideBasePrompts[guide.id] ?? guide.prompt,
   ) {
     onGuidedFlowChange?.(
       buildConsumerGuidedFlowSnapshot(guide, selections, {
+        basePrompt,
         sourceType,
         selectionSource: sourceType === 'guided-flow' ? 'manual' : 'preset-default',
       }),
@@ -122,6 +134,10 @@ export function ConsumerTaskEntrySection({
       ...current,
       [guide.id]: nextSelections,
     }))
+    setGuideBasePrompts((current) => ({
+      ...current,
+      [guide.id]: guideBasePrompts[guide.id] ?? guide.prompt,
+    }))
     setGuideStepIndexes((current) => ({
       ...current,
       [guide.id]: getConsumerGuidedFlowNextQuestionIndex(guide, nextSelections),
@@ -129,8 +145,9 @@ export function ConsumerTaskEntrySection({
     setSelectionHint(
       hint || `已切到「${getStudioFlowSceneLabel(guide.sceneId)}」场景。继续点 2 到 3 个按钮，输入框会同步补全描述。`,
     )
-    onUseExample(buildGuidedPrompt(guide, nextSelections))
-    emitGuidedFlowChange(guide, nextSelections, sourceType)
+    const basePrompt = guideBasePrompts[guide.id] ?? guide.prompt
+    onUseExample(buildGuidedPrompt(guide, nextSelections, undefined, basePrompt))
+    emitGuidedFlowChange(guide, nextSelections, sourceType, basePrompt)
   }
 
   function handleGuideOptionSelect(guide: ConsumerGuidedFlowPreset, questionId: string, optionId: string) {
@@ -147,8 +164,9 @@ export function ConsumerTaskEntrySection({
       [guide.id]: getConsumerGuidedFlowNextQuestionIndex(guide, nextSelections),
     }))
     setSelectionHint(`已按「${getStudioFlowSceneLabel(guide.sceneId)}」更新输入框。还可以再补一两个按钮，让第一版更接近目标。`)
-    onUseExample(buildGuidedPrompt(guide, nextSelections))
-    emitGuidedFlowChange(guide, nextSelections)
+    const basePrompt = guideBasePrompts[guide.id] ?? guide.prompt
+    onUseExample(buildGuidedPrompt(guide, nextSelections, undefined, basePrompt))
+    emitGuidedFlowChange(guide, nextSelections, 'guided-flow', basePrompt)
   }
 
   function handleResetGuide(guide: ConsumerGuidedFlowPreset) {
@@ -161,8 +179,9 @@ export function ConsumerTaskEntrySection({
       [guide.id]: 0,
     }))
     setSelectionHint('已回到这个场景的基础描述。你可以重新选择细节。')
-    onUseExample(guide.prompt)
-    emitGuidedFlowChange(guide, {})
+    const basePrompt = guideBasePrompts[guide.id] ?? guide.prompt
+    onUseExample(basePrompt)
+    emitGuidedFlowChange(guide, {}, 'guided-flow', basePrompt)
   }
 
   function handleTaskSelect(task: ConsumerTaskPreset) {

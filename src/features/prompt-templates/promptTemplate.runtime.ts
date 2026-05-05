@@ -13,8 +13,25 @@ import {
 import type {
   PromptTemplateFieldDefinition,
   PromptTemplateListItem,
+  PromptTemplateWorkbenchEntryIntent,
   PromptTemplateWorkbenchEntryMode,
 } from './promptTemplate.types'
+import {
+  getStudioFlowScene,
+  type StudioFlowActionId,
+  type StudioFlowScene,
+  type StudioFlowSceneId,
+  type StudioFlowSourceType,
+} from './studioFlowSemantic'
+
+export type PromptTemplateRuntimeContext = {
+  mode: PromptTemplateWorkbenchEntryMode
+  intent: PromptTemplateWorkbenchEntryIntent
+  sceneId: StudioFlowSceneId
+  scene: StudioFlowScene
+  sourceType: StudioFlowSourceType
+  nextActionId?: StudioFlowActionId
+}
 
 function isGuidedField(field: PromptTemplateFieldDefinition) {
   return Boolean(field.guided?.options?.length)
@@ -109,6 +126,31 @@ export function resolvePromptTemplateRuntimeMode(
   if (availableModes.includes(preferredMode)) return preferredMode
   if (availableModes.includes(presentation.recommendedEntry.mode)) return presentation.recommendedEntry.mode
   return availableModes[0] ?? preferredMode
+}
+
+export function buildPromptTemplateRuntimeContext(
+  template: PromptTemplateListItem,
+  preferredMode: PromptTemplateWorkbenchEntryMode,
+  options?: {
+    sceneId?: StudioFlowSceneId
+    sourceType?: StudioFlowSourceType
+    nextActionId?: StudioFlowActionId
+  },
+): PromptTemplateRuntimeContext {
+  const resolvedMode = resolvePromptTemplateRuntimeMode(template, preferredMode)
+  const structure = getPromptTemplateStructure(template)
+  const runtimeDecision = buildPromptTemplateRuntimeDecision(template, [], resolvedMode)
+  const activeEntry = runtimeDecision.activeEntry
+  const sceneId = options?.sceneId ?? structure.scene.id
+
+  return {
+    mode: resolvedMode,
+    intent: activeEntry.intent,
+    sceneId,
+    scene: getStudioFlowScene(sceneId),
+    sourceType: options?.sourceType ?? 'template',
+    nextActionId: options?.nextActionId ?? runtimeDecision.result.defaultActionId,
+  }
 }
 
 export function buildPromptTemplateRuntimeDecision(

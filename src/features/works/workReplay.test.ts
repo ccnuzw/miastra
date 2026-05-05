@@ -71,6 +71,12 @@ describe('workReplay version summaries', () => {
     expect(workSummary.parentDeltaLabel).toContain('和父节点比')
     expect(workSummary.sourceDeltaLabel).toContain('和来源版比')
     expect(workSummary.quickDeltaLabels.length).toBeGreaterThan(0)
+    expect(workSummary.recommendedActionId).toBe('branch-version')
+    expect(workSummary.recommendedActionLabel).toBe('从这一版分叉')
+    expect(workSummary.decisionSummary).toContain('更适合从这一版分叉')
+    expect(workSummary.actionDecisions.some((item) => item.recommended)).toBe(true)
+    expect(workSummary.directLinks.some((item) => item.id === 'template')).toBe(true)
+    expect(workSummary.directLinks.some((item) => item.id === 'parameters')).toBe(true)
     expect(workSummary.deltaItems.some((item) => item.id === 'guided')).toBe(true)
     expect(workSummary.deltaItems.some((item) => item.id === 'parameters')).toBe(true)
     expect(workSummary.currentLabel).toContain('当前版追问')
@@ -183,6 +189,10 @@ describe('workReplay version summaries', () => {
     expect(taskSummary.parentDeltaLabel).toContain('保留同一版目标')
     expect(taskSummary.sourceDeltaLabel).toContain('同一来源快照')
     expect(taskSummary.quickDeltaLabels).toContain('重试链重试')
+    expect(taskSummary.recommendedActionId).toBe('retry-version')
+    expect(taskSummary.recommendedActionLabel).toBe('按这次参数重跑')
+    expect(taskSummary.decisionSummary).toContain('更适合重试这一版')
+    expect(taskSummary.directLinks.some((item) => item.id === 'references')).toBe(true)
     expect(taskSummary.deltaItems[0]?.id).toBe('retry')
     expect(taskSummary.currentLabel).toContain('第 3 次同版尝试')
     expect(taskSummary.parentLabel).toContain('父节点：任务 abcdef12')
@@ -307,6 +317,7 @@ describe('workReplay version summaries', () => {
 
     expect(built.guidedFlowLabel).toContain('追问：当前版本已回到 Skill')
     expect(built.structureLabel).toContain('版本回流')
+    expect(built.directLinks.find((item) => item.id === 'guided')?.summary).toContain('追问')
   })
 
   it('builds replay work snapshots from task contract fields consistently', () => {

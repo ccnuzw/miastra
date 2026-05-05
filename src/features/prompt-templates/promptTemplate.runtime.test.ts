@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildPromptTemplateGuidedFlowSnapshot,
+  buildPromptTemplateRuntimeContext,
   resolvePromptTemplateRuntimeMode,
 } from './promptTemplate.runtime'
 
@@ -135,5 +136,49 @@ describe('promptTemplate runtime', () => {
     expect(snapshot?.entryIntent).toBe('panel')
     expect(snapshot?.runtimeDecision?.activeEntry.mode).toBe('pro')
     expect(snapshot?.runtimeDecision?.entries.consumer.available).toBe(false)
+  })
+
+  it('builds normalized runtime context from template decision', () => {
+    const context = buildPromptTemplateRuntimeContext(
+      {
+        id: 'template-character',
+        title: '角色模板',
+        content: '做一张角色设定图。',
+        category: '角色',
+        tags: ['角色'],
+        createdAt: 1,
+        structure: {
+          status: 'structured',
+          familyId: 'character',
+          scenarioId: 'portrait-look',
+          scenarioLabel: '角色设定',
+          sceneDescription: '适合角色设定与人物形象探索。',
+          scene: {
+            id: 'portrait-avatar',
+            label: '人物形象',
+            description: '适合头像、人像和角色形象图。',
+            recommendedMode: 'pro',
+            recommendedIntent: 'panel',
+          },
+          recommendedMode: 'pro',
+          recommendedIntent: 'panel',
+          entryModes: ['pro'],
+          defaults: {
+            aspectLabel: '3:4',
+            resolutionTier: '2k',
+            quality: 'high',
+          },
+          fields: [],
+          summary: [],
+        },
+      },
+      'consumer',
+    )
+
+    expect(context.mode).toBe('pro')
+    expect(context.intent).toBe('panel')
+    expect(context.sceneId).toBe('portrait-avatar')
+    expect(context.sourceType).toBe('template')
+    expect(context.nextActionId).toBe('guided-refine')
   })
 })

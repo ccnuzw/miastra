@@ -105,6 +105,7 @@ export type ConsumerGuidedFlowBuildOptions = {
   selectionSource?: ConsumerGuidedFlowSelectionSource
   actionId?: StudioFlowActionId
   promptAppendix?: string
+  basePrompt?: string
 }
 
 const consumerGuidedFlowScenarioIds: PromptTemplateScenarioId[] = [
@@ -412,12 +413,13 @@ export function buildGuidedPrompt(
   guide: ConsumerGuidedFlowPreset,
   selections: ConsumerGuidedFlowSelectionMap,
   promptAppendix?: string,
+  basePrompt = guide.prompt,
 ) {
   const details = guide.questions
     .map((question) => question.options.find((option) => option.id === selections[question.id])?.prompt)
     .filter(Boolean)
   const appendix = promptAppendix?.trim()
-  return [guide.prompt, ...details, appendix].filter(Boolean).join('\n')
+  return [basePrompt, ...details, appendix].filter(Boolean).join('\n')
 }
 
 export function buildGuidedSelectionSummary(
@@ -469,8 +471,13 @@ export function buildConsumerGuidedFlowSnapshot(
     scene: getStudioFlowScene(guide.sceneId),
     guideTitle: guide.title,
     guideDescription: guide.description,
-    basePrompt: guide.prompt,
-    promptText: buildGuidedPrompt(guide, selections, resolvedOptions.promptAppendix),
+    basePrompt: resolvedOptions.basePrompt?.trim() || guide.prompt,
+    promptText: buildGuidedPrompt(
+      guide,
+      selections,
+      resolvedOptions.promptAppendix,
+      resolvedOptions.basePrompt?.trim() || guide.prompt,
+    ),
     summary: buildGuidedSelectionSummary(guide, selections),
     questionOrder: guide.questions.map((question) => question.id),
     totalQuestionCount: guide.questions.length,

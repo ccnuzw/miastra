@@ -4,6 +4,7 @@ import {
   buildPromptTemplateStudioPath,
   clearPromptTemplateStudioLaunch,
   readPromptTemplateStudioLaunch,
+  resolvePromptTemplateStudioLaunch,
 } from './promptTemplate.studioEntry'
 
 describe('promptTemplate.studioEntry', () => {
@@ -104,6 +105,58 @@ describe('promptTemplate.studioEntry', () => {
       sceneId: 'poster-campaign',
       sourceType: 'template',
       nextAction: 'continue-edit',
+    })
+  })
+
+  it('resolves launch by template runtime decision', () => {
+    const launch = resolvePromptTemplateStudioLaunch(
+      {
+        id: 'template-character',
+        title: '角色模板',
+        content: '做一张角色设定图。',
+        category: '角色',
+        tags: ['角色'],
+        createdAt: 1,
+        structure: {
+          status: 'structured',
+          familyId: 'character',
+          scenarioId: 'portrait-look',
+          scenarioLabel: '角色设定',
+          sceneDescription: '适合角色设定与人物形象探索。',
+          scene: {
+            id: 'portrait-avatar',
+            label: '人物形象',
+            description: '适合头像、人像和角色形象图。',
+            recommendedMode: 'pro',
+            recommendedIntent: 'panel',
+          },
+          recommendedMode: 'pro',
+          recommendedIntent: 'panel',
+          entryModes: ['pro'],
+          defaults: {
+            aspectLabel: '3:4',
+            resolutionTier: '2k',
+            quality: 'high',
+          },
+          fields: [],
+          summary: [],
+        },
+      },
+      {
+        templateId: 'template-character',
+        mode: 'consumer',
+        intent: 'task',
+        sourceType: 'template',
+      },
+    )
+
+    expect(launch).toEqual({
+      templateId: 'template-character',
+      mode: 'pro',
+      intent: 'panel',
+      sceneId: 'portrait-avatar',
+      sourceType: 'template',
+      nextAction: 'guided-refine',
     })
   })
 })

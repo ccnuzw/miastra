@@ -247,5 +247,13 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
 }
 
 export async function requestGenerationImage(context: RequestContext, options: GenerationRequestOptions) {
-  return context.hasReferenceImage ? requestEditImage(context, options) : requestTextImage(context, options)
+  const contract = resolveRequestContract(
+    context,
+    options,
+    options.contract?.parameters.mode ?? options.mode ?? (context.hasReferenceImage ? 'image2image' : 'text2image'),
+    options.contract?.parameters.quality ?? options.qualityValue ?? context.quality,
+  )
+  return contract.parameters.mode.includes('image2image')
+    ? requestEditImage(context, { ...options, contract })
+    : requestTextImage(context, { ...options, contract })
 }

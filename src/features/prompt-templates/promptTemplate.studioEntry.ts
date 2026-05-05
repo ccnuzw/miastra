@@ -1,4 +1,5 @@
 import type {
+  PromptTemplateListItem,
   PromptTemplateWorkbenchEntryIntent,
   PromptTemplateWorkbenchEntryMode,
 } from './promptTemplate.types'
@@ -12,6 +13,7 @@ import {
   isStudioFlowSceneId,
   isStudioFlowSourceType,
 } from './studioFlowSemantic'
+import { buildPromptTemplateRuntimeContext } from './promptTemplate.runtime'
 
 export type PromptTemplateStudioLaunch = {
   templateId: string
@@ -124,4 +126,24 @@ export function clearPromptTemplateStudioLaunch(searchParams: URLSearchParams) {
 
 export function getPromptTemplateStudioLaunchKey(launch: PromptTemplateStudioLaunch) {
   return `${launch.templateId}:${launch.mode}:${launch.intent}:${launch.sceneId ?? ''}:${launch.sourceType ?? 'template'}:${launch.nextAction ?? ''}`
+}
+
+export function resolvePromptTemplateStudioLaunch(
+  template: PromptTemplateListItem,
+  launch: PromptTemplateStudioLaunch,
+): PromptTemplateStudioLaunch {
+  const runtimeContext = buildPromptTemplateRuntimeContext(template, launch.mode, {
+    sceneId: launch.sceneId,
+    sourceType: launch.sourceType,
+    nextActionId: launch.nextAction,
+  })
+
+  return {
+    templateId: launch.templateId,
+    mode: runtimeContext.mode,
+    intent: runtimeContext.intent,
+    sceneId: runtimeContext.sceneId,
+    sourceType: runtimeContext.sourceType,
+    nextAction: runtimeContext.nextActionId,
+  }
 }

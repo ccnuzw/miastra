@@ -27,6 +27,7 @@ import {
   buildPromptTemplateStudioLaunch,
   buildPromptTemplateStudioPath,
 } from '@/features/prompt-templates/promptTemplate.studioEntry'
+import { buildPromptTemplateRuntimeContext } from '@/features/prompt-templates/promptTemplate.runtime'
 import type { StudioFlowSceneId } from '@/features/prompt-templates/studioFlowSemantic'
 import { getStudioFlowSceneLabel } from '@/features/prompt-templates/studioFlowSemantic'
 import {
@@ -87,6 +88,8 @@ export function TemplatesPage() {
   const hasActiveFilters =
     Boolean(searchQuery.trim()) || categoryFilter !== '全部分类' || familyFilter !== '全部类型'
   const hasTemplates = templates.length > 0
+  const errorMessage =
+    error instanceof Error ? error.message : error ? String(error) : ''
   const recommendedCount = filteredTemplates.filter((template) => {
     const presentation = buildPromptTemplatePresentation(template)
     return presentation.recommendedEntry.mode === 'consumer'
@@ -258,6 +261,9 @@ export function TemplatesPage() {
             <p className="text-sm text-porcelain-100/60">
               模板暂时没有加载成功。你可以先整理左侧内容，或刷新后重新读取工作台里已保存的模板。
             </p>
+            <div className="rounded-[1.2rem] border border-signal-coral/20 bg-signal-coral/10 px-4 py-3 text-sm text-porcelain-100/78">
+              当前异常：{errorMessage || '模板库读取失败'}。如果是从模板入口跳转到工作台失败，建议先回到这里刷新模板，再重新进入普通版或专业版。
+            </div>
             <ErrorNotice error={error} />
           </div>
         ) : null}
@@ -460,12 +466,21 @@ export function TemplatesPage() {
                 <p className="mt-2 leading-6">
                   先在工作台里把当前 Prompt 保存为模板，再回到这里补分类、标签和适用场景；之后你就可以把它当成普通版起稿入口或专业版结构底稿继续创作。
                 </p>
+                <p className="mt-2 leading-6 text-porcelain-100/55">
+                  当前空态不影响工作台正常使用。没有模板时，普通版会按自由输入起手，专业版会按当前工作区内容直接建立基线。
+                </p>
               </div>
             ) : null}
 
             <div className="grid gap-4 xl:grid-cols-2 min-[1760px]:grid-cols-3">
               {filteredTemplates.map((template) => {
                 const presentation = buildPromptTemplatePresentation(template)
+                const consumerRuntimeContext = buildPromptTemplateRuntimeContext(template, 'consumer', {
+                  sourceType: 'template',
+                })
+                const proRuntimeContext = buildPromptTemplateRuntimeContext(template, 'pro', {
+                  sourceType: 'template',
+                })
                 const activityDate = formatPromptTemplateDate(
                   getPromptTemplateSortDate(template, sortMode),
                 )
@@ -564,17 +579,20 @@ export function TemplatesPage() {
                     </div>
 
                     <div className="mt-4 grid gap-3">
-                      {presentation.entries.map((entry) => (
+                      {presentation.entries.map((entry) => {
+                        const runtimeContext =
+                          entry.mode === 'consumer' ? consumerRuntimeContext : proRuntimeContext
+                        return (
                         <Link
                           key={`${template.id}:${entry.mode}`}
                           to={buildPromptTemplateStudioPath(
                             buildPromptTemplateStudioLaunch({
                               templateId: template.id,
-                              mode: entry.mode,
-                              intent: entry.intent,
-                              sceneId: presentation.structureMeta.sceneId as never,
-                              sourceType: 'template',
-                              nextAction: presentation.runtime.defaultAction?.id,
+                              mode: runtimeContext.mode,
+                              intent: runtimeContext.intent,
+                              sceneId: runtimeContext.sceneId,
+                              sourceType: runtimeContext.sourceType,
+                              nextAction: runtimeContext.nextActionId,
                             }),
                           )}
                           className={`rounded-[1.1rem] border px-4 py-3 transition ${
@@ -624,7 +642,8 @@ export function TemplatesPage() {
                             </p>
                           ) : null}
                         </Link>
-                      ))}
+                        )
+                      })}
                     </div>
 
                     <div className="mt-4 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.3] p-4">
@@ -747,6 +766,11 @@ export function TemplatesPage() {
                       ? '换个关键词、分类或排序试试，或者清空筛选后查看全部模板。'
                       : '先创建一个模板，后续就可以把它直接带回工作台作为普通版任务入口或专业版结构底稿。'}
                   </p>
+                  {hasActiveFilters ? (
+                    <p className="mt-2 text-sm leading-6 text-porcelain-100/55">
+                      当前是筛空态，不是模板丢失。清空筛选后，模板入口和回流链路不会受影响。
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>

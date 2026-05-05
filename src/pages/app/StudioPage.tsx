@@ -17,10 +17,11 @@ import {
   clearPromptTemplateStudioLaunch,
   getPromptTemplateStudioLaunchKey,
   readPromptTemplateStudioLaunch,
+  resolvePromptTemplateStudioLaunch,
 } from '@/features/prompt-templates/promptTemplate.studioEntry'
 import {
   buildPromptTemplateGuidedFlowSnapshot,
-  resolvePromptTemplateRuntimeMode,
+  buildPromptTemplateRuntimeContext,
 } from '@/features/prompt-templates/promptTemplate.runtime'
 import { usePromptTemplateActions } from '@/features/prompt-templates/usePromptTemplateActions'
 import { usePromptTemplates } from '@/features/prompt-templates/usePromptTemplates'
@@ -36,6 +37,8 @@ import { useStudioSettings } from '@/features/studio/useStudioSettings'
 import { resolutionOptions, resolveSizePreset } from '@/features/studio/studio.constants'
 import {
   buildStudioProPromptArtifacts,
+  buildStudioProPromptFieldAlignment,
+  buildStudioProTextComparison,
   buildStudioProTemplateContext,
   getStudioProRequestKindLabel,
   resolveSelectedStudioStyleTokens,
@@ -43,6 +46,7 @@ import {
   type StudioProReplayContext,
   type StudioProTemplateContext,
 } from '@/features/studio-pro/studioPro.utils'
+import { StudioProDecisionFlowPanel } from '@/features/studio-pro/StudioProDecisionFlowPanel'
 import { StudioShellCallout } from '@/features/studio-shared/StudioShellCallout'
 import { StudioWorkbenchModeSwitch } from '@/features/studio-shared/StudioWorkbenchModeSwitch'
 import { useStudioWorkbenchMode } from '@/features/studio-shared/useStudioWorkbenchMode'
@@ -87,6 +91,11 @@ function getQualityLabel(value: string) {
 function getResolutionLabelByTier(value: '1k' | '2k' | '4k' | null) {
   if (!value) return null
   return resolutionOptions.find((item) => item.value === value)?.label ?? value.toUpperCase()
+}
+
+function formatReplayReferenceProgress(restoredCount: number, expectedCount: number) {
+  if (expectedCount <= 0) return '这一版没有参考图依赖'
+  return `参考图已恢复 ${restoredCount}/${expectedCount} 张`
 }
 
 function applyResolvedSizePreset(
@@ -202,6 +211,7 @@ export function StudioPage() {
       : templates.error
         ? String(templates.error)
         : null
+  const providerErrorTitle = provider.error ? getErrorDisplay(provider.error).title : null
   const activePreview = runtime.previewImage ?? runtime.livePreview
   const isGenerating = runtime.status === 'loading'
   const selectedStyleTokens = resolveSelectedStudioStyleTokens(studio.selectedStyleTokenIds)
@@ -212,11 +222,153 @@ export function StudioPage() {
     detailTone: studio.detailTone,
     selectedStyleTokens,
   })
+  const studioProFieldAlignment = useMemo(
+    () => buildStudioProPromptFieldAlignment(activeTemplateContext, studioProPrompt.sections),
+    [activeTemplateContext, studioProPrompt.sections],
+  )
+  const studioProWorkspaceBaseline = useMemo(
+    () =>
+      buildStudioProTextComparison(
+        studioProPrompt.workspacePrompt,
+        proReplayContext?.sourceWorkspacePrompt ?? proReplayContext?.requestPrompt ?? '',
+      ),
+    [proReplayContext, studioProPrompt.workspacePrompt],
+  )
+  const studioProFinalPromptBaseline = useMemo(
+    () => buildStudioProTextComparison(studioProPrompt.finalPrompt, proReplayContext?.requestPrompt ?? ''),
+    [proReplayContext, studioProPrompt.finalPrompt],
+  )
   const headerStatusText = workbench.isProMode
     ? provider.connectionLabel
+    : providerErrorTitle
+      ? `创作服务恢复未完成 · ${providerErrorTitle}`
     : provider.loading
       ? '正在连接创作服务'
       : '先选任务，或直接补一句需求也能开始'
+  const replayNeedsReferenceRecovery = Boolean(
+    proReplayContext &&
+      !proReplayContext.hasCompleteReferenceRestore &&
+      (proReplayContext.expectedReferenceCount ?? 0) > 0,
+  )
+  const workspaceRecoverySlot = useMemo(() => {
+    if (provider.loading) {
+      return (
+        <StudioShellCallout
+          eyebrow="恢复中"
+          title="正在恢复创作服务配置"
+          description="工作台已加载，但 Provider、模型和连接状态还在恢复中。先整理 Prompt、模板或参考图，恢复完成后再发起生成更稳。"
+          tone="accent"
+        >
+          <div className="flex flex-wrap gap-2">
+            <span className="status-pill">{provider.connectionLabel}</span>
+            <span className="status-pill">生成入口暂时只建议整理内容</span>
+          </div>
+        </StudioShellCallout>
+      )
+    }
+
+    if (providerErrorTitle) {
+      return (
+        <StudioShellCallout
+          eyebrow="异常态"
+          title="创作服务配置还没有恢复成功"
+          description={`当前工作台可以继续整理模板、Prompt 和参考图，但发起生成前建议先处理 Provider 配置异常：${providerErrorTitle}。`}
+        >
+          <div className="flex flex-wrap gap-2">
+            <span className="status-pill">{provider.providerStatusLabel}</span>
+            <span className="status-pill">{provider.modelStatusLabel}</span>
+            <button
+              type="button"
+              className="settings-button"
+              onClick={() => provider.setSettingsOpen(true)}
+            >
+              打开服务设置
+            </button>
+          </div>
+        </StudioShellCallout>
+      )
+    }
+
+    if (replayNeedsReferenceRecovery && proReplayContext) {
+      return (
+        <StudioShellCallout
+          eyebrow="回流恢复"
+          title="版本回流已恢复主体参数，但参考图还不完整"
+          description={`${proReplayContext.sourceLabel}回流只恢复了已保存的部分内容。当前更适合先补齐参考图，再决定是继续这一版、重试这一版，还是从这一版分叉。`}
+          tone="accent"
+        >
+          <div className="flex flex-wrap gap-2">
+            <span className="status-pill">
+              {formatReplayReferenceProgress(
+                proReplayContext.restoredReferenceCount,
+                proReplayContext.expectedReferenceCount,
+              )}
+            </span>
+            <span className="status-pill">{proReplayContext.actionLabel}</span>
+            <span className="status-pill">Provider / 模型仍以当前工作台为准</span>
+          </div>
+        </StudioShellCallout>
+      )
+    }
+
+    if (activeTemplateContext && templateError) {
+      return (
+        <StudioShellCallout
+          eyebrow="模板状态"
+          title="当前模板上下文已接入，但模板库同步异常"
+          description={`工作台会继续沿用当前模板基线；如果要切换模板、刷新模板元信息或重新从模板入口进入，建议先处理模板库异常：${templateError}。`}
+        >
+          <div className="flex flex-wrap gap-2">
+            <span className="status-pill">{activeTemplateContext.title}</span>
+            <span className="status-pill">{activeTemplateContext.sceneLabel}</span>
+            <button
+              type="button"
+              className="settings-button"
+              onClick={() => void templates.refresh()}
+            >
+              刷新模板库
+            </button>
+          </div>
+        </StudioShellCallout>
+      )
+    }
+
+    if (proReplayContext) {
+      return (
+        <StudioShellCallout
+          eyebrow="回流状态"
+          title={`当前已从${proReplayContext.sourceLabel}接回工作台`}
+          description={`${proReplayContext.statusText}。${proReplayContext.hint} 当前参数与 Prompt 可以继续调整，但 Provider / 模型仍以当前工作台配置为准。`}
+          tone="accent"
+        >
+          <div className="flex flex-wrap gap-2">
+            <span className="status-pill">{proReplayContext.actionLabel}</span>
+            <span className="status-pill">{proReplayContext.sceneLabel ?? proReplayContext.scene?.label ?? '未记录场景'}</span>
+            <span className="status-pill">
+              {formatReplayReferenceProgress(
+                proReplayContext.restoredReferenceCount,
+                proReplayContext.expectedReferenceCount,
+              )}
+            </span>
+          </div>
+        </StudioShellCallout>
+      )
+    }
+
+    return null
+  }, [
+    activeTemplateContext,
+    proReplayContext,
+    provider.connectionLabel,
+    provider.loading,
+    provider.modelStatusLabel,
+    provider.providerStatusLabel,
+    provider.setSettingsOpen,
+    providerErrorTitle,
+    replayNeedsReferenceRecovery,
+    templateError,
+    templates,
+  ])
   const proControlSteps = useMemo<StudioProControlStep[]>(
     () => [
       {
@@ -423,7 +575,7 @@ export function StudioPage() {
     restoreReplayParameters()
     runtime.setStatus('success')
     runtime.setStatusText(
-      `已恢复来源快照 ${proReplayContext.snapshotId} 的参数与执行基线。若 Provider / 模型也保持来源链，这一轮最接近同版重跑。`,
+      `已按来源快照 ${proReplayContext.snapshotId} 对齐参数与执行判断基线。Provider / 模型仍以当前工作台配置为准；若两者也与来源一致，这一轮最接近同版重跑。`,
     )
   }, [proReplayContext, restoreReplayParameters, runtime])
 
@@ -668,6 +820,12 @@ export function StudioPage() {
         sourceDeltaLabel: versionSourceSummary.sourceDeltaLabel,
         quickDeltaLabels: versionSourceSummary.quickDeltaLabels,
         deltaItems: versionSourceSummary.deltaItems,
+        decisionSummary: versionSourceSummary.decisionSummary,
+        recommendedActionId: versionSourceSummary.recommendedActionId,
+        recommendedActionLabel: versionSourceSummary.recommendedActionLabel,
+        actionDecisionReason: versionSourceSummary.actionDecisionReason,
+        actionDecisions: versionSourceSummary.actionDecisions,
+        directLinks: versionSourceSummary.directLinks,
         detailLabel: versionSourceSummary.detailLabel,
         currentLabel: versionSourceSummary.currentLabel,
         parentLabel: versionSourceSummary.parentLabel,
@@ -702,9 +860,11 @@ export function StudioPage() {
         sourceWorkspacePrompt: workspacePrompt,
         requestPrompt,
         referenceSummaryLabel:
-          replaySummary.expectedReferenceCount > 0
-            ? `参考图已恢复 ${referenceImages.length}/${replaySummary.expectedReferenceCount} 张`
-            : '这一版没有参考图依赖',
+          formatReplayReferenceProgress(referenceImages.length, replaySummary.expectedReferenceCount),
+        expectedReferenceCount: replaySummary.expectedReferenceCount,
+        restoredReferenceCount: referenceImages.length,
+        hasCompleteReferenceRestore: canRestoreAllReferences,
+        canAutoRerun: autoGenerate && canRestoreAllReferences,
       })
 
       runtime.setStatus('success')
@@ -712,7 +872,7 @@ export function StudioPage() {
         autoGenerate && canRestoreAllReferences
           ? `已恢复${subject}参数，正在复跑：${requestPrompt}`
           : expectedReferenceCount > referenceImages.length
-            ? `已恢复${subject}参数，但参考图未完整保存，请先补齐参考图后再复跑`
+            ? `已恢复${subject}参数，但参考图仅恢复 ${referenceImages.length}/${expectedReferenceCount} 张。请先补齐参考图后再继续。`
             : `已恢复${subject}参数。现在更适合同基线重跑；如果先改 Prompt、参数或执行链，这一轮会形成派生。`,
       )
       window.setTimeout(() => {
@@ -757,7 +917,11 @@ export function StudioPage() {
 
     if (!matchedTemplate) {
       runtime.setStatus('error')
-      runtime.setStatusText('没有找到要接入工作台的模板。')
+      runtime.setStatusText(
+        templateError
+          ? `模板入口没有恢复成功：${templateError}。入口参数已清理，请先刷新模板库后重试。`
+          : '没有找到要接入工作台的模板。入口参数已清理，请回到模板页刷新后重试。',
+      )
       setAppliedTemplateLaunchKey(launchKey)
       navigate(
         {
@@ -769,32 +933,32 @@ export function StudioPage() {
       return
     }
 
-    const resolvedLaunchMode = resolvePromptTemplateRuntimeMode(matchedTemplate, launch.mode)
-    workbench.setMode(resolvedLaunchMode)
+    const resolvedLaunch = resolvePromptTemplateStudioLaunch(matchedTemplate, launch)
+    workbench.setMode(resolvedLaunch.mode)
     const structure = applyTemplateStructureDefaults(matchedTemplate)
-    const resolvedScene = launch.sceneId
-      ? getStudioFlowScene(launch.sceneId)
+    const resolvedScene = resolvedLaunch.sceneId
+      ? getStudioFlowScene(resolvedLaunch.sceneId)
       : resolvePromptTemplateScene(structure.scenarioId)
     const templateGuidedFlow =
-      resolvedLaunchMode === 'consumer'
-        ? buildPromptTemplateGuidedFlowSnapshot(matchedTemplate, resolvedLaunchMode)
+      resolvedLaunch.mode === 'consumer'
+        ? buildPromptTemplateGuidedFlowSnapshot(matchedTemplate, resolvedLaunch.mode)
         : null
     studio.setPrompt(templateGuidedFlow?.promptText?.trim() || matchedTemplate.content)
     setConsumerGuidedFlow(templateGuidedFlow)
-    const sourceLabel = getStudioFlowSourceLabel(launch.sourceType)
+    const sourceLabel = getStudioFlowSourceLabel(resolvedLaunch.sourceType)
     const templateContext = buildStudioProTemplateContext(
       matchedTemplate,
-      resolvedLaunchMode === 'consumer' ? `从${sourceLabel}进入普通版` : `从${sourceLabel}进入专业版`,
+      resolvedLaunch.mode === 'consumer' ? `从${sourceLabel}进入普通版` : `从${sourceLabel}进入专业版`,
     )
     const nextActionLabel =
-      launch.nextAction ? getStudioFlowActionLabel(launch.nextAction) : templateContext.primaryNextActionLabel
-    const launchAdjusted = resolvedLaunchMode !== launch.mode
+      resolvedLaunch.nextAction ? getStudioFlowActionLabel(resolvedLaunch.nextAction) : templateContext.primaryNextActionLabel
+    const launchAdjusted = resolvedLaunch.mode !== launch.mode
     const adjustedMessage = launchAdjusted
-      ? `模板当前更适合从${resolvedLaunchMode === 'consumer' ? '普通版' : '专业版'}进入，已自动按模板 runtime 调整入口。`
+      ? `模板当前更适合从${resolvedLaunch.mode === 'consumer' ? '普通版' : '专业版'}进入，已自动按模板 runtime 调整入口。`
       : ''
     runtime.setStatus('success')
     runtime.setStatusText(
-      resolvedLaunchMode === 'consumer'
+      resolvedLaunch.mode === 'consumer'
         ? `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入普通版任务入口，并同步「${resolvedScene.label}」场景字段${
             templateGuidedFlow
               ? `，已按模板默认追问路径补齐 ${templateGuidedFlow.completedQuestionCount} 步`
@@ -873,19 +1037,27 @@ export function StudioPage() {
   }
 
   function handleApplyTemplateInStudio(template: PromptTemplateListItem) {
+    const runtimeContext = buildPromptTemplateRuntimeContext(template, workbench.mode, {
+      sourceType: 'template',
+    })
     applyTemplateStructureDefaults(template)
     setActiveTemplateContext(buildStudioProTemplateContext(template, '在工作台内应用模板'))
     setProReplayContext(null)
     templateActions.handleApplyPromptTemplate(template)
     const templateGuidedFlow =
-      workbench.isConsumerMode ? buildPromptTemplateGuidedFlowSnapshot(template, 'consumer') : null
+      runtimeContext.mode === 'consumer'
+        ? buildPromptTemplateGuidedFlowSnapshot(template, runtimeContext.mode)
+        : null
     if (templateGuidedFlow?.promptText?.trim()) {
       studio.setPrompt(templateGuidedFlow.promptText)
     }
     setConsumerGuidedFlow(templateGuidedFlow)
+    if (runtimeContext.mode !== workbench.mode) {
+      workbench.setMode(runtimeContext.mode)
+    }
     runtime.setStatus('success')
     runtime.setStatusText(
-      workbench.isConsumerMode
+      runtimeContext.mode === 'consumer'
         ? `已在普通版应用模板「${getPromptTemplateTitle(template)}」${
             templateGuidedFlow
               ? `，并按模板默认追问路径补齐 ${templateGuidedFlow.completedQuestionCount} 步`
@@ -983,6 +1155,8 @@ export function StudioPage() {
             />
           </div>
 
+          {workspaceRecoverySlot ? <div className="mt-6">{workspaceRecoverySlot}</div> : null}
+
           <div className="studio-workspace">
             <form
               id="studio-form"
@@ -993,7 +1167,42 @@ export function StudioPage() {
                 mode={workbench.mode}
                 shell={workbench.viewModel.editor}
                 topSlot={editorTopSlot}
-                bottomSlot={templateContextSlot}
+                bottomSlot={
+                  workbench.isProMode ? (
+                    <>
+                      <StudioProDecisionFlowPanel
+                        workspacePromptLength={studioProPrompt.workspacePromptLength}
+                        fieldAlignment={studioProFieldAlignment}
+                        workspaceBaseline={studioProWorkspaceBaseline}
+                        finalPromptBaseline={studioProFinalPromptBaseline}
+                        templateContext={activeTemplateContext}
+                        replayContext={proReplayContext}
+                        studioMode={studio.studioMode}
+                        size={studio.size}
+                        aspectLabel={studio.aspectLabel}
+                        resolutionLabel={studio.selectedResolution.label}
+                        quality={studio.quality}
+                        stream={studio.stream}
+                        referenceCount={reference.referenceImages.length}
+                        drawCount={draw.drawCount}
+                        drawStrategy={draw.drawStrategy}
+                        drawConcurrency={draw.effectiveDrawConcurrency}
+                        providerId={provider.activeProviderId}
+                        providerLabel={provider.providerDisplayName}
+                        modelLabel={provider.activeModelLabel}
+                        requestKindLabel={reference.hasReferenceImage ? '图生图' : '文生图'}
+                        onApplyReplayPrompt={proReplayContext ? applyReplayPromptToWorkspace : undefined}
+                        onApplyReplayParameters={proReplayContext ? restoreReplayParameters : undefined}
+                        onApplyReplayRoute={proReplayContext ? restoreReplayExecutionBaseline : undefined}
+                        onApplyTemplatePrompt={activeTemplateContext ? applyActiveTemplatePrompt : undefined}
+                        onApplyTemplateDefaults={activeTemplateContext ? applyActiveTemplateDefaults : undefined}
+                      />
+                      {templateContextSlot}
+                    </>
+                  ) : (
+                    templateContextSlot
+                  )
+                }
                 promptProps={{
                   prompt: studio.prompt,
                   negativePrompt: studio.negativePrompt,

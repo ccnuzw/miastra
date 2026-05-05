@@ -1,7 +1,11 @@
 import type { StudioProReplayContext, StudioProTemplateContext } from './studioPro.utils'
 import {
-  buildStudioProComparisonItem,
   buildStudioProParameterDecision,
+  buildStudioProParameterReplayComparisonItems,
+  buildStudioProTemplateParameterComparisonItems,
+  getStudioProDrawStrategyLabel,
+  getStudioProQualityLabel,
+  getStudioProVariationStrengthLabel,
   summarizeStudioProComparisons,
 } from './studioPro.utils'
 
@@ -31,25 +35,6 @@ type StudioProParameterPanelProps = {
   onApplyTemplateDefaults?: () => void
   onApplyReplayParameters?: () => void
   onRestoreSourceExecution?: () => void
-}
-
-const qualityLabelMap: Record<string, string> = {
-  low: '低',
-  medium: '中',
-  high: '高',
-  auto: '自动',
-}
-
-const drawStrategyLabelMap: Record<'linear' | 'smart' | 'turbo', string> = {
-  linear: '线性',
-  smart: '智能',
-  turbo: '极速',
-}
-
-const variationStrengthLabelMap: Record<'low' | 'medium' | 'high', string> = {
-  low: '低变体',
-  medium: '中变体',
-  high: '高变体',
 }
 
 export function StudioProParameterPanel({
@@ -83,105 +68,27 @@ export function StudioProParameterPanel({
   const hasTemplateContext = Boolean(templateContext)
   const drawModeCopy =
     studioMode === 'draw'
-      ? `当前会按 ${drawCount} 次抽卡执行，策略 ${drawStrategyLabelMap[drawStrategy]}，并发 ${drawConcurrency}。`
+      ? `当前会按 ${drawCount} 次抽卡执行，策略 ${getStudioProDrawStrategyLabel(drawStrategy)}，并发 ${drawConcurrency}。`
       : '当前按单次生成流程执行，更适合先精调 Prompt 再重跑。'
-  const currentGenerationModeLabel = studioMode === 'draw' ? '图片抽卡' : '创作生成'
-  const sourceGenerationModeLabel =
-    replayContext?.sourceStudioMode === 'draw'
-      ? '图片抽卡'
-      : replayContext?.sourceStudioMode === 'create'
-        ? '创作生成'
-        : ''
-  const currentBatchLabel =
-    studioMode === 'draw'
-      ? `${drawCount} 次 · ${drawStrategyLabelMap[drawStrategy]} · 并发 ${drawConcurrency}`
-      : '单次生成'
-  const sourceBatchLabel =
-    replayContext?.sourceStudioMode === 'draw'
-      ? `${replayContext.sourceDrawCount ?? 0} 次 · ${
-          replayContext.sourceDrawStrategy
-            ? drawStrategyLabelMap[replayContext.sourceDrawStrategy]
-            : '未记录策略'
-        } · 并发 ${replayContext.sourceDrawConcurrency ?? 0}`
-      : replayContext?.sourceStudioMode === 'create'
-        ? '单次生成'
-        : ''
-  const replayComparisonItems = replayContext
-    ? [
-        buildStudioProComparisonItem(
-          'size',
-          '输出尺寸',
-          `${size} · ${resolutionLabel}`,
-          replayContext.sourceSize
-            ? `${replayContext.sourceSize} · ${replayContext.sourceResolutionLabel ?? '未记录分辨率'}`
-            : '',
-          '当前尺寸或分辨率已偏离来源快照，下一轮会输出新的规格版本。',
-        ),
-        buildStudioProComparisonItem(
-          'quality',
-          '质量',
-          qualityLabelMap[quality] ?? quality,
-          qualityLabelMap[replayContext.sourceQuality ?? ''] ?? replayContext.sourceQuality ?? '',
-          '当前质量档位已改变，会直接影响结果稳定性和清晰度。',
-        ),
-        buildStudioProComparisonItem(
-          'stream',
-          '返回方式',
-          stream ? '流式开启' : '流式关闭',
-          replayContext.sourceStream == null ? '' : replayContext.sourceStream ? '流式开启' : '流式关闭',
-          '当前返回方式与来源不同，会影响查看节奏但不改变画面语义。',
-        ),
-        buildStudioProComparisonItem(
-          'mode',
-          '任务模式',
-          currentGenerationModeLabel,
-          sourceGenerationModeLabel,
-          '当前任务模式与来源不同，说明你已经从单轮生成切到抽卡，或反过来切回单轮。',
-        ),
-        buildStudioProComparisonItem(
-          'batch',
-          '批量策略',
-          currentBatchLabel,
-          sourceBatchLabel,
-          '当前抽卡或批量策略已调整，下一轮更适合当作派生版本看待。',
-        ),
-        buildStudioProComparisonItem(
-          'references',
-          '参考图',
-          `${referenceCount} 张`,
-          replayContext.sourceReferenceCount != null ? `${replayContext.sourceReferenceCount} 张` : '',
-          '当前参考图数量与来源不同，Prompt 再一致也会走成新的控制基线。',
-        ),
-      ]
-    : []
+  const replayComparisonItems = buildStudioProParameterReplayComparisonItems({
+    studioMode,
+    size,
+    resolutionLabel,
+    quality,
+    stream,
+    referenceCount,
+    drawCount,
+    drawStrategy,
+    drawConcurrency,
+    replayContext,
+  })
   const replayComparisonSummary = summarizeStudioProComparisons(replayComparisonItems)
-  const templateComparisonItems = templateContext
-    ? [
-        buildStudioProComparisonItem(
-          'template-aspect',
-          '模板默认画幅',
-          aspectLabel,
-          templateContext.defaultSettings.aspectLabel,
-          '当前画幅已经偏离模板默认值，适合确认这是不是刻意派生。',
-        ),
-        buildStudioProComparisonItem(
-          'template-resolution',
-          '模板默认分辨率',
-          resolutionLabel,
-          templateContext.defaultSettings.resolutionTier?.toUpperCase(),
-          '当前分辨率已经偏离模板默认值，输出规格会和模板基线不同。',
-        ),
-        buildStudioProComparisonItem(
-          'template-quality',
-          '模板默认质量',
-          qualityLabelMap[quality] ?? quality,
-          templateContext.defaultSettings.quality
-            ? qualityLabelMap[templateContext.defaultSettings.quality]
-            : '',
-          '当前质量已经偏离模板默认值，首轮复用稳定性会下降。',
-        ),
-      ]
-    : []
+  const templateComparisonItems = buildStudioProTemplateParameterComparisonItems({
+    aspectLabel,
+    resolutionLabel,
+    quality,
+    templateContext,
+  })
   const templateComparisonSummary = summarizeStudioProComparisons(templateComparisonItems)
   const parameterDecision = buildStudioProParameterDecision({
     templateContext,
@@ -193,6 +100,13 @@ export function StudioProParameterPanel({
     studioMode,
     referenceCount,
   })
+  const replayReferenceStatus =
+    replayContext && replayContext.expectedReferenceCount > 0
+      ? `参考图恢复 ${replayContext.restoredReferenceCount}/${replayContext.expectedReferenceCount} 张`
+      : replayContext?.referenceSummaryLabel ?? '这一版没有参考图依赖'
+  const replayRecommendedActionLabel = replayContext?.recommendedActionLabel ?? ''
+  const replayDecisionSummary = replayContext?.decisionSummary ?? ''
+  const replayActionDecisionReason = replayContext?.actionDecisionReason ?? ''
 
   function getDecisionPillClass(state: typeof parameterDecision.state) {
     switch (state) {
@@ -212,7 +126,7 @@ export function StudioProParameterPanel({
       <div className="studio-pro-panel-header">
         <div>
           <p className="eyebrow">Pro Parameters</p>
-          <h4 className="studio-pro-panel-title">当前参数快照</h4>
+          <h4 className="studio-pro-panel-title">先收紧参数，再决定是否重跑</h4>
         </div>
         <div className="studio-pro-pill-group">
           <span className="status-pill">{requestKindLabel}</span>
@@ -222,7 +136,7 @@ export function StudioProParameterPanel({
       </div>
 
       <p className="studio-pro-panel-copy">
-        当前工作台会把核心参数和执行上下文整理成一组快照，便于继续重跑和回看。
+        参数区先消费来源版和模板默认值，再看当前控制区偏了几项，这样更容易判断本轮是校准还是派生。
       </p>
 
       <article
@@ -247,6 +161,13 @@ export function StudioProParameterPanel({
         </div>
         <p className="studio-pro-metric-copy">{parameterDecision.summary}</p>
         <p className="studio-pro-metric-copy">{parameterDecision.recommendation}</p>
+        {replayContext ? (
+          <>
+            <p className="studio-pro-metric-copy">版本建议：{replayRecommendedActionLabel}</p>
+            <p className="studio-pro-metric-copy">{replayDecisionSummary}</p>
+            <p className="studio-pro-metric-copy">{replayActionDecisionReason}</p>
+          </>
+        ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
           <span className="status-pill">主动作：{parameterDecision.primaryAction}</span>
           {parameterDecision.secondaryAction ? (
@@ -290,22 +211,46 @@ export function StudioProParameterPanel({
           </div>
         </article>
         <article className={`studio-pro-console-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
-          <span className="studio-pro-metric-label">来源快照参数</span>
+          <span className="studio-pro-metric-label">来源版参数</span>
           <strong className="studio-pro-metric-value">
             {hasReplayContext
-              ? `${replayContext?.sourceSize} · 质量 ${qualityLabelMap[replayContext?.sourceQuality ?? ''] ?? replayContext?.sourceQuality}`
+              ? `${replayContext?.sourceSize} · 质量 ${getStudioProQualityLabel(replayContext?.sourceQuality)}`
               : '当前未挂接来源快照'}
           </strong>
           <p className="studio-pro-metric-copy">
             {hasReplayContext
-              ? '当你把结果带回控制区时，可以先恢复上一版参数快照，再决定是同基线重跑，还是改动参数形成派生。'
+              ? '当你把结果带回控制区时，可以先恢复上一版参数快照，再决定是同基线重跑，还是改动参数形成目标版。'
               : '从结果回流后，这里会提供参数快照恢复入口，帮助你直接接着上一版继续控制。'}
           </p>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? replayContext?.hasCompleteReferenceRestore
+                ? `${replayReferenceStatus}，当前参数恢复是完整的。`
+                : `${replayReferenceStatus}，请先补齐参考图，再判断是否直接重跑。`
+              : '当前没有来源快照时，这里不会假定任何旧参数或参考图基线。'}
+          </p>
+          {hasReplayContext ? (
+            <p className="studio-pro-metric-copy">
+              动作建议：{replayRecommendedActionLabel}。{replayDecisionSummary}
+            </p>
+          ) : null}
           {replayContext?.deltaHeadline ? (
             <p className="studio-pro-metric-copy">{replayContext.deltaHeadline}</p>
           ) : null}
           {replayContext?.parentDeltaLabel ? (
             <p className="studio-pro-metric-copy">{replayContext.parentDeltaLabel}</p>
+          ) : null}
+          {replayContext?.directLinks?.length ? (
+            <div className="studio-pro-compare-grid">
+              {replayContext?.directLinks
+                .filter((item) => item.id === 'parameters' || item.id === 'references')
+                .map((item) => (
+                  <article key={`direct:${item.id}`} className="studio-pro-compare-card">
+                    <span className="studio-pro-metric-label">{item.label}</span>
+                    <p className="studio-pro-metric-copy">{item.summary}</p>
+                  </article>
+                ))}
+            </div>
           ) : null}
           <div className="studio-pro-action-cluster">
             <button
@@ -322,7 +267,7 @@ export function StudioProParameterPanel({
               onClick={onRestoreSourceExecution}
               disabled={!replayContext || !onRestoreSourceExecution}
             >
-              恢复来源执行基线
+              对齐来源执行基线
             </button>
           </div>
         </article>
@@ -332,7 +277,7 @@ export function StudioProParameterPanel({
         <span className="studio-pro-summary-pill">尺寸 {size}</span>
         <span className="studio-pro-summary-pill">比例 {aspectLabel}</span>
         <span className="studio-pro-summary-pill">分辨率 {resolutionLabel}</span>
-        <span className="studio-pro-summary-pill">质量 {qualityLabelMap[quality] ?? quality}</span>
+        <span className="studio-pro-summary-pill">质量 {getStudioProQualityLabel(quality)}</span>
         <span className="studio-pro-summary-pill">参考图 {referenceCount} 张</span>
         <span className="studio-pro-summary-pill">
           {studioMode === 'draw' ? `${drawCount} 次抽卡` : '单次生成'}
@@ -357,7 +302,7 @@ export function StudioProParameterPanel({
         <article className="studio-pro-metric-card">
           <span className="studio-pro-metric-label">质量与返回</span>
           <strong className="studio-pro-metric-value">
-            {qualityLabelMap[quality] ?? quality}
+            {getStudioProQualityLabel(quality)}
           </strong>
           <p className="studio-pro-metric-copy">
             {stream
@@ -386,8 +331,8 @@ export function StudioProParameterPanel({
           <strong className="studio-pro-metric-value">{requestKindLabel}</strong>
           <p className="studio-pro-metric-copy">
             {studioMode === 'draw'
-              ? `策略 ${drawStrategyLabelMap[drawStrategy]} · 变体 ${variationStrengthLabelMap[variationStrength]} · 已启用 ${variationDimensionCount} 个变体维度。`
-              : '当前优先按单轮参数执行，适合结合 Prompt 微调快速重跑。'}
+              ? `策略 ${getStudioProDrawStrategyLabel(drawStrategy)} · 变体 ${getStudioProVariationStrengthLabel(variationStrength)} · 已启用 ${variationDimensionCount} 个变体维度。`
+              : '当前优先按单轮参数执行，适合在 Prompt 收紧后快速重跑。'}
           </p>
         </article>
         <article className="studio-pro-metric-card">
@@ -413,6 +358,12 @@ export function StudioProParameterPanel({
               ? `${replayContext.statusText}。${replayContext.hint}`
               : '当你从作品或任务回到专业版时，这里会提示可恢复的 Prompt、参数和参考图状态。'}
           </p>
+          {replayContext ? (
+            <p className="studio-pro-metric-copy">{replayContext.actionDecisionReason}</p>
+          ) : null}
+          {replayContext ? (
+            <p className="studio-pro-metric-copy">{replayReferenceStatus}</p>
+          ) : null}
           {replayContext?.sourceKindLabel ? (
             <p className="studio-pro-metric-copy">
               来源链路：{replayContext.sourceKindLabel} · {replayContext.sceneLabel ?? replayContext.scene?.label ?? '未记录场景'}
@@ -424,7 +375,7 @@ export function StudioProParameterPanel({
           {replayContext?.sourceDeltaLabel ? (
             <p className="studio-pro-metric-copy">{replayContext.sourceDeltaLabel}</p>
           ) : null}
-          {replayContext?.quickDeltaLabels.length ? (
+          {replayContext?.quickDeltaLabels?.length ? (
             <div className="studio-pro-tag-wrap">
               {replayContext.quickDeltaLabels.map((label) => (
                 <span key={label} className="studio-pro-tag">
@@ -462,6 +413,11 @@ export function StudioProParameterPanel({
               ? `如果继续沿用 ${providerLabel} / ${modelLabel}，这组参数最适合同基线重跑；如果改尺寸、质量、抽卡策略或 Provider，会自然形成新的派生版本。`
               : '本轮生成完成后，尺寸、质量、参考图、抽卡策略和执行方式会一起进入结果快照，后续可一键带回专业版继续调整。'}
           </p>
+          {hasReplayContext && !replayContext?.hasCompleteReferenceRestore ? (
+            <p className="studio-pro-metric-copy">
+              由于参考图没有完整回流，这次更适合先补齐输入条件，再决定是否严格复现来源版。
+            </p>
+          ) : null}
           {replayContext?.parameterLabel ? (
             <p className="studio-pro-metric-copy">{replayContext.parameterLabel}</p>
           ) : null}

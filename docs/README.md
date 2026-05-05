@@ -57,6 +57,13 @@
 | [image-skill-platform-phase6-agent-briefs-v1.md](./image-skill-platform-phase6-agent-briefs-v1.md) | 第六阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
 | [image-skill-platform-phase6-agent-prompts-v1.md](./image-skill-platform-phase6-agent-prompts-v1.md) | 第六阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
 | [image-skill-platform-phase6-review-v1.md](./image-skill-platform-phase6-review-v1.md) | 第六阶段复盘，整理第六阶段已完成能力、已暴露问题与第七阶段建议 |
+| [image-skill-platform-phase7-scope-v1.md](./image-skill-platform-phase7-scope-v1.md) | 第七阶段开发目标与范围，定义 V1 上线前收口阶段的目标、优先级与边界 |
+| [image-skill-platform-phase7-backlog-v1.md](./image-skill-platform-phase7-backlog-v1.md) | 第七阶段多 Agent 开发任务清单，定义第七阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase7-agent-briefs-v1.md](./image-skill-platform-phase7-agent-briefs-v1.md) | 第七阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase7-agent-prompts-v1.md](./image-skill-platform-phase7-agent-prompts-v1.md) | 第七阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase7-review-v1.md](./image-skill-platform-phase7-review-v1.md) | 第七阶段复盘，整理第七阶段已完成能力、已暴露问题与第八阶段建议 |
+| [image-skill-platform-phase8-scope-v1.md](./image-skill-platform-phase8-scope-v1.md) | 第八阶段开发目标与范围，定义 V1 最终封口与验收准备阶段的目标、优先级与边界 |
+| [image-skill-platform-phase8-backlog-v1.md](./image-skill-platform-phase8-backlog-v1.md) | 第八阶段多 Agent 开发任务清单，定义第八阶段 Epic、任务范围与并行方向 |
 | [image-skill-platform-consumer-components-v1.md](./image-skill-platform-consumer-components-v1.md) | 普通用户版组件清单与状态清单，定义首页、创作页、结果页的组件层级、页面状态与空态 |
 | [image-skill-platform-consumer-interactions-v1.md](./image-skill-platform-consumer-interactions-v1.md) | 普通用户版交互流与状态流，定义用户动作、系统响应、页面变化和失败恢复策略 |
 | [image-skill-platform-consumer-copy-v1.md](./image-skill-platform-consumer-copy-v1.md) | 普通用户版文案与按钮文案清单，定义标题、按钮、空态、失败态和全局反馈话术 |
@@ -115,14 +122,21 @@
 46. `image-skill-platform-phase6-agent-briefs-v1.md`
 47. `image-skill-platform-phase6-agent-prompts-v1.md`
 48. `image-skill-platform-phase6-review-v1.md`
-49. `image-skill-platform-consumer-components-v1.md`
-50. `image-skill-platform-consumer-interactions-v1.md`
-51. `image-skill-platform-consumer-copy-v1.md`
-52. `image-skill-platform-consumer-layout-decisions-v1.md`
-53. `development-workflow.md`
-54. `testing-strategy.md`
-55. `troubleshooting.md`
-56. `current-project-status.md`
+49. `image-skill-platform-phase7-scope-v1.md`
+50. `image-skill-platform-phase7-backlog-v1.md`
+51. `image-skill-platform-phase7-agent-briefs-v1.md`
+52. `image-skill-platform-phase7-agent-prompts-v1.md`
+53. `image-skill-platform-phase7-review-v1.md`
+54. `image-skill-platform-phase8-scope-v1.md`
+55. `image-skill-platform-phase8-backlog-v1.md`
+56. `image-skill-platform-consumer-components-v1.md`
+57. `image-skill-platform-consumer-interactions-v1.md`
+58. `image-skill-platform-consumer-copy-v1.md`
+59. `image-skill-platform-consumer-layout-decisions-v1.md`
+60. `development-workflow.md`
+61. `testing-strategy.md`
+62. `troubleshooting.md`
+63. `current-project-status.md`
 
 ## 相关入口
 

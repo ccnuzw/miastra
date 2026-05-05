@@ -149,6 +149,12 @@ export type StudioProReplayContext = {
   sourceDeltaLabel: string
   quickDeltaLabels: string[]
   deltaItems: Array<import('@/features/works/workReplay').WorkVersionDeltaItem>
+  decisionSummary: string
+  recommendedActionId: import('@/features/works/workReplay').WorkReplayIntent
+  recommendedActionLabel: string
+  actionDecisionReason: string
+  actionDecisions: Array<import('@/features/works/workReplay').WorkVersionActionDecision>
+  directLinks: Array<import('@/features/works/workReplay').WorkVersionDirectLink>
   detailLabel: string
   currentLabel?: string
   parentLabel?: string
@@ -179,6 +185,10 @@ export type StudioProReplayContext = {
   sourceWorkspacePrompt?: string
   requestPrompt: string
   referenceSummaryLabel: string
+  expectedReferenceCount: number
+  restoredReferenceCount: number
+  hasCompleteReferenceRestore: boolean
+  canAutoRerun: boolean
 }
 
 export type StudioProControlStep = {
@@ -216,6 +226,25 @@ const promptFieldGroupConfig: Record<
     promptAnchorLabel: '参数快照 / 细节控制',
     promptAnchorHint: '输出方向通常会同时影响 Prompt、尺寸、质量和执行路径，适合和参数区一起校准。',
   },
+}
+
+const studioProQualityLabelMap: Record<string, string> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+  auto: '自动',
+}
+
+const studioProDrawStrategyLabelMap: Record<'linear' | 'smart' | 'turbo', string> = {
+  linear: '线性',
+  smart: '智能',
+  turbo: '极速',
+}
+
+const studioProVariationStrengthLabelMap: Record<'low' | 'medium' | 'high', string> = {
+  low: '低变体',
+  medium: '中变体',
+  high: '高变体',
 }
 
 function getStudioProComparisonStatusLabel(status: StudioProComparisonStatus) {
@@ -281,6 +310,21 @@ function createStudioProDecisionCard(input: {
 
 export function resolveSelectedStudioStyleTokens(selectedIds: string[]) {
   return styleTokens.filter((token) => selectedIds.includes(token.id))
+}
+
+export function getStudioProQualityLabel(value?: string | null) {
+  if (!value) return ''
+  return studioProQualityLabelMap[value] ?? value
+}
+
+export function getStudioProDrawStrategyLabel(value?: 'linear' | 'smart' | 'turbo' | null) {
+  if (!value) return ''
+  return studioProDrawStrategyLabelMap[value] ?? value
+}
+
+export function getStudioProVariationStrengthLabel(value?: 'low' | 'medium' | 'high' | null) {
+  if (!value) return ''
+  return studioProVariationStrengthLabelMap[value] ?? value
 }
 
 export function buildStudioProTemplateContext(
@@ -509,6 +553,173 @@ export function buildStudioProComparisonItem(
     statusLabel: getStudioProComparisonStatusLabel('shifted'),
     hint: changedHint ?? '当前值已偏离来源基线，下一轮会更接近派生结果。',
   }
+}
+
+export function buildStudioProExecutionComparisonItems(input: {
+  providerId: string
+  modelLabel: string
+  requestKindLabel: string
+  replayContext?: StudioProReplayContext | null
+}) {
+  const { providerId, modelLabel, requestKindLabel, replayContext } = input
+  if (!replayContext) return []
+
+  return [
+    buildStudioProComparisonItem(
+      'provider',
+      'Provider',
+      providerId || 'custom',
+      replayContext.sourceProviderId,
+      '当前 Provider 已变化，说明你已经切到另一套执行服务。',
+    ),
+    buildStudioProComparisonItem(
+      'model',
+      '模型',
+      modelLabel,
+      replayContext.sourceModelLabel,
+      '当前模型已变化，生成风格和稳定性都会和来源版不同。',
+    ),
+    buildStudioProComparisonItem(
+      'route',
+      '执行路径',
+      requestKindLabel,
+      replayContext.sourceRequestKindLabel,
+      '当前请求路径已从文生图/图生图之间切换，下一轮更接近派生版本。',
+    ),
+  ]
+}
+
+export function buildStudioProParameterReplayComparisonItems(input: {
+  studioMode: 'create' | 'draw'
+  size: string
+  resolutionLabel: string
+  quality: string
+  stream: boolean
+  referenceCount: number
+  drawCount: number
+  drawStrategy: 'linear' | 'smart' | 'turbo'
+  drawConcurrency: number
+  replayContext?: StudioProReplayContext | null
+}) {
+  const {
+    studioMode,
+    size,
+    resolutionLabel,
+    quality,
+    stream,
+    referenceCount,
+    drawCount,
+    drawStrategy,
+    drawConcurrency,
+    replayContext,
+  } = input
+
+  if (!replayContext) return []
+
+  const currentGenerationModeLabel = studioMode === 'draw' ? '图片抽卡' : '创作生成'
+  const sourceGenerationModeLabel =
+    replayContext.sourceStudioMode === 'draw'
+      ? '图片抽卡'
+      : replayContext.sourceStudioMode === 'create'
+        ? '创作生成'
+        : ''
+  const currentBatchLabel =
+    studioMode === 'draw'
+      ? `${drawCount} 次 · ${getStudioProDrawStrategyLabel(drawStrategy)} · 并发 ${drawConcurrency}`
+      : '单次生成'
+  const sourceBatchLabel =
+    replayContext.sourceStudioMode === 'draw'
+      ? `${replayContext.sourceDrawCount ?? 0} 次 · ${
+          replayContext.sourceDrawStrategy
+            ? getStudioProDrawStrategyLabel(replayContext.sourceDrawStrategy)
+            : '未记录策略'
+        } · 并发 ${replayContext.sourceDrawConcurrency ?? 0}`
+      : replayContext.sourceStudioMode === 'create'
+        ? '单次生成'
+        : ''
+
+  return [
+    buildStudioProComparisonItem(
+      'size',
+      '输出尺寸',
+      `${size} · ${resolutionLabel}`,
+      replayContext.sourceSize
+        ? `${replayContext.sourceSize} · ${replayContext.sourceResolutionLabel ?? '未记录分辨率'}`
+        : '',
+      '当前尺寸或分辨率已偏离来源快照，下一轮会输出新的规格版本。',
+    ),
+    buildStudioProComparisonItem(
+      'quality',
+      '质量',
+      getStudioProQualityLabel(quality),
+      getStudioProQualityLabel(replayContext.sourceQuality),
+      '当前质量档位已改变，会直接影响结果稳定性和清晰度。',
+    ),
+    buildStudioProComparisonItem(
+      'stream',
+      '返回方式',
+      stream ? '流式开启' : '流式关闭',
+      replayContext.sourceStream == null ? '' : replayContext.sourceStream ? '流式开启' : '流式关闭',
+      '当前返回方式与来源不同，会影响查看节奏但不改变画面语义。',
+    ),
+    buildStudioProComparisonItem(
+      'mode',
+      '任务模式',
+      currentGenerationModeLabel,
+      sourceGenerationModeLabel,
+      '当前任务模式与来源不同，说明你已经从单轮生成切到抽卡，或反过来切回单轮。',
+    ),
+    buildStudioProComparisonItem(
+      'batch',
+      '批量策略',
+      currentBatchLabel,
+      sourceBatchLabel,
+      '当前抽卡或批量策略已调整，下一轮更适合当作派生版本看待。',
+    ),
+    buildStudioProComparisonItem(
+      'references',
+      '参考图',
+      `${referenceCount} 张`,
+      replayContext.sourceReferenceCount != null ? `${replayContext.sourceReferenceCount} 张` : '',
+      '当前参考图数量与来源不同，Prompt 再一致也会走成新的控制基线。',
+    ),
+  ]
+}
+
+export function buildStudioProTemplateParameterComparisonItems(input: {
+  aspectLabel: string
+  resolutionLabel: string
+  quality: string
+  templateContext?: StudioProTemplateContext | null
+}) {
+  const { aspectLabel, resolutionLabel, quality, templateContext } = input
+  if (!templateContext) return []
+
+  return [
+    buildStudioProComparisonItem(
+      'template-aspect',
+      '模板默认画幅',
+      aspectLabel,
+      templateContext.defaultSettings.aspectLabel,
+      '当前画幅已经偏离模板默认值，适合确认这是不是刻意派生。',
+    ),
+    buildStudioProComparisonItem(
+      'template-resolution',
+      '模板默认分辨率',
+      resolutionLabel,
+      templateContext.defaultSettings.resolutionTier?.toUpperCase(),
+      '当前分辨率已经偏离模板默认值，输出规格会和模板基线不同。',
+    ),
+    buildStudioProComparisonItem(
+      'template-quality',
+      '模板默认质量',
+      getStudioProQualityLabel(quality),
+      templateContext.defaultSettings.quality
+        ? getStudioProQualityLabel(templateContext.defaultSettings.quality)
+        : '',
+      '当前质量已经偏离模板默认值，首轮复用稳定性会下降。',
+    ),
+  ]
 }
 
 export function summarizeStudioProComparisons(items: StudioProComparisonItem[]): StudioProComparisonSummary {
@@ -775,7 +986,7 @@ export function buildStudioProExecutionDecision(input: {
       summary: executionComparisonSummary.summary,
       recommendation: '现在更像单点校准，适合先决定这一处偏移是不是刻意的。',
       primaryAction: '确认是否保留当前执行偏移',
-      secondaryAction: '如需复现，恢复来源执行路径',
+      secondaryAction: '如需贴近来源，先恢复来源参数基线并核对当前 Provider / 模型',
       focusItems,
     })
   }
@@ -786,7 +997,7 @@ export function buildStudioProExecutionDecision(input: {
     summary: executionComparisonSummary.summary,
     recommendation: 'Provider、模型或路由已改动多项，这一轮更适合明确当作新分支处理。',
     primaryAction: '按当前执行链继续派生',
-    secondaryAction: '如需回到旧链，恢复来源执行路径',
+    secondaryAction: '如需贴近旧链，先恢复来源参数基线并核对当前 Provider / 模型',
     focusItems,
   })
 }

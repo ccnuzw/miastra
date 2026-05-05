@@ -1,5 +1,5 @@
 import {
-  buildStudioProComparisonItem,
+  buildStudioProExecutionComparisonItems,
   buildStudioProExecutionDecision,
   summarizeStudioProComparisons,
   truncateStudioProText,
@@ -56,31 +56,12 @@ export function StudioProExecutionPanel({
     replayContext?.sourceProviderId === providerId &&
     replayContext?.sourceModelLabel === modelLabel &&
     replayContext?.sourceRequestKindLabel === requestKindLabel
-  const executionComparisonItems = replayContext
-    ? [
-        buildStudioProComparisonItem(
-          'provider',
-          'Provider',
-          providerId || 'custom',
-          replayContext.sourceProviderId,
-          '当前 Provider 已变化，说明你已经切到另一套执行服务。',
-        ),
-        buildStudioProComparisonItem(
-          'model',
-          '模型',
-          modelLabel,
-          replayContext.sourceModelLabel,
-          '当前模型已变化，生成风格和稳定性都会和来源版不同。',
-        ),
-        buildStudioProComparisonItem(
-          'route',
-          '执行路径',
-          requestKindLabel,
-          replayContext.sourceRequestKindLabel,
-          '当前请求路径已从文生图/图生图之间切换，下一轮更接近派生版本。',
-        ),
-      ]
-    : []
+  const executionComparisonItems = buildStudioProExecutionComparisonItems({
+    providerId,
+    modelLabel,
+    requestKindLabel,
+    replayContext,
+  })
   const executionComparisonSummary = summarizeStudioProComparisons(executionComparisonItems)
   const replayQuickDeltaLabels = replayContext?.quickDeltaLabels ?? []
   const replayDeltaItems = replayContext?.deltaItems ?? []
@@ -90,6 +71,10 @@ export function StudioProExecutionPanel({
     executionComparisonSummary,
     keepsSameExecutionBaseline,
   })
+  const replayReferenceStatus =
+    replayContext && replayContext.expectedReferenceCount > 0
+      ? `参考图恢复 ${replayContext.restoredReferenceCount}/${replayContext.expectedReferenceCount} 张`
+      : replayContext?.referenceSummaryLabel ?? '这一版没有参考图依赖'
 
   function getDecisionPillClass(state: typeof executionDecision.state) {
     switch (state) {
@@ -109,7 +94,7 @@ export function StudioProExecutionPanel({
       <div className="studio-pro-panel-header">
         <div>
           <p className="eyebrow">Execution</p>
-          <h4 className="studio-pro-panel-title">Provider / 模型 / 执行路由</h4>
+          <h4 className="studio-pro-panel-title">最后确认执行链</h4>
         </div>
         <div className="studio-pro-pill-group">
           <span className="status-pill">{requestKindLabel}</span>
@@ -121,7 +106,7 @@ export function StudioProExecutionPanel({
       </div>
 
       <p className="studio-pro-panel-copy">
-        这里明确展示当前 Provider 来源、模型上下文和请求路由，避免复跑时不知道这一轮到底是按哪套配置执行的。
+        当 Prompt 和参数已经收紧后，这里最后确认 Provider、模型和执行路径，避免把执行链偏移误判成内容改动。
       </p>
 
       <article
@@ -146,6 +131,13 @@ export function StudioProExecutionPanel({
         </div>
         <p className="studio-pro-metric-copy">{executionDecision.summary}</p>
         <p className="studio-pro-metric-copy">{executionDecision.recommendation}</p>
+        {replayContext ? (
+          <>
+            <p className="studio-pro-metric-copy">版本建议：{replayContext.recommendedActionLabel}</p>
+            <p className="studio-pro-metric-copy">{replayContext.decisionSummary}</p>
+            <p className="studio-pro-metric-copy">{replayContext.actionDecisionReason}</p>
+          </>
+        ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
           <span className="status-pill">主动作：{executionDecision.primaryAction}</span>
           {executionDecision.secondaryAction ? (
@@ -179,16 +171,21 @@ export function StudioProExecutionPanel({
           </p>
         </article>
         <article className={`studio-pro-console-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
-          <span className="studio-pro-metric-label">重跑 / 派生入口</span>
+          <span className="studio-pro-metric-label">来源版执行入口</span>
           <strong className="studio-pro-metric-value">
             {hasReplayContext ? replayContext?.actionLabel : '等待来源快照接入'}
           </strong>
           <p className="studio-pro-metric-copy">
             {hasReplayContext
               ? keepsSameExecutionBaseline
-                ? '当前执行基线与来源版本一致，下一轮更接近同配置重跑。'
-                : '当前执行基线已偏离来源版本，下一轮会在原快照上形成新的派生。'
+                ? '当前执行判断基线与来源版本一致，下一轮更接近同配置重跑。'
+                : '当前执行判断基线已偏离来源版本，下一轮会在原快照上形成新的目标版分支。'
               : '从结果回到专业版后，这里会固定告诉你当前更接近重跑还是派生。'}
+          </p>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? '这里的“恢复来源执行基线”只会帮助你回到来源参数与执行判断语境，Provider / 模型仍以当前工作台配置为准。'
+              : '当前还没有来源快照，Provider / 模型和执行路径只按现在的工作台配置解释。'}
           </p>
           {replayContext?.deltaHeadline ? (
             <p className="studio-pro-metric-copy">{replayContext.deltaHeadline}</p>
@@ -203,7 +200,7 @@ export function StudioProExecutionPanel({
               onClick={onApplyReplayRoute}
               disabled={!replayContext || !onApplyReplayRoute}
             >
-              恢复来源执行路径
+              对齐来源执行基线
             </button>
             <button
               type="button"
@@ -255,7 +252,7 @@ export function StudioProExecutionPanel({
           {hasReplayContext
             ? keepsSameExecutionBaseline
               ? 'Provider、模型和执行路径都还贴着来源版，当前更适合作为同基线重跑。'
-              : executionComparisonSummary.suggestion
+              : `${executionComparisonSummary.suggestion} 这一层放在最后确认，避免过早切执行链。`
             : '从结果回到专业版后，这里会直接告诉你当前执行链和来源版差了几项。'}
         </p>
         <p className="studio-pro-metric-copy">建议动作：{executionDecision.primaryAction}</p>
@@ -341,8 +338,16 @@ export function StudioProExecutionPanel({
               : '从作品或任务回到专业版后，这里会固定显示来源版本摘要，帮助判断当前是在继续、重跑还是派生。'}
           </p>
           {hasReplayContext ? (
+            <p className="studio-pro-metric-copy">{replayReferenceStatus}</p>
+          ) : null}
+          {hasReplayContext ? (
             <p className="studio-pro-metric-copy">
               来源类型：{replayContext?.sourceKindLabel} · {replayContext?.sceneLabel ?? replayContext?.scene?.label ?? '未记录场景'}
+            </p>
+          ) : null}
+          {hasReplayContext ? (
+            <p className="studio-pro-metric-copy">
+              动作建议：{replayContext?.recommendedActionLabel}。{replayContext?.decisionSummary}
             </p>
           ) : null}
           {hasReplayContext && replayContext?.deltaHeadline ? (
@@ -363,6 +368,16 @@ export function StudioProExecutionPanel({
                 <span key={label} className="studio-pro-tag">
                   {label}
                 </span>
+              ))}
+            </div>
+          ) : null}
+          {hasReplayContext && replayContext?.directLinks?.length ? (
+            <div className="studio-pro-compare-grid">
+              {replayContext?.directLinks.map((item) => (
+                <article key={`link:${item.id}`} className="studio-pro-compare-card">
+                  <span className="studio-pro-metric-label">{item.label}</span>
+                  <p className="studio-pro-metric-copy">{item.summary}</p>
+                </article>
               ))}
             </div>
           ) : null}
@@ -419,13 +434,13 @@ export function StudioProExecutionPanel({
           <p className="studio-pro-metric-copy">
             {hasReplayContext
               ? `当前重跑目标：${providerLabel} / ${modelLabel} · ${requestKindLabel}。${replayContext?.hint}`
-              : '当结果回流到专业版后，这里会提示当前快照如何回到控制区，以及下一轮会按哪套 Provider / 模型继续执行。'}
+              : '当结果回流到专业版后，这里会提示当前快照如何回到控制区，以及下一轮会按当前工作台的 Provider / 模型继续执行。'}
           </p>
           <p className="studio-pro-metric-copy">
             {hasReplayContext
               ? keepsSameExecutionBaseline
                 ? '当前 Provider、模型和执行路径与来源快照一致，更适合同基线复跑。'
-                : '你已经改动了 Provider、模型或执行路径，下一轮会在来源快照基础上形成新的派生版本。'
+                : '你已经改动了 Provider、模型或执行路径，下一轮会在来源快照基础上形成新的目标版执行链。'
               : '后续这里还会接入来源快照与当前控制区的自动差异提示。'}
           </p>
         </article>

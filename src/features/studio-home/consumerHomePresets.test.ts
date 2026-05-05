@@ -104,4 +104,27 @@ describe('consumerHomePresets guided flow', () => {
     expect(snapshot.promptText).toContain('整体更有风格识别度')
     expect(snapshot.promptText).toContain('请保留主体，换一种更有风格感的表现方式。')
   })
+
+  it('keeps custom base prompt when rebuilding guided flow from runtime context', () => {
+    const guide = findConsumerGuidedFlowById('product-shot')
+    expect(guide).toBeTruthy()
+    if (!guide) return
+
+    const snapshot = buildConsumerGuidedFlowSnapshotFromContext(
+      guide,
+      {
+        resultActionId: 'closer',
+      },
+      {
+        basePrompt: '做一张适合商品展示的图片，并突出新品金属细节。',
+        sourceType: 'result-action',
+        selectionSource: 'result-followup',
+        actionId: 'continue-version',
+      },
+    )
+
+    expect(snapshot.basePrompt).toBe('做一张适合商品展示的图片，并突出新品金属细节。')
+    expect(snapshot.promptText).toContain('做一张适合商品展示的图片，并突出新品金属细节。')
+    expect(snapshot.promptText).not.toBe(buildGuidedPrompt(guide, resolveConsumerGuidedFlowSelections(guide, { resultActionId: 'closer' })))
+  })
 })

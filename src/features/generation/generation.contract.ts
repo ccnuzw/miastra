@@ -1,6 +1,7 @@
 import { getStudioFlowScene } from '@/features/prompt-templates/studioFlowSemantic'
 import type { ConsumerGuidedFlowSnapshot } from '@/features/studio-consumer/consumerGuidedFlow'
 import type { ReferenceImage } from '@/features/references/reference.types'
+import type { GalleryImage } from '@/features/works/works.types'
 import type {
   GenerationContractSnapshot,
   GenerationDrawSnapshot,
@@ -41,6 +42,38 @@ type ResolveGenerationContractSnapshotFallback = {
   hasReferences?: boolean
 }
 
+type GenerationTaskContractSource = {
+  payload: {
+    mode: GenerationMode
+    title: string
+    promptText: string
+    workspacePrompt: string
+    requestPrompt: string
+    size: string
+    quality: string
+    model: string
+    providerId: string
+    stream: boolean
+    referenceImages?: Array<{
+      source: 'upload' | 'work'
+      name: string
+      assetId?: string
+      assetRemoteKey?: string
+      src?: string
+    }>
+    draw?: GenerationDrawSnapshot
+  }
+  result?: {
+    title?: string
+    promptText?: string
+    size?: string
+    quality?: string
+    providerModel?: string
+    mode?: GenerationMode
+    generationSnapshot?: unknown
+  }
+}
+
 function resolveContractScene(
   scene: StudioFlowScene | undefined,
   guidedFlow: ConsumerGuidedFlowSnapshot | null | undefined,
@@ -49,6 +82,12 @@ function resolveContractScene(
   if (scene) return scene
   if (guidedFlow?.scene) return guidedFlow.scene
   return hasReferences ? getStudioFlowScene('image-edit') : getStudioFlowScene()
+}
+
+export function getGenerationSnapshotReferenceCount(
+  snapshot?: Partial<GenerationSnapshot> | null,
+) {
+  return snapshot?.contract?.references?.count ?? snapshot?.references?.count ?? 0
 }
 
 export function buildGenerationReferenceSnapshot(
@@ -105,11 +144,13 @@ export function resolveGenerationContractSnapshot(
   const contract = snapshot?.contract
   const guidedFlow = contract?.guidedFlow ?? snapshot?.guidedFlow ?? fallback.guidedFlow ?? null
   const references = contract?.references ?? snapshot?.references ?? fallback.references
+  const resolvedScene =
+    contract?.scene ??
+    snapshot?.scene ??
+    fallback.scene ??
+    resolveContractScene(undefined, guidedFlow, Boolean(references?.count ?? fallback.hasReferences))
   return buildGenerationContractSnapshot({
-    scene:
-      contract?.scene ??
-      snapshot?.scene ??
-      fallback.scene,
+    scene: resolvedScene,
     requestPrompt:
       contract?.prompt.request ??
       snapshot?.requestPrompt ??
@@ -157,6 +198,81 @@ export function resolveGenerationContractSnapshot(
     references,
     draw: contract?.draw ?? snapshot?.draw ?? fallback.draw,
     guidedFlow,
+  })
+}
+
+type GenerationContractWorkSource = Pick<
+  GalleryImage,
+  | 'mode'
+  | 'promptText'
+  | 'promptSnippet'
+  | 'size'
+  | 'quality'
+  | 'providerModel'
+  | 'generationSnapshot'
+>
+
+export function resolveGenerationContractFromWork(
+  work: GenerationContractWorkSource,
+): GenerationContractSnapshot {
+  return resolveGenerationContractSnapshot(work.generationSnapshot, {
+    requestPrompt: work.promptText ?? work.promptSnippet ?? '',
+    workspacePrompt: work.promptText ?? work.promptSnippet ?? '',
+    mode: work.mode,
+    size: work.size,
+    quality: work.quality,
+    model: work.providerModel,
+    references: work.generationSnapshot?.contract?.references ?? work.generationSnapshot?.references,
+    draw: work.generationSnapshot?.contract?.draw ?? work.generationSnapshot?.draw,
+    guidedFlow: work.generationSnapshot?.contract?.guidedFlow ?? work.generationSnapshot?.guidedFlow,
+    hasReferences: Boolean(getGenerationSnapshotReferenceCount(work.generationSnapshot)),
+  })
+}
+
+export function resolveGenerationContractFromTask(
+  task: GenerationTaskContractSource,
+  input: {
+    snapshot?: Partial<GenerationSnapshot> | null
+    scene?: StudioFlowScene
+    references?: GenerationReferenceSnapshot
+    draw?: GenerationDrawSnapshot
+    guidedFlow?: ConsumerGuidedFlowSnapshot | null
+    mode?: GenerationMode
+    size?: string
+    quality?: string
+    model?: string
+    providerId?: string
+    stream?: boolean
+    requestPromptFallback?: string
+    workspacePromptFallback?: string
+  } = {},
+): GenerationContractSnapshot {
+  const requestPrompt =
+    task.payload.requestPrompt ||
+    task.payload.promptText ||
+    task.result?.promptText ||
+    input.requestPromptFallback ||
+    task.result?.title ||
+    task.payload.title
+  const workspacePrompt =
+    task.payload.workspacePrompt ||
+    input.workspacePromptFallback ||
+    requestPrompt
+
+  return resolveGenerationContractSnapshot(input.snapshot, {
+    scene: input.scene,
+    requestPrompt,
+    workspacePrompt,
+    mode: input.mode ?? task.result?.mode ?? task.payload.mode,
+    size: input.size ?? task.result?.size ?? task.payload.size,
+    quality: input.quality ?? task.result?.quality ?? task.payload.quality,
+    model: input.model ?? task.result?.providerModel ?? task.payload.model,
+    providerId: input.providerId ?? task.payload.providerId,
+    stream: input.stream ?? task.payload.stream,
+    references: input.references,
+    draw: input.draw ?? task.payload.draw,
+    guidedFlow: input.guidedFlow,
+    hasReferences: Boolean(input.references?.count ?? task.payload.referenceImages?.length),
   })
 }
 

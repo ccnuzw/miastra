@@ -24,6 +24,8 @@ export function WorksPage() {
   const [includeMetadata, setIncludeMetadata] = useState(true)
   const [exportError, setExportError] = useState<unknown>(null)
   const [exportMessage, setExportMessage] = useState('')
+  const hasActiveFilters =
+    Boolean(works.workSearchQuery.trim()) || works.favoritesOnly || Boolean(works.activeTagFilter)
 
   async function handleDelete(id: string) {
     setBusyId(id)
@@ -60,6 +62,9 @@ export function WorksPage() {
           <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.08] px-3 py-1 text-[11px] font-semibold text-emerald-200">
             {versionSource.sourceKindLabel}
           </span>
+          <span className="rounded-full border border-signal-amber/20 bg-signal-amber/[0.08] px-3 py-1 text-[11px] font-semibold text-signal-amber">
+            建议：{versionSource.recommendedActionLabel}
+          </span>
           <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
             场景：{versionSource.sceneLabel}
           </span>
@@ -76,11 +81,22 @@ export function WorksPage() {
           ))}
         </div>
         <div className="mt-3 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.32] p-3 text-xs text-porcelain-100/58">
-          <p className="font-semibold text-porcelain-50">{versionSource.deltaHeadline}</p>
-          <p className="mt-1">{versionSource.parentDeltaLabel}</p>
-          <p>{versionSource.sourceDeltaLabel}</p>
+          <p className="font-semibold text-porcelain-50">{versionSource.decisionSummary}</p>
+          <p className="mt-1">{versionSource.actionDecisionReason}</p>
+          <p className="mt-2">{versionSource.deltaHeadline}</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {versionSource.directLinks.map((item) => (
+              <div
+                key={`${work.id}:${item.id}`}
+                className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2"
+              >
+                <p className="text-[11px] font-semibold text-porcelain-50">{item.label}</p>
+                <p className="mt-1">{item.summary}</p>
+              </div>
+            ))}
+          </div>
           <div className="mt-3 grid gap-2">
-            {versionSource.deltaItems.map((item) => (
+            {versionSource.deltaItems.slice(0, 3).map((item) => (
               <div
                 key={`${work.id}:${item.id}`}
                 className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2"
@@ -93,9 +109,8 @@ export function WorksPage() {
               </div>
             ))}
           </div>
-          <p className="mt-3">{versionSource.sourceDecisionLabel}</p>
-          <p className="mt-1">{versionSource.nodePathLabel}</p>
-          <p className="mt-1">{versionSource.promptLabel}</p>
+          <p className="mt-3">{versionSource.parentDeltaLabel}</p>
+          <p>{versionSource.sourceDeltaLabel}</p>
         </div>
         <p
           className={`mt-2 text-xs ${replaySummary.missingReferenceCount > 0 ? 'text-signal-coral' : 'text-signal-cyan'}`}
@@ -222,6 +237,11 @@ export function WorksPage() {
 
           {works.error ? <ErrorNotice error={works.error} className="mt-6" /> : null}
           {exportError ? <ErrorNotice error={exportError} className="mt-6" /> : null}
+          {works.error ? (
+            <div className="mt-6 rounded-[1.3rem] border border-signal-coral/20 bg-signal-coral/10 px-4 py-3 text-sm text-porcelain-100/78">
+              作品列表没有完整加载成功。当前无法保证回流链、批量导出和标签筛选是最新状态；建议先刷新作品库后再继续从这里回到工作台。
+            </div>
+          ) : null}
           {exportMessage ? (
             <p className="mt-6 rounded-2xl border border-signal-cyan/30 bg-signal-cyan/10 px-4 py-3 text-sm text-signal-cyan">
               {exportMessage}
@@ -255,7 +275,16 @@ export function WorksPage() {
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4 min-[1680px]:grid-cols-5 min-[1920px]:grid-cols-6">
             {works.filteredGallery.map(renderWorkCard)}
             {!works.loading && works.filteredGallery.length === 0 ? (
-              <div className="progress-card text-sm text-porcelain-100/60">当前没有匹配作品。</div>
+              <div className="progress-card">
+                <p className="text-base font-semibold text-porcelain-50">
+                  {hasActiveFilters ? '当前筛选下没有匹配作品' : '当前还没有作品'}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-porcelain-100/60">
+                  {hasActiveFilters
+                    ? '这属于筛空态。清空关键词、标签或收藏筛选后，就可以继续从作品回流到工作台。'
+                    : '先去工作台出第一版结果，作品回流、继续这一版和批量管理入口都会在这里出现。'}
+                </p>
+              </div>
             ) : null}
           </div>
         </section>

@@ -62,6 +62,10 @@ export function StudioProPromptPanel({
     finalPromptBaseline,
     workspacePromptLength,
   })
+  const replayReferenceStatus =
+    replayContext && replayContext.expectedReferenceCount > 0
+      ? `参考图恢复 ${replayContext.restoredReferenceCount}/${replayContext.expectedReferenceCount} 张`
+      : replayContext?.referenceSummaryLabel ?? '这一版没有参考图依赖'
 
   function getDecisionPillClass(state: typeof promptDecision.state) {
     switch (state) {
@@ -106,7 +110,7 @@ export function StudioProPromptPanel({
       <div className="studio-pro-panel-header">
         <div>
           <p className="eyebrow">Pro Prompt</p>
-          <h4 className="studio-pro-panel-title">最终 Prompt 预览</h4>
+          <h4 className="studio-pro-panel-title">先校准 Prompt，再看最终请求</h4>
         </div>
         <div className="studio-pro-pill-group">
           <span className="status-pill">参考图 {referenceCount} 张</span>
@@ -125,8 +129,7 @@ export function StudioProPromptPanel({
       </div>
 
       <p className="studio-pro-panel-copy">
-        这里把工作区描述、风格补充、细节控制和 Negative Prompt 拆开展示，方便你对照
-        最终请求是如何组装出来的。
+        先确认工作区是否仍贴着来源版，再看字段落点和最终 Prompt，这样更容易决定是继续小改还是直接派生。
       </p>
 
       <article
@@ -151,6 +154,13 @@ export function StudioProPromptPanel({
         </div>
         <p className="studio-pro-metric-copy">{promptDecision.summary}</p>
         <p className="studio-pro-metric-copy">{promptDecision.recommendation}</p>
+        {replayContext ? (
+          <>
+            <p className="studio-pro-metric-copy">版本建议：{replayContext.recommendedActionLabel}</p>
+            <p className="studio-pro-metric-copy">{replayContext.decisionSummary}</p>
+            <p className="studio-pro-metric-copy">{replayContext.actionDecisionReason}</p>
+          </>
+        ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
           <span className="status-pill">主动作：{promptDecision.primaryAction}</span>
           {promptDecision.secondaryAction ? (
@@ -179,8 +189,8 @@ export function StudioProPromptPanel({
           </strong>
           <p className="studio-pro-metric-copy">
             {templateContext
-              ? `模板字段会先约束工作区 Prompt 的主体、上下文、风格和输出重点，再进入最终组装。`
-              : '现在以自由输入为基线；从模板进入时，这里会固定显示结构字段对 Prompt 的控制基线。'}
+              ? `模板字段会先约束工作区 Prompt，再决定哪些内容需要沉到风格、细节或参数层。`
+              : '现在以自由输入为基线；从模板进入时，这里会固定显示结构字段如何先接管 Prompt。'}
           </p>
           <div className="studio-pro-action-cluster">
             <button
@@ -194,15 +204,23 @@ export function StudioProPromptPanel({
           </div>
         </article>
         <article className={`studio-pro-console-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
-          <span className="studio-pro-metric-label">来源 Prompt</span>
+          <span className="studio-pro-metric-label">来源版 Prompt</span>
           <strong className="studio-pro-metric-value">
             {replayContext ? `快照 ${replayContext.snapshotId}` : '当前未挂接来源快照'}
           </strong>
           <p className="studio-pro-metric-copy">
             {replayContext
-              ? '当前结果返回控制区后，可以直接把来源请求重新带回工作区，作为重跑或派生起点。'
+              ? '当前结果返回控制区后，可以先恢复来源 Prompt，再判断当前改动是同版重跑还是新的目标版分支。'
               : '从作品或任务回流后，这里会提供“回到来源 Prompt”入口，避免手动摘录上一版描述。'}
           </p>
+          {replayContext ? (
+            <p className="studio-pro-metric-copy">{replayReferenceStatus}</p>
+          ) : null}
+          {replayContext ? (
+            <p className="studio-pro-metric-copy">
+              动作建议：{replayContext.recommendedActionLabel}。{replayContext.decisionSummary}
+            </p>
+          ) : null}
           {replayContext?.deltaHeadline ? (
             <p className="studio-pro-metric-copy">{replayContext.deltaHeadline}</p>
           ) : null}
@@ -227,6 +245,118 @@ export function StudioProPromptPanel({
               回到当前工作区
             </button>
           </div>
+        </article>
+      </div>
+
+      <div className="studio-pro-meta-grid">
+        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <span className="studio-pro-metric-label">来源版 vs 当前版</span>
+              <strong className="studio-pro-metric-value">{workspaceBaseline.summary}</strong>
+            </div>
+            <span
+              className={`studio-pro-compare-pill ${
+                workspaceBaseline.status === 'aligned'
+                  ? 'studio-pro-compare-pill-aligned'
+                  : workspaceBaseline.status === 'shifted'
+                    ? 'studio-pro-compare-pill-shifted'
+                    : 'studio-pro-compare-pill-missing'
+              }`}
+            >
+              {workspaceBaseline.statusLabel}
+            </span>
+          </div>
+          <p className="studio-pro-metric-copy">
+            {workspaceBaseline.deltaLabel}。{workspaceBaseline.suggestion}
+          </p>
+          <p className="studio-pro-metric-copy">建议动作：{promptDecision.primaryAction}</p>
+          {replayContext?.directLinks.length ? (
+            <div className="studio-pro-compare-grid">
+              {replayContext.directLinks
+                .filter((item) => item.id === 'template' || item.id === 'guided')
+                .map((item) => (
+                  <article key={`direct:${item.id}`} className="studio-pro-compare-card">
+                    <span className="studio-pro-metric-label">{item.label}</span>
+                    <p className="studio-pro-metric-copy">{item.summary}</p>
+                  </article>
+                ))}
+            </div>
+          ) : null}
+          {replayContext?.deltaItems.length ? (
+            <div className="studio-pro-compare-grid">
+              {replayContext.deltaItems
+                .filter((item) => item.id === 'prompt' || item.id === 'guided' || item.id === 'structure')
+                .map((item) => (
+                  <article key={item.id} className="studio-pro-compare-card">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="studio-pro-metric-label">{item.label}</span>
+                      <span className="studio-pro-compare-pill studio-pro-compare-pill-shifted">
+                        {item.toneLabel}
+                      </span>
+                    </div>
+                    <p className="studio-pro-metric-copy">{item.summary}</p>
+                    {item.detail ? <p className="studio-pro-metric-copy">{item.detail}</p> : null}
+                  </article>
+                ))}
+            </div>
+          ) : null}
+          <div className="studio-pro-compare-grid">
+            <article className="studio-pro-compare-card">
+              <span className="studio-pro-metric-label">
+                {replayContext?.sourceWorkspacePrompt ? '来源工作区' : '来源请求'}
+              </span>
+              <strong className="studio-pro-metric-value">
+                {hasReplayContext ? `快照 ${replayContext?.snapshotId}` : '未接入'}
+              </strong>
+              <p className="studio-pro-metric-copy">
+                {truncateStudioProText(
+                  replayContext?.sourceWorkspacePrompt ?? replayContext?.requestPrompt ?? '',
+                  120,
+                ) || '从作品或任务恢复一版后，这里会固定显示来源文本基线。'}
+              </p>
+            </article>
+            <article className="studio-pro-compare-card">
+              <span className="studio-pro-metric-label">当前工作区</span>
+              <strong className="studio-pro-metric-value">
+                {workspacePrompt.trim() ? `${workspacePromptLength} 字` : '等待输入'}
+              </strong>
+              <p className="studio-pro-metric-copy">
+                {truncateStudioProText(workspacePrompt, 120) || '先补一句主体需求，当前版基线就会固定在这里。'}
+              </p>
+            </article>
+          </div>
+        </article>
+
+        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <span className="studio-pro-metric-label">当前版 vs 目标请求</span>
+              <strong className="studio-pro-metric-value">{finalPromptBaseline.summary}</strong>
+            </div>
+            <span
+              className={`studio-pro-compare-pill ${
+                finalPromptBaseline.status === 'aligned'
+                  ? 'studio-pro-compare-pill-aligned'
+                  : finalPromptBaseline.status === 'shifted'
+                    ? 'studio-pro-compare-pill-shifted'
+                    : 'studio-pro-compare-pill-missing'
+              }`}
+            >
+              {finalPromptBaseline.statusLabel}
+            </span>
+          </div>
+          <p className="studio-pro-metric-copy">
+            {finalPromptBaseline.deltaLabel}。{finalPromptBaseline.suggestion}
+          </p>
+          <p className="studio-pro-metric-copy">
+            判断基准：如果这里已经明显偏离来源请求，这一轮通常更适合直接派生，而不是继续当作同版重跑。
+          </p>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? '最终 Prompt 是目标版真正发给模型的请求，可直接判断这一轮究竟是复现、校准还是分叉。'
+              : '当前还没有来源请求做参照，这里先帮助你固定最终 Prompt 的组装结果。'}
+          </p>
         </article>
       </div>
 
@@ -276,6 +406,7 @@ export function StudioProPromptPanel({
             <p className="studio-pro-metric-copy">
               来源链路：{replayContext.sourceKindLabel} · {replayContext.sceneLabel ?? replayContext.scene?.label ?? '未记录场景'}
             </p>
+            <p className="studio-pro-metric-copy">{replayReferenceStatus}</p>
             <p className="studio-pro-metric-copy">{replayContext.deltaHeadline}</p>
             <p className="studio-pro-metric-copy">{replayContext.sourceDeltaLabel}</p>
             {replayContext.quickDeltaLabels.length ? (
@@ -340,106 +471,6 @@ export function StudioProPromptPanel({
           </div>
         ) : null}
       </article>
-
-      <div className="studio-pro-meta-grid">
-        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <span className="studio-pro-metric-label">当前版 vs 来源版</span>
-              <strong className="studio-pro-metric-value">{workspaceBaseline.summary}</strong>
-            </div>
-            <span
-              className={`studio-pro-compare-pill ${
-                workspaceBaseline.status === 'aligned'
-                  ? 'studio-pro-compare-pill-aligned'
-                  : workspaceBaseline.status === 'shifted'
-                    ? 'studio-pro-compare-pill-shifted'
-                    : 'studio-pro-compare-pill-missing'
-              }`}
-            >
-              {workspaceBaseline.statusLabel}
-            </span>
-          </div>
-          <p className="studio-pro-metric-copy">
-            {workspaceBaseline.deltaLabel}。{workspaceBaseline.suggestion}
-          </p>
-          <p className="studio-pro-metric-copy">建议动作：{promptDecision.primaryAction}</p>
-          {replayContext?.deltaItems.length ? (
-            <div className="studio-pro-compare-grid">
-              {replayContext.deltaItems
-                .filter((item) => item.id === 'prompt' || item.id === 'guided' || item.id === 'structure')
-                .map((item) => (
-                  <article key={item.id} className="studio-pro-compare-card">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="studio-pro-metric-label">{item.label}</span>
-                      <span className="studio-pro-compare-pill studio-pro-compare-pill-shifted">
-                        {item.toneLabel}
-                      </span>
-                    </div>
-                    <p className="studio-pro-metric-copy">{item.summary}</p>
-                    {item.detail ? <p className="studio-pro-metric-copy">{item.detail}</p> : null}
-                  </article>
-                ))}
-            </div>
-          ) : null}
-          <div className="studio-pro-compare-grid">
-            <article className="studio-pro-compare-card">
-              <span className="studio-pro-metric-label">
-                {replayContext?.sourceWorkspacePrompt ? '来源工作区' : '来源请求'}
-              </span>
-              <strong className="studio-pro-metric-value">
-                {hasReplayContext ? `快照 ${replayContext?.snapshotId}` : '未接入'}
-              </strong>
-              <p className="studio-pro-metric-copy">
-                {truncateStudioProText(
-                  replayContext?.sourceWorkspacePrompt ?? replayContext?.requestPrompt ?? '',
-                  120,
-                ) || '从作品或任务恢复一版后，这里会固定显示来源文本基线。'}
-              </p>
-            </article>
-            <article className="studio-pro-compare-card">
-              <span className="studio-pro-metric-label">当前工作区</span>
-              <strong className="studio-pro-metric-value">
-                {workspacePrompt.trim() ? `${workspacePromptLength} 字` : '等待输入'}
-              </strong>
-              <p className="studio-pro-metric-copy">
-                {truncateStudioProText(workspacePrompt, 120) || '先补一句主体需求，当前版基线就会固定在这里。'}
-              </p>
-            </article>
-          </div>
-        </article>
-
-        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <span className="studio-pro-metric-label">最终 Prompt 对照</span>
-              <strong className="studio-pro-metric-value">{finalPromptBaseline.summary}</strong>
-            </div>
-            <span
-              className={`studio-pro-compare-pill ${
-                finalPromptBaseline.status === 'aligned'
-                  ? 'studio-pro-compare-pill-aligned'
-                  : finalPromptBaseline.status === 'shifted'
-                    ? 'studio-pro-compare-pill-shifted'
-                    : 'studio-pro-compare-pill-missing'
-              }`}
-            >
-              {finalPromptBaseline.statusLabel}
-            </span>
-          </div>
-          <p className="studio-pro-metric-copy">
-            {finalPromptBaseline.deltaLabel}。{finalPromptBaseline.suggestion}
-          </p>
-          <p className="studio-pro-metric-copy">
-            判断基准：如果这里已经明显偏离来源请求，这一轮通常更适合直接派生，而不是继续当作同版重跑。
-          </p>
-          <p className="studio-pro-metric-copy">
-            {hasReplayContext
-              ? '当前最终 Prompt 已把工作区描述、风格补充和细节控制一起折叠成一版请求，可直接判断是同基线重跑还是带着控制项派生。'
-              : '当前还没有来源请求做参照，这里先帮助你固定最终 Prompt 的组装结果。'}
-          </p>
-        </article>
-      </div>
 
       <div className="studio-pro-chain-grid">
         {promptSections.map((section) => (

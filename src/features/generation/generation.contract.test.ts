@@ -3,6 +3,7 @@ import { getStudioFlowScene } from '@/features/prompt-templates/studioFlowSemant
 import {
   buildGenerationContractSnapshot,
   buildGenerationSnapshotFromContract,
+  resolveGenerationContractFromTask,
   resolveGenerationContractSnapshot,
 } from './generation.contract'
 
@@ -118,5 +119,67 @@ describe('generation.contract', () => {
     expect(snapshot.quality).toBe('low')
     expect(snapshot.stream).toBe(true)
     expect(snapshot.contract?.draw?.variation).toBe('保留主体')
+  })
+
+  it('resolves task payload and snapshot into the same contract source of truth', () => {
+    const contract = resolveGenerationContractFromTask(
+      {
+        payload: {
+          mode: 'image2image',
+          title: '商品图',
+          promptText: '保留主体，压暗背景',
+          workspacePrompt: '保留主体',
+          requestPrompt: '保留主体，压暗背景',
+          size: '1536x1024',
+          quality: 'medium',
+          model: 'gpt-image-1',
+          providerId: 'openai',
+          stream: false,
+          referenceImages: [
+            { source: 'work', name: '上一版', src: 'https://example.com/work.png' },
+          ],
+        },
+        result: {
+          mode: 'image2image',
+          promptText: '保留主体，压暗背景',
+          size: '1536x1024',
+          quality: 'high',
+          providerModel: 'gpt-image-1',
+        },
+      },
+      {
+        snapshot: {
+          id: 'snapshot-task',
+          createdAt: 1,
+          mode: 'image2image',
+          prompt: '旧请求',
+          requestPrompt: '旧请求',
+          workspacePrompt: '旧工作区',
+          size: '1024x1024',
+          quality: 'low',
+          model: 'legacy-model',
+          providerId: 'legacy-provider',
+          apiUrl: '',
+          requestUrl: '',
+          stream: true,
+          contract: buildGenerationContractSnapshot({
+            scene: getStudioFlowScene('image-edit'),
+            requestPrompt: '合同请求',
+            workspacePrompt: '合同工作区',
+            mode: 'image2image',
+            size: '1024x1024',
+            quality: 'low',
+            model: 'legacy-model',
+            providerId: 'legacy-provider',
+            stream: true,
+          }),
+        },
+      },
+    )
+
+    expect(contract.scene.id).toBe('image-edit')
+    expect(contract.prompt.request).toBe('合同请求')
+    expect(contract.prompt.workspace).toBe('合同工作区')
+    expect(contract.parameters.providerId).toBe('legacy-provider')
   })
 })

@@ -29,6 +29,52 @@
 | [image-skill-platform-product-map-v1.md](./image-skill-platform-product-map-v1.md) | 普通版与专业版完整产品地图，定义统一前台产品层、共享资产主线与页面角色分工 |
 | [image-skill-platform-implementation-plan-v1.md](./image-skill-platform-implementation-plan-v1.md) | 第一阶段开发实施方案，定义从现有工作台到双模式统一创作平台的改造顺序与代码落点 |
 | [image-skill-platform-phase1-backlog-v1.md](./image-skill-platform-phase1-backlog-v1.md) | 第一阶段开发任务清单，定义 Epic、任务包、并行边界、多 Agent 分工与分支策略 |
+| [image-skill-platform-phase1-agent-briefs-v1.md](./image-skill-platform-phase1-agent-briefs-v1.md) | 第一阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase1-agent-prompts-v1.md](./image-skill-platform-phase1-agent-prompts-v1.md) | 第一阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase1-review-v1.md](./image-skill-platform-phase1-review-v1.md) | 第一阶段复盘，整理已完成能力、已暴露问题与第二阶段建议 |
+| [image-skill-platform-phase2-scope-v1.md](./image-skill-platform-phase2-scope-v1.md) | 第二阶段开发目标与范围，定义体验增强阶段的目标、优先级与边界 |
+| [image-skill-platform-phase2-backlog-v1.md](./image-skill-platform-phase2-backlog-v1.md) | 第二阶段多 Agent 开发任务清单，定义第二阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase2-agent-briefs-v1.md](./image-skill-platform-phase2-agent-briefs-v1.md) | 第二阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase2-agent-prompts-v1.md](./image-skill-platform-phase2-agent-prompts-v1.md) | 第二阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase2-review-v1.md](./image-skill-platform-phase2-review-v1.md) | 第二阶段复盘，整理第二阶段已完成能力、已暴露问题与第三阶段建议 |
+| [image-skill-platform-phase3-scope-v1.md](./image-skill-platform-phase3-scope-v1.md) | 第三阶段开发目标与范围，定义结构化能力建设阶段的目标、优先级与边界 |
+| [image-skill-platform-phase3-backlog-v1.md](./image-skill-platform-phase3-backlog-v1.md) | 第三阶段多 Agent 开发任务清单，定义第三阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase3-agent-briefs-v1.md](./image-skill-platform-phase3-agent-briefs-v1.md) | 第三阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase3-agent-prompts-v1.md](./image-skill-platform-phase3-agent-prompts-v1.md) | 第三阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase3-review-v1.md](./image-skill-platform-phase3-review-v1.md) | 第三阶段复盘，整理第三阶段已完成能力、已暴露问题与第四阶段建议 |
+| [image-skill-platform-phase4-scope-v1.md](./image-skill-platform-phase4-scope-v1.md) | 第四阶段开发目标与范围，定义结构统一与机制扩展阶段的目标、优先级与边界 |
+| [image-skill-platform-phase4-backlog-v1.md](./image-skill-platform-phase4-backlog-v1.md) | 第四阶段多 Agent 开发任务清单，定义第四阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase4-agent-briefs-v1.md](./image-skill-platform-phase4-agent-briefs-v1.md) | 第四阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase4-agent-prompts-v1.md](./image-skill-platform-phase4-agent-prompts-v1.md) | 第四阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase4-review-v1.md](./image-skill-platform-phase4-review-v1.md) | 第四阶段复盘，整理第四阶段已完成能力、已暴露问题与第五阶段建议 |
+| [image-skill-platform-phase5-scope-v1.md](./image-skill-platform-phase5-scope-v1.md) | 第五阶段开发目标与范围，定义系统能力稳定化阶段的目标、优先级与边界 |
+| [image-skill-platform-phase5-backlog-v1.md](./image-skill-platform-phase5-backlog-v1.md) | 第五阶段多 Agent 开发任务清单，定义第五阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase5-agent-briefs-v1.md](./image-skill-platform-phase5-agent-briefs-v1.md) | 第五阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase5-agent-prompts-v1.md](./image-skill-platform-phase5-agent-prompts-v1.md) | 第五阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase5-review-v1.md](./image-skill-platform-phase5-review-v1.md) | 第五阶段复盘，整理第五阶段已完成能力、已暴露问题与第六阶段建议 |
+| [image-skill-platform-phase6-scope-v1.md](./image-skill-platform-phase6-scope-v1.md) | 第六阶段开发目标与范围，定义 contract 深化与 runtime 决策增强阶段的目标、优先级与边界 |
+| [image-skill-platform-phase6-backlog-v1.md](./image-skill-platform-phase6-backlog-v1.md) | 第六阶段多 Agent 开发任务清单，定义第六阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase6-agent-briefs-v1.md](./image-skill-platform-phase6-agent-briefs-v1.md) | 第六阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase6-agent-prompts-v1.md](./image-skill-platform-phase6-agent-prompts-v1.md) | 第六阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase6-review-v1.md](./image-skill-platform-phase6-review-v1.md) | 第六阶段复盘，整理第六阶段已完成能力、已暴露问题与第七阶段建议 |
+| [image-skill-platform-phase7-scope-v1.md](./image-skill-platform-phase7-scope-v1.md) | 第七阶段开发目标与范围，定义 V1 上线前收口阶段的目标、优先级与边界 |
+| [image-skill-platform-phase7-backlog-v1.md](./image-skill-platform-phase7-backlog-v1.md) | 第七阶段多 Agent 开发任务清单，定义第七阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase7-agent-briefs-v1.md](./image-skill-platform-phase7-agent-briefs-v1.md) | 第七阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase7-agent-prompts-v1.md](./image-skill-platform-phase7-agent-prompts-v1.md) | 第七阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase7-review-v1.md](./image-skill-platform-phase7-review-v1.md) | 第七阶段复盘，整理第七阶段已完成能力、已暴露问题与第八阶段建议 |
+| [image-skill-platform-phase8-scope-v1.md](./image-skill-platform-phase8-scope-v1.md) | 第八阶段开发目标与范围，定义 V1 最终封口与验收准备阶段的目标、优先级与边界 |
+| [image-skill-platform-phase8-backlog-v1.md](./image-skill-platform-phase8-backlog-v1.md) | 第八阶段多 Agent 开发任务清单，定义第八阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase8-agent-briefs-v1.md](./image-skill-platform-phase8-agent-briefs-v1.md) | 第八阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase8-agent-prompts-v1.md](./image-skill-platform-phase8-agent-prompts-v1.md) | 第八阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase8-review-v1.md](./image-skill-platform-phase8-review-v1.md) | 第八阶段复盘，整理第八阶段已完成能力、已暴露问题与第九阶段建议 |
+| [image-skill-platform-phase9-scope-v1.md](./image-skill-platform-phase9-scope-v1.md) | 第九阶段开发目标与范围，定义最终验收与上线执行准备阶段的目标、优先级与边界 |
+| [image-skill-platform-phase9-backlog-v1.md](./image-skill-platform-phase9-backlog-v1.md) | 第九阶段多 Agent 开发任务清单，定义第九阶段 Epic、任务范围与并行方向 |
+| [image-skill-platform-phase9-agent-briefs-v1.md](./image-skill-platform-phase9-agent-briefs-v1.md) | 第九阶段多 Agent 任务说明书，定义每个 Agent 的目标、文件边界、禁止改动区域与集成规则 |
+| [image-skill-platform-phase9-agent-prompts-v1.md](./image-skill-platform-phase9-agent-prompts-v1.md) | 第九阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
+| [image-skill-platform-phase9-review-v1.md](./image-skill-platform-phase9-review-v1.md) | 第九阶段复盘，整理第九阶段已完成能力、已暴露问题与最终验收状态判断 |
+| [image-skill-platform-phase9-release-execution-v1.md](./image-skill-platform-phase9-release-execution-v1.md) | 第九阶段最终验收与上线执行清单，定义手工验收视角、回归重点与上线执行准备顺序 |
+| [image-skill-platform-final-acceptance-checklist-v1.md](./image-skill-platform-final-acceptance-checklist-v1.md) | 最终验收执行 Checklist，把第九阶段执行清单压缩为可逐项勾选的页面验收单 |
+| [image-skill-platform-final-merge-and-release-v1.md](./image-skill-platform-final-merge-and-release-v1.md) | 最终合并前检查与发布前收口建议，定义是否可合回 dev、合回前后检查与发布收口动作 |
 | [image-skill-platform-consumer-components-v1.md](./image-skill-platform-consumer-components-v1.md) | 普通用户版组件清单与状态清单，定义首页、创作页、结果页的组件层级、页面状态与空态 |
 | [image-skill-platform-consumer-interactions-v1.md](./image-skill-platform-consumer-interactions-v1.md) | 普通用户版交互流与状态流，定义用户动作、系统响应、页面变化和失败恢复策略 |
 | [image-skill-platform-consumer-copy-v1.md](./image-skill-platform-consumer-copy-v1.md) | 普通用户版文案与按钮文案清单，定义标题、按钮、空态、失败态和全局反馈话术 |
@@ -59,14 +105,60 @@
 18. `image-skill-platform-product-map-v1.md`
 19. `image-skill-platform-implementation-plan-v1.md`
 20. `image-skill-platform-phase1-backlog-v1.md`
-21. `image-skill-platform-consumer-components-v1.md`
-22. `image-skill-platform-consumer-interactions-v1.md`
-23. `image-skill-platform-consumer-copy-v1.md`
-24. `image-skill-platform-consumer-layout-decisions-v1.md`
-25. `development-workflow.md`
-26. `testing-strategy.md`
-27. `troubleshooting.md`
-28. `current-project-status.md`
+21. `image-skill-platform-phase1-agent-briefs-v1.md`
+22. `image-skill-platform-phase1-agent-prompts-v1.md`
+23. `image-skill-platform-phase1-review-v1.md`
+24. `image-skill-platform-phase2-scope-v1.md`
+25. `image-skill-platform-phase2-backlog-v1.md`
+26. `image-skill-platform-phase2-agent-briefs-v1.md`
+27. `image-skill-platform-phase2-agent-prompts-v1.md`
+28. `image-skill-platform-phase2-review-v1.md`
+29. `image-skill-platform-phase3-scope-v1.md`
+30. `image-skill-platform-phase3-backlog-v1.md`
+31. `image-skill-platform-phase3-agent-briefs-v1.md`
+32. `image-skill-platform-phase3-agent-prompts-v1.md`
+33. `image-skill-platform-phase3-review-v1.md`
+34. `image-skill-platform-phase4-scope-v1.md`
+35. `image-skill-platform-phase4-backlog-v1.md`
+36. `image-skill-platform-phase4-agent-briefs-v1.md`
+37. `image-skill-platform-phase4-agent-prompts-v1.md`
+38. `image-skill-platform-phase4-review-v1.md`
+39. `image-skill-platform-phase5-scope-v1.md`
+40. `image-skill-platform-phase5-backlog-v1.md`
+41. `image-skill-platform-phase5-agent-briefs-v1.md`
+42. `image-skill-platform-phase5-agent-prompts-v1.md`
+43. `image-skill-platform-phase5-review-v1.md`
+44. `image-skill-platform-phase6-scope-v1.md`
+45. `image-skill-platform-phase6-backlog-v1.md`
+46. `image-skill-platform-phase6-agent-briefs-v1.md`
+47. `image-skill-platform-phase6-agent-prompts-v1.md`
+48. `image-skill-platform-phase6-review-v1.md`
+49. `image-skill-platform-phase7-scope-v1.md`
+50. `image-skill-platform-phase7-backlog-v1.md`
+51. `image-skill-platform-phase7-agent-briefs-v1.md`
+52. `image-skill-platform-phase7-agent-prompts-v1.md`
+53. `image-skill-platform-phase7-review-v1.md`
+54. `image-skill-platform-phase8-scope-v1.md`
+55. `image-skill-platform-phase8-backlog-v1.md`
+56. `image-skill-platform-phase8-agent-briefs-v1.md`
+57. `image-skill-platform-phase8-agent-prompts-v1.md`
+58. `image-skill-platform-phase8-review-v1.md`
+59. `image-skill-platform-phase9-scope-v1.md`
+60. `image-skill-platform-phase9-backlog-v1.md`
+61. `image-skill-platform-phase9-agent-briefs-v1.md`
+62. `image-skill-platform-phase9-agent-prompts-v1.md`
+63. `image-skill-platform-phase9-review-v1.md`
+64. `image-skill-platform-phase9-release-execution-v1.md`
+65. `image-skill-platform-final-acceptance-checklist-v1.md`
+66. `image-skill-platform-final-merge-and-release-v1.md`
+67. `image-skill-platform-consumer-components-v1.md`
+68. `image-skill-platform-consumer-interactions-v1.md`
+69. `image-skill-platform-consumer-copy-v1.md`
+70. `image-skill-platform-consumer-layout-decisions-v1.md`
+71. `development-workflow.md`
+72. `testing-strategy.md`
+73. `troubleshooting.md`
+74. `current-project-status.md`
 
 ## 相关入口
 

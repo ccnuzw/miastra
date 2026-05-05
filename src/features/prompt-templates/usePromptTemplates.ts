@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuthSession } from '@/features/auth/useAuthSession'
 import { apiRequest } from '@/shared/http/client'
-import type { PromptTemplateListItem } from './PromptTemplateLibrary'
+import type { PromptTemplateListItem } from './promptTemplate.types'
+import { buildPromptTemplateStructure } from './promptTemplate.schema'
 import { normalizePromptTemplateTags } from './promptTemplate.utils'
 
 type SavePromptTemplateInput = {
@@ -15,7 +16,7 @@ type SavePromptTemplateInput = {
 export function normalizeTemplate(template: PromptTemplateListItem): PromptTemplateListItem {
   const now = Date.now()
   const title = template.title?.trim() || '未命名模板'
-  return {
+  const normalized = {
     id: template.id || crypto.randomUUID(),
     title,
     content: template.content ?? '',
@@ -24,6 +25,12 @@ export function normalizeTemplate(template: PromptTemplateListItem): PromptTempl
     createdAt: template.createdAt ?? now,
     updatedAt: template.updatedAt ?? template.createdAt ?? now,
     lastUsedAt: template.lastUsedAt ?? undefined,
+    structure: template.structure,
+  } satisfies PromptTemplateListItem
+
+  return {
+    ...normalized,
+    structure: buildPromptTemplateStructure(normalized),
   }
 }
 

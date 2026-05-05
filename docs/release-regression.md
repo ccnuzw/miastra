@@ -2,6 +2,8 @@
 
 这份文档定义当前云端项目的发布门禁、自动化回归范围和手工 smoke 标准。目标只有一个：让新成员拿到仓库后，能明确知道发布前必须跑什么、自动化覆盖了什么、剩下哪些项需要人工确认。
 
+如果当前发布目标包含图像 Skill 平台 V1 第九阶段交付，还应同时执行 [image-skill-platform-phase9-release-execution-v1.md](./image-skill-platform-phase9-release-execution-v1.md) 中的最终手工验收与上线执行清单。那份文档补充了双模式、模板入口、版本回流和专业版连续链的阶段专用回归视角。
+
 ## 1. 标准命令
 
 当前发布相关命令只有三条：
@@ -122,6 +124,8 @@ npm run build:server
 
 自动化通过后，还需要做一次最小手工 smoke，确认真实部署链路没有偏差。
 
+如果当前准备的是图像 Skill 平台 V1 第九阶段上线，这里的最小 smoke 只算基础层；完成以下基础 smoke 后，还要继续执行 [image-skill-platform-phase9-release-execution-v1.md](./image-skill-platform-phase9-release-execution-v1.md) 第 4 节和第 5 节。
+
 ### 6.1 环境前提
 
 至少确认：
@@ -163,6 +167,16 @@ Provider：
 - ZIP 可解压
 - `metadata.json` 内容与页面一致
 - `metadata.json` 中不应出现 `apiKey`、`authorization`、`password`、`secret` 等敏感字段
+
+### 6.3 第九阶段附加检查
+
+若本次发布覆盖图像 Skill 平台 V1 第九阶段，还需额外确认：
+
+- 模板页可把模板分别带入普通版和专业版
+- 普通版可完成“一句需求 -> 第一版 -> 结果动作 -> 回流继续”最短链
+- 作品页和任务页都可把来源版带回工作台
+- 专业版可完成“模板或来源版进入 -> 生成 -> 回流继续”连续链
+- 参考图恢复不完整时，会明确提示先补齐再重跑
 
 ## 7. 失败后优先排查位置
 

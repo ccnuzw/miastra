@@ -1,6 +1,11 @@
-import { useMemo } from 'react'
-import { WorksRail } from '@/features/works/WorksRail'
+import { type ReactNode, useMemo } from 'react'
 import type { DrawBatch } from '@/features/draw-card/drawCard.types'
+import { StudioShellCallout } from '@/features/studio-shared/StudioShellCallout'
+import type {
+  StudioShellSectionViewModel,
+  StudioWorkbenchMode,
+} from '@/features/studio-shared/studioShell.adapters'
+import { WorksRail } from '@/features/works/WorksRail'
 import type { GalleryImage } from '@/features/works/works.types'
 
 const studioWorksDisplayLimit = 12
@@ -9,7 +14,10 @@ function getWorkSortTimestamp(item: GalleryImage) {
   return item.createdAt ?? item.assetUpdatedAt ?? 0
 }
 
-type StudioWorksColumnProps = {
+export type StudioWorksColumnProps = {
+  mode: StudioWorkbenchMode
+  shell: StudioShellSectionViewModel
+  topSlot?: ReactNode
   items: GalleryImage[]
   totalCount: number
   filteredCount: number
@@ -46,15 +54,96 @@ type StudioWorksColumnProps = {
 }
 
 export function StudioWorksColumn(props: StudioWorksColumnProps) {
-  const limitedItems = useMemo(() => (
-    [...props.items]
-      .sort((left, right) => getWorkSortTimestamp(right) - getWorkSortTimestamp(left))
-      .slice(0, studioWorksDisplayLimit)
-  ), [props.items])
+  const {
+    mode,
+    shell,
+    topSlot,
+    items,
+    totalCount,
+    filteredCount,
+    batches,
+    activeBatchId,
+    selectedIds,
+    searchQuery,
+    availableTags,
+    activeTag,
+    favoritesOnly,
+    selectedTags,
+    onBatchChange,
+    onSearchChange,
+    onTagChange,
+    onFavoritesOnlyChange,
+    onClearFilters,
+    onOpenWall,
+    onPreview,
+    onDownload,
+    onPushReference,
+    onRemove,
+    onRetry,
+    onToggleSelect,
+    onToggleFavorite,
+    onAddTag,
+    onRemoveTag,
+    onAddSelectedTag,
+    onRemoveSelectedTag,
+    onClearSelection,
+    onRemoveSelected,
+    onDownloadSelected,
+    includeMetadata,
+    onIncludeMetadataChange,
+  } = props
+
+  const limitedItems = useMemo(
+    () =>
+      [...items]
+        .sort((left, right) => getWorkSortTimestamp(right) - getWorkSortTimestamp(left))
+        .slice(0, studioWorksDisplayLimit),
+    [items],
+  )
 
   return (
-    <div className="space-y-6">
-      <WorksRail {...props} items={limitedItems} />
+    <div className="space-y-6" data-workbench-mode={mode}>
+      <StudioShellCallout
+        eyebrow={shell.eyebrow}
+        title={shell.title}
+        description={shell.description}
+      />
+      {topSlot}
+      <WorksRail
+        items={limitedItems}
+        totalCount={totalCount}
+        filteredCount={filteredCount}
+        batches={batches}
+        activeBatchId={activeBatchId}
+        selectedIds={selectedIds}
+        searchQuery={searchQuery}
+        availableTags={availableTags}
+        activeTag={activeTag}
+        favoritesOnly={favoritesOnly}
+        selectedTags={selectedTags}
+        onBatchChange={onBatchChange}
+        onSearchChange={onSearchChange}
+        onTagChange={onTagChange}
+        onFavoritesOnlyChange={onFavoritesOnlyChange}
+        onClearFilters={onClearFilters}
+        onOpenWall={onOpenWall}
+        onPreview={onPreview}
+        onDownload={onDownload}
+        onPushReference={onPushReference}
+        onRemove={onRemove}
+        onRetry={onRetry}
+        onToggleSelect={onToggleSelect}
+        onToggleFavorite={onToggleFavorite}
+        onAddTag={onAddTag}
+        onRemoveTag={onRemoveTag}
+        onAddSelectedTag={onAddSelectedTag}
+        onRemoveSelectedTag={onRemoveSelectedTag}
+        onClearSelection={onClearSelection}
+        onRemoveSelected={onRemoveSelected}
+        onDownloadSelected={onDownloadSelected}
+        includeMetadata={includeMetadata}
+        onIncludeMetadataChange={onIncludeMetadataChange}
+      />
     </div>
   )
 }

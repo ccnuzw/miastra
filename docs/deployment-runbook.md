@@ -163,6 +163,14 @@ npm run release:check
 
 自动化通过后，再按 [release-regression.md](./release-regression.md) 完成手工 smoke。
 
+如果本次发布覆盖图像 Skill 平台 V1 第九阶段，再继续执行 [image-skill-platform-phase9-release-execution-v1.md](./image-skill-platform-phase9-release-execution-v1.md) 中的阶段专用验收清单。上线前最后一轮建议固定顺序为：
+
+1. `npm run release:check`
+2. 基础手工 smoke
+3. 第九阶段最终验收清单
+4. 环境变量与入口路由复核
+5. 正式部署
+
 ### 6.2 构建前端
 
 ```bash
@@ -235,3 +243,12 @@ curl http://127.0.0.1:18081/health/store
 - ZIP 导出成功，`metadata.json` 不包含敏感字段
 
 完整清单见 [release-regression.md](./release-regression.md)。
+
+如果当前验收目标包含图像 Skill 平台 V1 第九阶段，还需继续确认：
+
+- 模板页入口可稳定进入普通版与专业版
+- 工作台双模式主链可执行
+- 任务页与作品页回流语义一致
+- 专业版连续链可完成至少一轮“进入 -> 生成 -> 回流继续”
+
+阶段专用步骤见 [image-skill-platform-phase9-release-execution-v1.md](./image-skill-platform-phase9-release-execution-v1.md)。

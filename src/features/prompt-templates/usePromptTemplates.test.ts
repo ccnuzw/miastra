@@ -17,6 +17,9 @@ describe('usePromptTemplates storage helpers', () => {
     expect(normalized.updatedAt).toBe(1)
     expect(normalized.category).toBe('海报')
     expect(normalized.tags).toEqual(['产品'])
+    expect(normalized.structure?.scenarioLabel).toBeTruthy()
+    expect(normalized.structure?.scene.id).toBeTruthy()
+    expect(normalized.structure?.summary.length).toBeGreaterThan(0)
   })
 
   it('sorts templates by updated time desc', () => {

@@ -1,3 +1,6 @@
+import type { ConsumerGuidedFlowSnapshot } from '@/features/studio-consumer/consumerGuidedFlow'
+import type { StudioFlowScene } from '@/features/prompt-templates/studioFlowSemantic'
+
 export type GenerationMode = 'text2image' | 'image2image' | 'draw-text2image' | 'draw-image2image'
 
 export type GenerationReferenceSnapshot = {
@@ -30,6 +33,30 @@ export type GenerationDrawSnapshot = {
   variation: string
 }
 
+export type GenerationPromptSnapshot = {
+  request: string
+  workspace: string
+}
+
+export type GenerationParameterSnapshot = {
+  mode: GenerationMode
+  size: string
+  quality: string
+  model: string
+  providerId: string
+  stream: boolean
+}
+
+export type GenerationContractSnapshot = {
+  version: 1
+  scene: StudioFlowScene
+  prompt: GenerationPromptSnapshot
+  parameters: GenerationParameterSnapshot
+  guidedFlow: ConsumerGuidedFlowSnapshot | null
+  references?: GenerationReferenceSnapshot
+  draw?: GenerationDrawSnapshot
+}
+
 export type GenerationErrorCode =
   | 'abort'
   | 'invalid-input'
@@ -52,6 +79,8 @@ export type GenerationError = {
 export type GenerationRequestOptions = {
   promptText: string
   workspacePrompt?: string
+  contract?: GenerationContractSnapshot
+  scene?: StudioFlowScene
   title: string
   meta: string
   mode?: GenerationMode
@@ -67,11 +96,13 @@ export type GenerationRequestOptions = {
   onReceiveImage?: (src: string) => void
   snapshotId?: string
   drawSnapshot?: GenerationDrawSnapshot
+  guidedFlow?: ConsumerGuidedFlowSnapshot | null
 }
 
 export type GenerationSnapshot = {
   id: string
   createdAt: number
+  scene?: StudioFlowScene
   mode: GenerationMode
   prompt: string
   requestPrompt: string
@@ -85,6 +116,8 @@ export type GenerationSnapshot = {
   stream: boolean
   references?: GenerationReferenceSnapshot
   draw?: GenerationDrawSnapshot
+  guidedFlow?: ConsumerGuidedFlowSnapshot | null
+  contract?: GenerationContractSnapshot
 }
 
 export type GenerationStatus = 'idle' | 'loading' | 'success' | 'error'

@@ -35,6 +35,36 @@ export function resolveImageSize(aspect: string, tier: ResolutionTier) {
   return aspectSizeMap[aspect]?.[tier] ?? aspectSizeMap['3:4'][tier]
 }
 
+export function findAspectLabelBySize(size: string) {
+  const normalized = size.trim()
+  if (!normalized) return null
+  return (
+    Object.entries(aspectSizeMap).find(([, tierMap]) =>
+      Object.values(tierMap).includes(normalized),
+    )?.[0] ?? null
+  )
+}
+
+export function findResolutionTierBySize(size: string): ResolutionTier | null {
+  const normalized = size.trim()
+  if (!normalized) return null
+
+  for (const tierMap of Object.values(aspectSizeMap)) {
+    const matchedTier = (Object.entries(tierMap).find(([, value]) => value === normalized)?.[0] ??
+      null) as ResolutionTier | null
+    if (matchedTier) return matchedTier
+  }
+
+  return null
+}
+
+export function resolveSizePreset(size: string) {
+  const aspectLabel = findAspectLabelBySize(size)
+  const resolutionTier = findResolutionTierBySize(size)
+  if (!aspectLabel || !resolutionTier) return null
+  return { aspectLabel, resolutionTier }
+}
+
 export const qualityOptions = [
   { label: '低', value: 'low', hint: '更快' },
   { label: '中', value: 'medium', hint: '均衡' },
@@ -42,8 +72,7 @@ export const qualityOptions = [
   { label: '自动', value: 'auto', hint: '推荐' },
 ]
 
-export const defaultPrompt =
-  '真实 iPhone 原相机直出风格照片：一位约25岁的成年女性，黑色长发，躺在白色或米色床单上，轻微俯拍，上半身特写，人物居中。穿浅米色奶油色蕾丝吊带连衣裙，衣着完整、不裸露，锁骨和肩部线条自然，佩戴精致项链和耳饰。自然妆容，轻微光泽感，嘴唇微张，表情慵懒随性。皮肤有轻微湿润高光和真实纹理，不磨皮。柔和环境光加微弱手机直闪，暖色调，轻微噪点，生活化抓拍。'
+export const defaultPrompt = ''
 
 export const defaultNegativePrompt =
   '过度磨皮，塑料感皮肤，强HDR，锐化过度，AI脸，畸形五官，手部异常，低清晰度，卡通风，插画风，过度滤镜，夸张光影，商业棚拍感，裸体，露点，色情姿势，未成年人'

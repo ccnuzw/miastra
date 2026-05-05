@@ -23,7 +23,7 @@ export function validateGenerationInputState(
   if (!config.model.trim()) {
     return {
       ok: false,
-      message: '请先在右上角设置里选择 Provider Model',
+      message: '请先打开“编辑配置”，选择当前模型',
       openSettings: true,
     }
   }
@@ -33,7 +33,7 @@ export function validateGenerationInputState(
     if (!providerId) {
       return {
         ok: false,
-        message: '请先在右上角设置里选择公共 Provider',
+        message: '请先打开“编辑配置”，选择当前 Provider',
         openSettings: true,
       }
     }
@@ -44,7 +44,7 @@ export function validateGenerationInputState(
   if (!config.apiKey.trim()) {
     return {
       ok: false,
-      message: '请先在右上角设置里填写 Provider API Key',
+      message: '请先打开“编辑配置”，补齐自定义接入的 API Key',
       openSettings: true,
     }
   }

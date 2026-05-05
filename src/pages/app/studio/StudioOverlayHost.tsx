@@ -2,7 +2,7 @@ import { ImageViewerModal } from '@/features/works/ImageViewerModal'
 import { ImageWallModal } from '@/features/works/ImageWallModal'
 import { PromptTemplateLibrary } from '@/features/prompt-templates/PromptTemplateLibrary'
 import { ProviderModal } from '@/features/provider/ProviderModal'
-import type { PromptTemplateListItem } from '@/features/prompt-templates/PromptTemplateLibrary'
+import type { PromptTemplateListItem } from '@/features/prompt-templates/promptTemplate.types'
 import type { GalleryImage } from '@/features/works/works.types'
 import type { ManagedProviderOption, ProviderConfig, ProviderPolicy } from '@/features/provider/provider.types'
 

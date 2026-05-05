@@ -9,8 +9,11 @@ export function formatElapsed(ms: number) {
 
 export function waitingHint(stage: GenerationStage, elapsedMs: number) {
   if (stage === 'queued') return '防抖保护中，避免重复提交。'
-  if (stage === 'connecting') return '正在连接 Provider，请保持页面打开。'
-  if (stage === 'waiting') return elapsedMs > 90000 ? '模型仍在生成，大图或图生图可能需要更久。' : '请求已发出，等待模型返回。'
+  if (stage === 'connecting') return '正在连接当前接入，请保持页面打开。'
+  if (stage === 'waiting')
+    return elapsedMs > 90000
+      ? '模型仍在生成，大图或图生图可能需要更久。'
+      : '请求已发出，等待模型返回。'
   if (stage === 'receiving') return '正在接收图片数据，请勿重复点击。'
   if (stage === 'finalizing') return '正在整理图片和作品列表。'
   if (stage === 'success') return '生成完成，结果已加入作品区。'

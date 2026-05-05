@@ -73,6 +73,7 @@
 | [image-skill-platform-phase9-agent-prompts-v1.md](./image-skill-platform-phase9-agent-prompts-v1.md) | 第九阶段多 Agent 可复制任务提示词，提供可直接发送给各 Agent 的独立任务文本 |
 | [image-skill-platform-phase9-review-v1.md](./image-skill-platform-phase9-review-v1.md) | 第九阶段复盘，整理第九阶段已完成能力、已暴露问题与最终验收状态判断 |
 | [image-skill-platform-phase9-release-execution-v1.md](./image-skill-platform-phase9-release-execution-v1.md) | 第九阶段最终验收与上线执行清单，定义手工验收视角、回归重点与上线执行准备顺序 |
+| [image-skill-platform-final-acceptance-checklist-v1.md](./image-skill-platform-final-acceptance-checklist-v1.md) | 最终验收执行 Checklist，把第九阶段执行清单压缩为可逐项勾选的页面验收单 |
 | [image-skill-platform-final-merge-and-release-v1.md](./image-skill-platform-final-merge-and-release-v1.md) | 最终合并前检查与发布前收口建议，定义是否可合回 dev、合回前后检查与发布收口动作 |
 | [image-skill-platform-consumer-components-v1.md](./image-skill-platform-consumer-components-v1.md) | 普通用户版组件清单与状态清单，定义首页、创作页、结果页的组件层级、页面状态与空态 |
 | [image-skill-platform-consumer-interactions-v1.md](./image-skill-platform-consumer-interactions-v1.md) | 普通用户版交互流与状态流，定义用户动作、系统响应、页面变化和失败恢复策略 |
@@ -148,15 +149,16 @@
 62. `image-skill-platform-phase9-agent-prompts-v1.md`
 63. `image-skill-platform-phase9-review-v1.md`
 64. `image-skill-platform-phase9-release-execution-v1.md`
-65. `image-skill-platform-final-merge-and-release-v1.md`
-66. `image-skill-platform-consumer-components-v1.md`
-67. `image-skill-platform-consumer-interactions-v1.md`
-68. `image-skill-platform-consumer-copy-v1.md`
-69. `image-skill-platform-consumer-layout-decisions-v1.md`
-70. `development-workflow.md`
-71. `testing-strategy.md`
-72. `troubleshooting.md`
-73. `current-project-status.md`
+65. `image-skill-platform-final-acceptance-checklist-v1.md`
+66. `image-skill-platform-final-merge-and-release-v1.md`
+67. `image-skill-platform-consumer-components-v1.md`
+68. `image-skill-platform-consumer-interactions-v1.md`
+69. `image-skill-platform-consumer-copy-v1.md`
+70. `image-skill-platform-consumer-layout-decisions-v1.md`
+71. `development-workflow.md`
+72. `testing-strategy.md`
+73. `troubleshooting.md`
+74. `current-project-status.md`
 
 ## 相关入口
 

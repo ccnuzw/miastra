@@ -26,7 +26,7 @@ type BuildGenerationContractSnapshotInput = {
   guidedFlow?: ConsumerGuidedFlowSnapshot | null
 }
 
-type ResolveGenerationContractSnapshotFallback = {
+type ResolveGenerationContractSnapshotDefaults = {
   scene?: StudioFlowScene
   requestPrompt?: string
   workspacePrompt?: string
@@ -40,6 +40,14 @@ type ResolveGenerationContractSnapshotFallback = {
   draw?: GenerationDrawSnapshot
   guidedFlow?: ConsumerGuidedFlowSnapshot | null
   hasReferences?: boolean
+}
+
+type ResolveGenerationSnapshotRecordDefaults = ResolveGenerationContractSnapshotDefaults & {
+  sourceContract?: GenerationContractSnapshot
+  id?: string
+  createdAt?: number
+  apiUrl?: string
+  requestUrl?: string
 }
 
 type GenerationTaskContractSource = {
@@ -139,65 +147,78 @@ export function buildGenerationContractSnapshot(
 
 export function resolveGenerationContractSnapshot(
   snapshot?: Partial<GenerationSnapshot> | null,
-  fallback: ResolveGenerationContractSnapshotFallback = {},
+  defaults: ResolveGenerationContractSnapshotDefaults = {},
 ): GenerationContractSnapshot {
   const contract = snapshot?.contract
-  const guidedFlow = contract?.guidedFlow ?? snapshot?.guidedFlow ?? fallback.guidedFlow ?? null
-  const references = contract?.references ?? snapshot?.references ?? fallback.references
+  const guidedFlow = contract?.guidedFlow ?? snapshot?.guidedFlow ?? defaults.guidedFlow ?? null
+  const references = contract?.references ?? snapshot?.references ?? defaults.references
   const resolvedScene =
     contract?.scene ??
     snapshot?.scene ??
-    fallback.scene ??
-    resolveContractScene(undefined, guidedFlow, Boolean(references?.count ?? fallback.hasReferences))
+    defaults.scene ??
+    resolveContractScene(undefined, guidedFlow, Boolean(references?.count ?? defaults.hasReferences))
   return buildGenerationContractSnapshot({
     scene: resolvedScene,
     requestPrompt:
       contract?.prompt.request ??
       snapshot?.requestPrompt ??
       snapshot?.prompt ??
-      fallback.requestPrompt ??
+      defaults.requestPrompt ??
       '',
     workspacePrompt:
       contract?.prompt.workspace ??
       snapshot?.workspacePrompt ??
-      fallback.workspacePrompt ??
+      defaults.workspacePrompt ??
       snapshot?.requestPrompt ??
       snapshot?.prompt ??
-      fallback.requestPrompt ??
+      defaults.requestPrompt ??
       '',
     mode:
       contract?.parameters.mode ??
       snapshot?.mode ??
-      fallback.mode ??
+      defaults.mode ??
       'text2image',
     size:
       contract?.parameters.size ??
       snapshot?.size ??
-      fallback.size ??
+      defaults.size ??
       '',
     quality:
       contract?.parameters.quality ??
       snapshot?.quality ??
-      fallback.quality ??
+      defaults.quality ??
       '',
     model:
       contract?.parameters.model ??
       snapshot?.model ??
-      fallback.model ??
+      defaults.model ??
       '',
     providerId:
       contract?.parameters.providerId ??
       snapshot?.providerId ??
-      fallback.providerId ??
+      defaults.providerId ??
       '',
     stream:
       contract?.parameters.stream ??
       snapshot?.stream ??
-      fallback.stream ??
+      defaults.stream ??
       false,
     references,
-    draw: contract?.draw ?? snapshot?.draw ?? fallback.draw,
+    draw: contract?.draw ?? snapshot?.draw ?? defaults.draw,
     guidedFlow,
+  })
+}
+
+export function resolveGenerationSnapshotRecord(
+  snapshot?: Partial<GenerationSnapshot> | null,
+  defaults: ResolveGenerationSnapshotRecordDefaults = {},
+): GenerationSnapshot & { contract: GenerationContractSnapshot } {
+  const contract = defaults.sourceContract ?? resolveGenerationContractSnapshot(snapshot, defaults)
+  return buildGenerationSnapshotFromContract(contract, {
+    id: snapshot?.id ?? defaults.id,
+    createdAt: snapshot?.createdAt ?? defaults.createdAt ?? Date.now(),
+    apiUrl: snapshot?.apiUrl ?? defaults.apiUrl ?? '',
+    requestUrl: snapshot?.requestUrl ?? defaults.requestUrl ?? '',
   })
 }
 
@@ -222,9 +243,9 @@ export function resolveGenerationContractFromWork(
     size: work.size,
     quality: work.quality,
     model: work.providerModel,
-    references: work.generationSnapshot?.contract?.references ?? work.generationSnapshot?.references,
-    draw: work.generationSnapshot?.contract?.draw ?? work.generationSnapshot?.draw,
-    guidedFlow: work.generationSnapshot?.contract?.guidedFlow ?? work.generationSnapshot?.guidedFlow,
+    references: work.generationSnapshot?.references,
+    draw: work.generationSnapshot?.draw,
+    guidedFlow: work.generationSnapshot?.guidedFlow,
     hasReferences: Boolean(getGenerationSnapshotReferenceCount(work.generationSnapshot)),
   })
 }
@@ -284,7 +305,7 @@ export function buildGenerationSnapshotFromContract(
     apiUrl: string
     requestUrl: string
   },
-): GenerationSnapshot {
+): GenerationSnapshot & { contract: GenerationContractSnapshot } {
   return {
     id: input.id ?? crypto.randomUUID(),
     createdAt: input.createdAt,

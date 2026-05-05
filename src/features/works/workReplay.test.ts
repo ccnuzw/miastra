@@ -5,7 +5,9 @@ import { getStudioFlowScene } from '@/features/prompt-templates/studioFlowSemant
 import {
   buildTaskReplayWork,
   getTaskVersionSourceSummary,
+  getWorkReplayHint,
   getWorkReplayReferenceSummary,
+  getWorkReplayStatusText,
   getWorkVersionSourceSummary,
 } from './workReplay'
 
@@ -73,10 +75,14 @@ describe('workReplay version summaries', () => {
     expect(workSummary.quickDeltaLabels.length).toBeGreaterThan(0)
     expect(workSummary.recommendedActionId).toBe('branch-version')
     expect(workSummary.recommendedActionLabel).toBe('从这一版分叉')
+    expect(workSummary.recommendedActionSummary).toContain('从这一版分叉')
     expect(workSummary.decisionSummary).toContain('更适合从这一版分叉')
+    expect(workSummary.recommendedDirectLinkIds).toEqual(['guided', 'prompt', 'parameters'])
+    expect(workSummary.recommendedDirectLinksLabel).toContain('先看：')
     expect(workSummary.actionDecisions.some((item) => item.recommended)).toBe(true)
     expect(workSummary.directLinks.some((item) => item.id === 'template')).toBe(true)
     expect(workSummary.directLinks.some((item) => item.id === 'parameters')).toBe(true)
+    expect(workSummary.directLinks.some((item) => item.id === 'prompt')).toBe(true)
     expect(workSummary.deltaItems.some((item) => item.id === 'guided')).toBe(true)
     expect(workSummary.deltaItems.some((item) => item.id === 'parameters')).toBe(true)
     expect(workSummary.currentLabel).toContain('当前版追问')
@@ -191,7 +197,10 @@ describe('workReplay version summaries', () => {
     expect(taskSummary.quickDeltaLabels).toContain('重试链重试')
     expect(taskSummary.recommendedActionId).toBe('retry-version')
     expect(taskSummary.recommendedActionLabel).toBe('按这次参数重跑')
+    expect(taskSummary.recommendedActionSummary).toContain('保留当前目标重试')
     expect(taskSummary.decisionSummary).toContain('更适合重试这一版')
+    expect(taskSummary.recommendedDirectLinkIds).toEqual(['parameters', 'references', 'prompt'])
+    expect(taskSummary.recommendedDirectLinksLabel).toContain('参数')
     expect(taskSummary.directLinks.some((item) => item.id === 'references')).toBe(true)
     expect(taskSummary.deltaItems[0]?.id).toBe('retry')
     expect(taskSummary.currentLabel).toContain('第 3 次同版尝试')
@@ -230,6 +239,8 @@ describe('workReplay version summaries', () => {
     expect(summary.guidedSummary).toContain('当前没有挂接正式追问结果')
     expect(summary.parameterSummary).toContain('参数：文生图')
     expect(summary.ancestorSummary).toContain('更早来源：当前仍在这个主题的首版主线上继续推进')
+    expect(getWorkReplayStatusText(summary)).toContain('可直接回流')
+    expect(getWorkReplayHint('work', false, summary)).toContain('直接恢复到工作台')
   })
 
   it('marks replayed guided flow as returning to the same skill loop', () => {
@@ -374,5 +385,77 @@ describe('workReplay version summaries', () => {
     expect(replayed.generationSnapshot?.stream).toBe(true)
     expect(replayed.generationSnapshot?.draw?.variation).toBe('保留主体')
     expect(replayed.generationSnapshot?.contract?.references?.count).toBe(1)
+  })
+
+  it('replays task work with contract fields overriding stale top-level snapshot values', () => {
+    const replayed = buildTaskReplayWork(
+      {
+        id: 'task-replay-canonical',
+        userId: 'user-1',
+        status: 'succeeded',
+        retryAttempt: 0,
+        rootTaskId: 'task-replay-canonical',
+        retryable: true,
+        createdAt: new Date(30).toISOString(),
+        updatedAt: new Date(40).toISOString(),
+        payload: {
+          mode: 'image2image',
+          title: '商品修图',
+          meta: '修图',
+          promptText: '按合同请求继续',
+          workspacePrompt: '按合同工作区继续',
+          requestPrompt: '按合同请求继续',
+          snapshotId: 'snapshot-canonical',
+          size: '1536x1024',
+          quality: 'high',
+          model: 'gpt-image-1',
+          providerId: 'openai',
+          stream: true,
+          referenceImages: [],
+        },
+        result: {
+          generationSnapshot: {
+            id: 'snapshot-canonical',
+            createdAt: 30,
+            mode: 'text2image',
+            prompt: '旧顶层请求',
+            requestPrompt: '旧顶层请求',
+            workspacePrompt: '旧顶层工作区',
+            size: '1024x1024',
+            quality: 'low',
+            model: 'legacy-model',
+            providerId: 'legacy-provider',
+            apiUrl: '/legacy',
+            requestUrl: '/legacy/request',
+            stream: false,
+            contract: {
+              version: 1 as const,
+              scene: getStudioFlowScene('image-edit'),
+              prompt: {
+                request: '合同请求',
+                workspace: '合同工作区',
+              },
+              parameters: {
+                mode: 'image2image',
+                size: '1536x1024',
+                quality: 'high',
+                model: 'gpt-image-1',
+                providerId: 'openai',
+                stream: true,
+              },
+              guidedFlow: null,
+            },
+          },
+        },
+      } as never,
+    )
+
+    expect(replayed.mode).toBe('image2image')
+    expect(replayed.providerModel).toBe('gpt-image-1')
+    expect(replayed.size).toBe('1536x1024')
+    expect(replayed.quality).toBe('high')
+    expect(replayed.promptText).toBe('合同请求')
+    expect(replayed.generationSnapshot?.requestPrompt).toBe('合同请求')
+    expect(replayed.generationSnapshot?.providerId).toBe('openai')
   })
 })

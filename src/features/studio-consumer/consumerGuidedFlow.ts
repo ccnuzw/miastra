@@ -11,6 +11,7 @@ import type {
 } from '@/features/prompt-templates/studioFlowSemantic'
 import {
   getStudioFlowActionLabel,
+  getStudioFlowScene,
   getStudioFlowSourceLabel,
 } from '@/features/prompt-templates/studioFlowSemantic'
 
@@ -138,6 +139,19 @@ type BuildConsumerGuidedFlowLoopStateInput = {
   versionLabel?: string
 }
 
+type RebaseConsumerGuidedFlowSnapshotOptions = {
+  sourceType?: StudioFlowSourceType | 'manual'
+  stage: ConsumerGuidedFlowLoopStage
+  actionId?: StudioFlowActionId
+  sceneId?: StudioFlowSceneId
+  followUpMode?: ConsumerGuidedFlowSnapshot['followUpMode']
+  promptAppendix?: string
+  promptText?: string
+  defaultActionId?: StudioFlowActionId
+  actionPriority?: StudioFlowActionId[]
+  updatedAt?: number
+}
+
 export function buildConsumerGuidedFlowLoopState(
   input: BuildConsumerGuidedFlowLoopStateInput,
 ): ConsumerGuidedFlowLoopState {
@@ -222,7 +236,9 @@ export function buildConsumerGuidedFlowLoopState(
     runLabel: `当前结果动作已回写到 Skill「${skillLabel}」`,
     loopHint: input.actionId
       ? `这次会沿「${getStudioFlowActionLabel(input.actionId)}」分支继续，并保留 ${
-          currentSourceType === 'manual' ? '当前工作台' : getStudioFlowSourceLabel(currentSourceType)
+          currentSourceType === 'manual'
+            ? '当前工作台'
+            : getStudioFlowSourceLabel(currentSourceType)
         } 的上下文。`
       : '这次会沿当前结果分支继续。',
     nextActionId,
@@ -243,4 +259,61 @@ export function getConsumerGuidedFlowSelectionMap(
     accumulator[step.questionId] = step.optionId
     return accumulator
   }, {})
+}
+
+export function rebaseConsumerGuidedFlowSnapshot(
+  snapshot: ConsumerGuidedFlowSnapshot,
+  options: RebaseConsumerGuidedFlowSnapshotOptions,
+): ConsumerGuidedFlowSnapshot {
+  const sourceType = options.sourceType ?? snapshot.sourceType
+  const sceneId = options.sceneId ?? snapshot.sceneId
+  const actionPriority =
+    options.actionPriority ??
+    snapshot.actionPriority ??
+    snapshot.runtimeDecision?.result.actionPriority ??
+    []
+  const defaultActionId =
+    options.defaultActionId ??
+    snapshot.defaultActionId ??
+    snapshot.runtimeDecision?.result.defaultActionId
+
+  return {
+    ...snapshot,
+    sceneId,
+    scene: sceneId === snapshot.sceneId ? snapshot.scene : getStudioFlowScene(sceneId),
+    sourceType,
+    actionId: options.actionId ?? snapshot.actionId,
+    followUpMode: options.followUpMode ?? snapshot.followUpMode,
+    promptAppendix: options.promptAppendix?.trim() || snapshot.promptAppendix,
+    promptText: options.promptText?.trim() || snapshot.promptText,
+    defaultActionId,
+    actionPriority,
+    runtimeDecision: snapshot.runtimeDecision
+      ? {
+          ...snapshot.runtimeDecision,
+          result: {
+            ...snapshot.runtimeDecision.result,
+            defaultActionId,
+            actionPriority,
+          },
+          contract: {
+            ...snapshot.runtimeDecision.contract,
+            sourceType: sourceType ?? snapshot.runtimeDecision.contract.sourceType,
+          },
+        }
+      : snapshot.runtimeDecision,
+    loopState: buildConsumerGuidedFlowLoopState({
+      guideId: snapshot.guideId,
+      guideTitle: snapshot.guideTitle,
+      templateId: snapshot.templateId,
+      templateTitle: snapshot.templateTitle,
+      sourceType,
+      stage: options.stage,
+      actionId: options.actionId ?? snapshot.actionId,
+      defaultActionId,
+      actionPriority,
+      versionLabel: snapshot.loopState?.versionLabel,
+    }),
+    updatedAt: options.updatedAt ?? Date.now(),
+  }
 }

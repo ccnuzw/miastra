@@ -33,6 +33,18 @@ export type PromptTemplateRuntimeContext = {
   nextActionId?: StudioFlowActionId
 }
 
+export type PromptTemplateRuntimeOptions = {
+  sceneId?: StudioFlowSceneId
+  sourceType?: StudioFlowSourceType
+  nextActionId?: StudioFlowActionId
+}
+
+export type PromptTemplateRuntimeConsumption = {
+  context: PromptTemplateRuntimeContext
+  guidedFlow: ConsumerGuidedFlowSnapshot | null
+  promptText: string
+}
+
 function isGuidedField(field: PromptTemplateFieldDefinition) {
   return Boolean(field.guided?.options?.length)
 }
@@ -45,8 +57,7 @@ function buildTemplateDefaultStep(
   const defaultOption =
     field.guided.options.find(
       (option) => option.id === resolvePromptTemplateGuidedFieldDefaultOptionId(field),
-    ) ??
-    field.guided.options[0]
+    ) ?? field.guided.options[0]
   if (!defaultOption) return null
 
   return {
@@ -98,7 +109,10 @@ function buildRuntimeEntryDecisions(
       available,
       recommended,
       locked,
-      reason: presentation.recommendedEntry.mode === mode ? presentation.recommendedEntry.reason : fallbackReason,
+      reason:
+        presentation.recommendedEntry.mode === mode
+          ? presentation.recommendedEntry.reason
+          : fallbackReason,
       summary:
         mode === 'consumer'
           ? presentation.runtime.consumerEntrySummary
@@ -124,22 +138,21 @@ export function resolvePromptTemplateRuntimeMode(
     ? structure.entryModes
     : ['consumer', 'pro']
   if (availableModes.includes(preferredMode)) return preferredMode
-  if (availableModes.includes(presentation.recommendedEntry.mode)) return presentation.recommendedEntry.mode
+  if (availableModes.includes(presentation.recommendedEntry.mode))
+    return presentation.recommendedEntry.mode
   return availableModes[0] ?? preferredMode
 }
 
 export function buildPromptTemplateRuntimeContext(
   template: PromptTemplateListItem,
   preferredMode: PromptTemplateWorkbenchEntryMode,
-  options?: {
-    sceneId?: StudioFlowSceneId
-    sourceType?: StudioFlowSourceType
-    nextActionId?: StudioFlowActionId
-  },
+  options?: PromptTemplateRuntimeOptions,
 ): PromptTemplateRuntimeContext {
   const resolvedMode = resolvePromptTemplateRuntimeMode(template, preferredMode)
   const structure = getPromptTemplateStructure(template)
-  const runtimeDecision = buildPromptTemplateRuntimeDecision(template, [], resolvedMode)
+  const runtimeDecision = buildPromptTemplateRuntimeDecision(template, [], resolvedMode, {
+    nextActionId: options?.nextActionId,
+  })
   const activeEntry = runtimeDecision.activeEntry
   const sceneId = options?.sceneId ?? structure.scene.id
 
@@ -157,6 +170,9 @@ export function buildPromptTemplateRuntimeDecision(
   template: PromptTemplateListItem,
   steps: ConsumerGuidedFlowStepSnapshot[],
   mode: PromptTemplateWorkbenchEntryMode,
+  options?: {
+    nextActionId?: StudioFlowActionId
+  },
 ): ConsumerGuidedFlowRuntimeDecision {
   const presentation = buildPromptTemplatePresentation(template)
   const structure = getPromptTemplateStructure(template)
@@ -170,6 +186,7 @@ export function buildPromptTemplateRuntimeDecision(
     ? steps.map((step) => `${step.questionTitle}：${step.optionLabel}`).join(' / ')
     : undefined
   const actionPriority = presentation.resultBridge.actions.map((action) => action.id)
+  const defaultActionId = options?.nextActionId ?? presentation.runtime.defaultAction?.id
 
   return {
     entries,
@@ -184,7 +201,7 @@ export function buildPromptTemplateRuntimeDecision(
       defaultSelectionSummary,
     },
     result: {
-      defaultActionId: presentation.runtime.defaultAction?.id,
+      defaultActionId,
       actionPriority,
       summary: presentation.runtime.resultActionPrioritySummary,
     },
@@ -198,11 +215,33 @@ export function buildPromptTemplateRuntimeDecision(
   }
 }
 
+export function buildPromptTemplateRuntimeConsumption(
+  template: PromptTemplateListItem,
+  preferredMode: PromptTemplateWorkbenchEntryMode,
+  options?: PromptTemplateRuntimeOptions,
+): PromptTemplateRuntimeConsumption {
+  const context = buildPromptTemplateRuntimeContext(template, preferredMode, options)
+  const guidedFlow =
+    context.mode === 'consumer'
+      ? buildPromptTemplateGuidedFlowSnapshot(template, context.mode, options)
+      : null
+
+  return {
+    context,
+    guidedFlow,
+    promptText: guidedFlow?.promptText?.trim() || template.content,
+  }
+}
+
 export function buildPromptTemplateGuidedFlowSnapshot(
   template: PromptTemplateListItem,
   preferredMode: PromptTemplateWorkbenchEntryMode = 'consumer',
-  updatedAt = Date.now(),
+  options: number | (PromptTemplateRuntimeOptions & { updatedAt?: number }) = Date.now(),
 ): ConsumerGuidedFlowSnapshot | null {
+  const resolvedOptions =
+    typeof options === 'number'
+      ? { updatedAt: options }
+      : { updatedAt: options.updatedAt ?? Date.now(), ...options }
   const structure = getPromptTemplateStructure(template)
   const presentation = buildPromptTemplatePresentation(template)
   const guidedFields = structure.fields.filter(isGuidedField)
@@ -216,14 +255,18 @@ export function buildPromptTemplateGuidedFlowSnapshot(
     .filter(Boolean)
     .join('\n')
   const fieldLabels = guidedFields.map((field) => field.label)
-  const runtimeDecision = buildPromptTemplateRuntimeDecision(template, steps, resolvedMode)
+  const runtimeDecision = buildPromptTemplateRuntimeDecision(template, steps, resolvedMode, {
+    nextActionId: resolvedOptions.nextActionId,
+  })
   const activeEntry = runtimeDecision.activeEntry
+  const sceneId = resolvedOptions.sceneId ?? structure.scene.id
+  const sourceType = resolvedOptions.sourceType ?? 'template'
 
   return {
     version: 1,
     guideId: `template:${template.id}`,
-    sceneId: structure.scene.id,
-    scene: structure.scene,
+    sceneId,
+    scene: getStudioFlowScene(sceneId),
     guideTitle: `${presentation.title} · 模板追问`,
     guideDescription: `进入工作台后会先按模板字段补齐 ${fieldLabels.join(' / ')}，再接结果动作继续往下走。`,
     basePrompt: template.content.trim(),
@@ -233,7 +276,7 @@ export function buildPromptTemplateGuidedFlowSnapshot(
     totalQuestionCount: guidedFields.length,
     completedQuestionCount: steps.length,
     steps,
-    sourceType: 'template',
+    sourceType,
     templateId: template.id,
     templateTitle: presentation.title,
     entryMode: activeEntry.mode,
@@ -248,12 +291,12 @@ export function buildPromptTemplateGuidedFlowSnapshot(
       guideTitle: `${presentation.title} · 模板追问`,
       templateId: template.id,
       templateTitle: presentation.title,
-      sourceType: 'template',
+      sourceType,
       stage: 'template-entry',
       defaultActionId: runtimeDecision.result.defaultActionId,
       actionPriority: runtimeDecision.result.actionPriority,
       versionLabel: presentation.chainContext.versionSummary,
     }),
-    updatedAt,
+    updatedAt: resolvedOptions.updatedAt,
   }
 }

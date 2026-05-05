@@ -24,10 +24,9 @@ import {
   resolvePromptTemplateFamily,
 } from '@/features/prompt-templates/promptTemplate.presentation'
 import {
-  buildPromptTemplateStudioLaunch,
   buildPromptTemplateStudioPath,
+  resolvePromptTemplateStudioLaunch,
 } from '@/features/prompt-templates/promptTemplate.studioEntry'
-import { buildPromptTemplateRuntimeContext } from '@/features/prompt-templates/promptTemplate.runtime'
 import type { StudioFlowSceneId } from '@/features/prompt-templates/studioFlowSemantic'
 import { getStudioFlowSceneLabel } from '@/features/prompt-templates/studioFlowSemantic'
 import {
@@ -36,6 +35,12 @@ import {
 } from '@/features/prompt-templates/promptTemplate.utils'
 import { usePromptTemplates } from '@/features/prompt-templates/usePromptTemplates'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
+
+function getTemplateActionErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (error) return String(error)
+  return fallback
+}
 
 export function TemplatesPage() {
   const { templates, loading, error, refresh, saveTemplate, deleteTemplate } = usePromptTemplates()
@@ -46,6 +51,7 @@ export function TemplatesPage() {
   const [editingId, setEditingId] = useState('')
   const [busyId, setBusyId] = useState('')
   const [message, setMessage] = useState('')
+  const [messageTone, setMessageTone] = useState<'success' | 'error'>('success')
   const [searchQuery, setSearchQuery] = useState('')
   const [familyFilter, setFamilyFilter] = useState('全部类型')
   const [categoryFilter, setCategoryFilter] = useState('全部分类')
@@ -72,7 +78,9 @@ export function TemplatesPage() {
   const filteredTemplates = useMemo(
     () =>
       [...templates]
-        .sort((a, b) => getPromptTemplateSortTime(b, sortMode) - getPromptTemplateSortTime(a, sortMode))
+        .sort(
+          (a, b) => getPromptTemplateSortTime(b, sortMode) - getPromptTemplateSortTime(a, sortMode),
+        )
         .filter((template) => {
           const family = resolvePromptTemplateFamily(template)
           if (familyFilter !== '全部类型' && family.label !== familyFilter) return false
@@ -88,8 +96,7 @@ export function TemplatesPage() {
   const hasActiveFilters =
     Boolean(searchQuery.trim()) || categoryFilter !== '全部分类' || familyFilter !== '全部类型'
   const hasTemplates = templates.length > 0
-  const errorMessage =
-    error instanceof Error ? error.message : error ? String(error) : ''
+  const errorMessage = error instanceof Error ? error.message : error ? String(error) : ''
   const recommendedCount = filteredTemplates.filter((template) => {
     const presentation = buildPromptTemplatePresentation(template)
     return presentation.recommendedEntry.mode === 'consumer'
@@ -109,7 +116,11 @@ export function TemplatesPage() {
       (action) => action.id === 'retry-version' || action.id === 'branch-version',
     )
   }).length
-  const alignedSceneIds: StudioFlowSceneId[] = ['product-shot', 'poster-campaign', 'portrait-avatar']
+  const alignedSceneIds: StudioFlowSceneId[] = [
+    'product-shot',
+    'poster-campaign',
+    'portrait-avatar',
+  ]
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -128,8 +139,24 @@ export function TemplatesPage() {
       setCategory('')
       setTagsText('')
       setEditingId('')
-      setMessage('模板已保存。')
-      await refresh()
+      try {
+        await refresh()
+        setMessageTone('success')
+        setMessage('模板已保存。')
+      } catch (refreshError) {
+        setMessageTone('error')
+        setMessage(
+          `模板已保存，但模板库刷新失败：${getTemplateActionErrorMessage(
+            refreshError,
+            '请稍后刷新模板库重试',
+          )}。`,
+        )
+      }
+    } catch (submitError) {
+      setMessageTone('error')
+      setMessage(
+        `模板保存失败：${getTemplateActionErrorMessage(submitError, '请检查模板内容后重试')}。`,
+      )
     } finally {
       setBusyId('')
     }
@@ -140,8 +167,24 @@ export function TemplatesPage() {
     setMessage('')
     try {
       await deleteTemplate(id)
-      setMessage('模板已删除。')
-      await refresh()
+      try {
+        await refresh()
+        setMessageTone('success')
+        setMessage('模板已删除。')
+      } catch (refreshError) {
+        setMessageTone('error')
+        setMessage(
+          `模板已删除，但模板库刷新失败：${getTemplateActionErrorMessage(
+            refreshError,
+            '请稍后刷新模板库重试',
+          )}。`,
+        )
+      }
+    } catch (deleteError) {
+      setMessageTone('error')
+      setMessage(
+        `模板删除失败：${getTemplateActionErrorMessage(deleteError, '请刷新模板库后重试')}。`,
+      )
     } finally {
       setBusyId('')
     }
@@ -157,8 +200,24 @@ export function TemplatesPage() {
         category: template.category?.trim() || undefined,
         tags: template.tags,
       })
-      setMessage('已复制为新模板。')
-      await refresh()
+      try {
+        await refresh()
+        setMessageTone('success')
+        setMessage('已复制为新模板。')
+      } catch (refreshError) {
+        setMessageTone('error')
+        setMessage(
+          `模板已复制，但模板库刷新失败：${getTemplateActionErrorMessage(
+            refreshError,
+            '请稍后刷新模板库重试',
+          )}。`,
+        )
+      }
+    } catch (duplicateError) {
+      setMessageTone('error')
+      setMessage(
+        `复制模板失败：${getTemplateActionErrorMessage(duplicateError, '请刷新模板库后重试')}。`,
+      )
     } finally {
       setBusyId('')
     }
@@ -168,8 +227,10 @@ export function TemplatesPage() {
     setBusyId(id)
     try {
       await navigator.clipboard.writeText(contentToCopy)
+      setMessageTone('success')
       setMessage('模板内容已复制。')
     } catch {
+      setMessageTone('error')
       setMessage('复制失败。')
     } finally {
       setBusyId('')
@@ -184,7 +245,8 @@ export function TemplatesPage() {
             <p className="eyebrow">Skill Entry Collection</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight">模板技能入口</h1>
             <p className="mt-2 max-w-3xl text-sm text-porcelain-100/60">
-              这里不只是保存 Prompt。每个模板都应该能表达它打算帮你做什么、推荐从普通版还是专业版起手，以及进入后会如何接结果动作、追问和版本复用链。
+              这里不只是保存
+              Prompt。每个模板都应该能表达它打算帮你做什么、推荐从普通版还是专业版起手，以及进入后会如何接结果动作、追问和版本复用链。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -196,7 +258,8 @@ export function TemplatesPage() {
             <span className="status-pill">可直接挂模板追问 {guidedRuntimeCount} 个</span>
             <span className="status-pill">可接版本复用 {versionReadyCount} 个</span>
             <span className="status-pill">
-              统一场景 {alignedSceneIds.map((sceneId) => getStudioFlowSceneLabel(sceneId)).join(' / ')}
+              统一场景{' '}
+              {alignedSceneIds.map((sceneId) => getStudioFlowSceneLabel(sceneId)).join(' / ')}
             </span>
             <button
               className="rounded-full border border-porcelain-50/10 bg-ink-950/[0.65] px-4 py-2 text-sm font-semibold text-porcelain-50 transition hover:border-signal-cyan/50 hover:text-signal-cyan"
@@ -214,7 +277,9 @@ export function TemplatesPage() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
                 <p className="field-label">模板如何作为 Skill 入口</p>
-                <h2 className="mt-2 text-xl font-semibold text-porcelain-50">先决定执行意图，再决定从哪里开始</h2>
+                <h2 className="mt-2 text-xl font-semibold text-porcelain-50">
+                  先决定执行意图，再决定从哪里开始
+                </h2>
                 <p className="mt-2 text-sm leading-6 text-porcelain-100/70">
                   普通版更适合先把模板当成任务起点，带着模板默认追问路径快速出第一版，再接结果动作继续改；专业版更适合把模板当成结构底稿，先锁字段、参数和风格控制，再围绕版本链持续重跑或派生。
                 </p>
@@ -241,7 +306,9 @@ export function TemplatesPage() {
           <div className="grid gap-3 rounded-[1.5rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-5">
             <div>
               <p className="field-label">进入策略总览</p>
-              <h2 className="mt-2 text-xl font-semibold text-porcelain-50">模板已经开始携带场景、入口和后续动作语义</h2>
+              <h2 className="mt-2 text-xl font-semibold text-porcelain-50">
+                模板已经开始携带场景、入口和后续动作语义
+              </h2>
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="status-pill">字段 schema</span>
@@ -262,7 +329,17 @@ export function TemplatesPage() {
               模板暂时没有加载成功。你可以先整理左侧内容，或刷新后重新读取工作台里已保存的模板。
             </p>
             <div className="rounded-[1.2rem] border border-signal-coral/20 bg-signal-coral/10 px-4 py-3 text-sm text-porcelain-100/78">
-              当前异常：{errorMessage || '模板库读取失败'}。如果是从模板入口跳转到工作台失败，建议先回到这里刷新模板，再重新进入普通版或专业版。
+              当前异常：{errorMessage || '模板库读取失败'}
+              。如果是从模板入口跳转到工作台失败，建议先回到这里刷新模板，再重新进入普通版或专业版。
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="rounded-full border border-signal-coral/25 bg-signal-coral/10 px-4 py-2 text-sm font-semibold text-signal-coral"
+                onClick={() => void refresh()}
+              >
+                重新加载模板库
+              </button>
             </div>
             <ErrorNotice error={error} />
           </div>
@@ -272,7 +349,17 @@ export function TemplatesPage() {
             正在加载模板库，最近使用、分类和推荐入口会一起恢复。
           </div>
         ) : null}
-        {message ? <p className="mt-6 text-sm text-signal-cyan">{message}</p> : null}
+        {message ? (
+          <p
+            className={`mt-6 rounded-[1.2rem] border px-4 py-3 text-sm ${
+              messageTone === 'error'
+                ? 'border-signal-coral/25 bg-signal-coral/10 text-porcelain-100/78'
+                : 'border-signal-cyan/25 bg-signal-cyan/[0.08] text-signal-cyan'
+            }`}
+          >
+            {message}
+          </p>
+        ) : null}
 
         <div className="mt-8 grid gap-6 min-[1560px]:grid-cols-[minmax(430px,0.8fr)_minmax(0,1.2fr)]">
           <div className="space-y-6 min-[1560px]:sticky min-[1560px]:top-28 min-[1560px]:self-start">
@@ -296,13 +383,17 @@ export function TemplatesPage() {
                         ? 'border-signal-cyan/55 bg-signal-cyan/[0.12]'
                         : 'border-porcelain-50/10 bg-ink-950/[0.35] hover:border-signal-cyan/30'
                     }`}
-                    onClick={() => setFamilyFilter(familyFilter === item.label ? '全部类型' : item.label)}
+                    onClick={() =>
+                      setFamilyFilter(familyFilter === item.label ? '全部类型' : item.label)
+                    }
                   >
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold text-porcelain-50">{item.label}</span>
                       <span className="status-pill">{item.count} 个</span>
                     </div>
-                    <p className="mt-2 text-xs leading-5 text-porcelain-100/60">{item.description}</p>
+                    <p className="mt-2 text-xs leading-5 text-porcelain-100/60">
+                      {item.description}
+                    </p>
                     <p className="mt-2 text-[11px] font-medium text-signal-cyan/90">
                       推荐先从{item.recommendedMode === 'consumer' ? '普通版' : '专业版'}进入
                     </p>
@@ -319,7 +410,8 @@ export function TemplatesPage() {
                 <div>
                   <p className="field-label">模板编辑器</p>
                   <p className="mt-2 text-sm text-porcelain-100/60">
-                    在工作台保存当前 Prompt 后，可以回到这里补标题、分类和标签。现在也建议顺手补充适用场景，让模板逐步从“保存文本”变成“可执行入口”。
+                    在工作台保存当前 Prompt
+                    后，可以回到这里补标题、分类和标签。现在也建议顺手补充适用场景，让模板逐步从“保存文本”变成“可执行入口”。
                   </p>
                 </div>
                 {editingId ? (
@@ -464,7 +556,8 @@ export function TemplatesPage() {
               <div className="rounded-[1.35rem] border border-dashed border-porcelain-50/15 bg-ink-950/[0.32] p-5 text-sm text-porcelain-100/65">
                 <p className="text-base font-semibold text-porcelain-50">还没有模板</p>
                 <p className="mt-2 leading-6">
-                  先在工作台里把当前 Prompt 保存为模板，再回到这里补分类、标签和适用场景；之后你就可以把它当成普通版起稿入口或专业版结构底稿继续创作。
+                  先在工作台里把当前 Prompt
+                  保存为模板，再回到这里补分类、标签和适用场景；之后你就可以把它当成普通版起稿入口或专业版结构底稿继续创作。
                 </p>
                 <p className="mt-2 leading-6 text-porcelain-100/55">
                   当前空态不影响工作台正常使用。没有模板时，普通版会按自由输入起手，专业版会按当前工作区内容直接建立基线。
@@ -475,10 +568,16 @@ export function TemplatesPage() {
             <div className="grid gap-4 xl:grid-cols-2 min-[1760px]:grid-cols-3">
               {filteredTemplates.map((template) => {
                 const presentation = buildPromptTemplatePresentation(template)
-                const consumerRuntimeContext = buildPromptTemplateRuntimeContext(template, 'consumer', {
+                const consumerLaunch = resolvePromptTemplateStudioLaunch(template, {
+                  templateId: template.id,
+                  mode: 'consumer',
+                  intent: 'task',
                   sourceType: 'template',
                 })
-                const proRuntimeContext = buildPromptTemplateRuntimeContext(template, 'pro', {
+                const proLaunch = resolvePromptTemplateStudioLaunch(template, {
+                  templateId: template.id,
+                  mode: 'pro',
+                  intent: 'panel',
                   sourceType: 'template',
                 })
                 const activityDate = formatPromptTemplateDate(
@@ -529,7 +628,9 @@ export function TemplatesPage() {
                       <span className="status-pill">{presentation.structureMeta.sceneLabel}</span>
                       <span className="status-pill">{presentation.structureMeta.statusLabel}</span>
                       <span className="status-pill">
-                        {presentation.recommendedEntry.mode === 'consumer' ? '普通版起手' : '专业版起手'}
+                        {presentation.recommendedEntry.mode === 'consumer'
+                          ? '普通版起手'
+                          : '专业版起手'}
                       </span>
                     </div>
                     <p className="mt-3 text-sm leading-6 text-porcelain-100/62">
@@ -580,68 +681,58 @@ export function TemplatesPage() {
 
                     <div className="mt-4 grid gap-3">
                       {presentation.entries.map((entry) => {
-                        const runtimeContext =
-                          entry.mode === 'consumer' ? consumerRuntimeContext : proRuntimeContext
+                        const launch = entry.mode === 'consumer' ? consumerLaunch : proLaunch
                         return (
-                        <Link
-                          key={`${template.id}:${entry.mode}`}
-                          to={buildPromptTemplateStudioPath(
-                            buildPromptTemplateStudioLaunch({
-                              templateId: template.id,
-                              mode: runtimeContext.mode,
-                              intent: runtimeContext.intent,
-                              sceneId: runtimeContext.sceneId,
-                              sourceType: runtimeContext.sourceType,
-                              nextAction: runtimeContext.nextActionId,
-                            }),
-                          )}
-                          className={`rounded-[1.1rem] border px-4 py-3 transition ${
-                            entry.recommended
-                              ? 'border-signal-cyan/45 bg-signal-cyan/[0.1]'
-                              : entry.available
-                                ? 'border-porcelain-50/10 bg-ink-950/[0.3] hover:border-porcelain-50/25'
-                                : 'border-porcelain-50/10 bg-ink-950/[0.18] opacity-75'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
-                              {entry.mode === 'consumer' ? (
-                                <Wand2 className="h-4 w-4 text-signal-cyan" />
-                              ) : (
-                                <LayoutPanelTop className="h-4 w-4 text-signal-cyan" />
-                              )}
-                              {entry.label}
+                          <Link
+                            key={`${template.id}:${entry.mode}`}
+                            to={buildPromptTemplateStudioPath(launch)}
+                            className={`rounded-[1.1rem] border px-4 py-3 transition ${
+                              entry.recommended
+                                ? 'border-signal-cyan/45 bg-signal-cyan/[0.1]'
+                                : entry.available
+                                  ? 'border-porcelain-50/10 bg-ink-950/[0.3] hover:border-porcelain-50/25'
+                                  : 'border-porcelain-50/10 bg-ink-950/[0.18] opacity-75'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
+                                {entry.mode === 'consumer' ? (
+                                  <Wand2 className="h-4 w-4 text-signal-cyan" />
+                                ) : (
+                                  <LayoutPanelTop className="h-4 w-4 text-signal-cyan" />
+                                )}
+                                {entry.label}
+                              </div>
+                              <ArrowRight className="h-4 w-4 text-signal-cyan" />
                             </div>
-                            <ArrowRight className="h-4 w-4 text-signal-cyan" />
-                          </div>
-                          <p className="mt-2 text-sm leading-6 text-porcelain-100/62">
-                            {entry.description}
-                          </p>
-                          <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
-                            {entry.reason}
-                          </p>
-                          <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
-                            {entry.mode === 'consumer'
-                              ? presentation.runtime.consumerEntrySummary
-                              : presentation.runtime.proEntrySummary}
-                          </p>
-                          <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
-                            更适合：{entry.bestFor}
-                          </p>
-                          <p className="mt-1 text-xs leading-5 text-porcelain-100/55">
-                            下一步：{entry.nextStep}
-                          </p>
-                          {entry.recommended ? (
-                            <p className="mt-2 text-[11px] font-medium text-signal-cyan">
-                              推荐入口
+                            <p className="mt-2 text-sm leading-6 text-porcelain-100/62">
+                              {entry.description}
                             </p>
-                          ) : null}
-                          {!entry.available ? (
-                            <p className="mt-2 text-[11px] font-medium text-signal-amber">
-                              当前模板不主推这个入口，进入后会优先按模板推荐路径纠偏
+                            <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
+                              {entry.reason}
                             </p>
-                          ) : null}
-                        </Link>
+                            <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
+                              {entry.mode === 'consumer'
+                                ? presentation.runtime.consumerEntrySummary
+                                : presentation.runtime.proEntrySummary}
+                            </p>
+                            <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
+                              更适合：{entry.bestFor}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-porcelain-100/55">
+                              下一步：{entry.nextStep}
+                            </p>
+                            {entry.recommended ? (
+                              <p className="mt-2 text-[11px] font-medium text-signal-cyan">
+                                推荐入口
+                              </p>
+                            ) : null}
+                            {!entry.available ? (
+                              <p className="mt-2 text-[11px] font-medium text-signal-amber">
+                                当前模板不主推这个入口，进入后会优先按模板推荐路径纠偏
+                              </p>
+                            ) : null}
+                          </Link>
                         )
                       })}
                     </div>
@@ -666,7 +757,9 @@ export function TemplatesPage() {
                             key={action.id}
                             className="rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.26] px-3 py-3"
                           >
-                            <p className="text-xs font-semibold text-porcelain-50">{action.label}</p>
+                            <p className="text-xs font-semibold text-porcelain-50">
+                              {action.label}
+                            </p>
                             <p className="mt-1 text-xs leading-5 text-porcelain-100/55">
                               {action.description}
                             </p>
@@ -686,7 +779,8 @@ export function TemplatesPage() {
                         结构与链路上下文
                       </div>
                       <p className="mt-2 text-sm leading-6 text-porcelain-100/62">
-                        {presentation.structureMeta.sceneLabel} · {presentation.structureMeta.sceneDescription}
+                        {presentation.structureMeta.sceneLabel} ·{' '}
+                        {presentation.structureMeta.sceneDescription}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {presentation.structureMeta.fields.map((field) => (
@@ -703,12 +797,17 @@ export function TemplatesPage() {
                         ))}
                       </div>
                       <div className="mt-3 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.24] px-3 py-3 text-xs leading-5 text-porcelain-100/56">
-                        <p>{presentation.runtime.followUpLabel}：{presentation.runtime.followUpSummary}</p>
+                        <p>
+                          {presentation.runtime.followUpLabel}：
+                          {presentation.runtime.followUpSummary}
+                        </p>
                         <p className="mt-1">
-                          {presentation.chainContext.followUpLabel}：{presentation.chainContext.followUpSummary}
+                          {presentation.chainContext.followUpLabel}：
+                          {presentation.chainContext.followUpSummary}
                         </p>
                         <p>
-                          {presentation.chainContext.versionLabel}：{presentation.chainContext.versionSummary}
+                          {presentation.chainContext.versionLabel}：
+                          {presentation.chainContext.versionSummary}
                         </p>
                       </div>
                       <p className="mt-3 text-xs leading-5 text-porcelain-100/55">
@@ -767,9 +866,24 @@ export function TemplatesPage() {
                       : '先创建一个模板，后续就可以把它直接带回工作台作为普通版任务入口或专业版结构底稿。'}
                   </p>
                   {hasActiveFilters ? (
-                    <p className="mt-2 text-sm leading-6 text-porcelain-100/55">
-                      当前是筛空态，不是模板丢失。清空筛选后，模板入口和回流链路不会受影响。
-                    </p>
+                    <>
+                      <p className="mt-2 text-sm leading-6 text-porcelain-100/55">
+                        当前是筛空态，不是模板丢失。清空筛选后，模板入口和回流链路不会受影响。
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-full border border-porcelain-50/10 px-4 py-2 text-sm"
+                          onClick={() => {
+                            setSearchQuery('')
+                            setFamilyFilter('全部类型')
+                            setCategoryFilter('全部分类')
+                          }}
+                        >
+                          清空筛选
+                        </button>
+                      </div>
+                    </>
                   ) : null}
                 </div>
               ) : null}

@@ -8,16 +8,20 @@ import {
 } from '@/features/studio-home/consumerHomePresets'
 import {
   getConsumerGuidedFlowSelectionMap,
+  rebaseConsumerGuidedFlowSnapshot,
   type ConsumerGuidedFlowSnapshot,
 } from '@/features/studio-consumer/consumerGuidedFlow'
-import { buildConsumerGuidedFlowLoopState } from '@/features/studio-consumer/consumerGuidedFlow'
 import {
   getStudioFlowActionLabel,
   getStudioFlowScene,
   getStudioFlowSceneLabel,
 } from '@/features/prompt-templates/studioFlowSemantic'
 import { resolveGenerationContractFromWork } from '@/features/generation/generation.contract'
-import { getWorkVersionSourceSummary } from '@/features/works/workReplay'
+import {
+  getWorkReplayReferenceSummary,
+  getWorkReplayStatusText,
+  getWorkVersionSourceSummary,
+} from '@/features/works/workReplay'
 import type { GalleryImage } from '@/features/works/works.types'
 import { dispatchStudioConsumerIntent } from './consumerFlow.events'
 
@@ -202,12 +206,15 @@ function getPrioritizedActions(guidedFlow?: ConsumerGuidedFlowSnapshot | null) {
 export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
   const [lastTriggeredActionId, setLastTriggeredActionId] = useState<string | null>(null)
   const hasPreviewSource = Boolean(preview.src)
+  const replaySummary = getWorkReplayReferenceSummary(preview)
+  const replayStatusText = getWorkReplayStatusText(replaySummary)
   const versionSource = getWorkVersionSourceSummary(preview)
   const generationContract = resolveGenerationContractFromWork(preview)
   const runtimeGuidedFlow = generationContract.guidedFlow
   const prioritizedActions = getPrioritizedActions(runtimeGuidedFlow)
-  const prioritizedActionSummary =
-    runtimeGuidedFlow?.actionPriority?.length ? buildRuntimePrioritySummary(prioritizedActions) : null
+  const prioritizedActionSummary = runtimeGuidedFlow?.actionPriority?.length
+    ? buildRuntimePrioritySummary(prioritizedActions)
+    : null
   const templateRuntimeLabel =
     runtimeGuidedFlow?.sourceType === 'template'
       ? `已承接模板「${runtimeGuidedFlow.templateTitle || runtimeGuidedFlow.guideTitle}」`
@@ -218,7 +225,8 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
   const loopRunLabel = runtimeGuidedFlow?.loopState?.runLabel
   const loopHint = runtimeGuidedFlow?.loopState?.loopHint
   const resultSceneId = runtimeGuidedFlow?.sceneId ?? generationContract.scene.id ?? 'image-edit'
-  const resultScene = runtimeGuidedFlow?.scene ?? generationContract.scene ?? getStudioFlowScene('image-edit')
+  const resultScene =
+    runtimeGuidedFlow?.scene ?? generationContract.scene ?? getStudioFlowScene('image-edit')
 
   function handleAction(action: (typeof actionDefinitions)[number]) {
     if (!preview.src) return
@@ -230,26 +238,14 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
       findConsumerGuidedFlowByResultActionId(action.id)
     const guidedFlow =
       existingGuidedFlow?.sourceType === 'template'
-        ? {
-            ...existingGuidedFlow,
-            sourceType: 'result-action' as const,
+        ? rebaseConsumerGuidedFlowSnapshot(existingGuidedFlow, {
+            sourceType: 'result-action',
+            stage: 'result-action',
             actionId: action.semanticActionId,
-            followUpMode: 'scene-guided' as const,
+            followUpMode: 'scene-guided',
             promptAppendix: action.text,
             promptText: appendFollowupText(existingGuidedFlow.promptText, action.text),
-            loopState: buildConsumerGuidedFlowLoopState({
-              guideId: existingGuidedFlow.guideId,
-              guideTitle: existingGuidedFlow.guideTitle,
-              templateId: existingGuidedFlow.templateId,
-              templateTitle: existingGuidedFlow.templateTitle,
-              sourceType: 'result-action',
-              stage: 'result-action',
-              actionId: action.semanticActionId,
-              defaultActionId: existingGuidedFlow.defaultActionId,
-              actionPriority: existingGuidedFlow.actionPriority,
-              versionLabel: existingGuidedFlow.loopState?.versionLabel,
-            }),
-          }
+          })
         : preferredGuide
           ? (() => {
               const nextGuidedFlow = buildConsumerGuidedFlowSnapshotFromContext(
@@ -272,25 +268,25 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
                 },
               )
 
-              return {
-                ...nextGuidedFlow,
-                templateId: existingGuidedFlow?.templateId,
-                templateTitle: existingGuidedFlow?.templateTitle,
-                entryMode: existingGuidedFlow?.entryMode ?? nextGuidedFlow.entryMode,
-                entryIntent: existingGuidedFlow?.entryIntent ?? nextGuidedFlow.entryIntent,
-                loopState: buildConsumerGuidedFlowLoopState({
-                  guideId: nextGuidedFlow.guideId,
-                  guideTitle: nextGuidedFlow.guideTitle,
+              return rebaseConsumerGuidedFlowSnapshot(
+                {
+                  ...nextGuidedFlow,
                   templateId: existingGuidedFlow?.templateId,
                   templateTitle: existingGuidedFlow?.templateTitle,
+                  entryMode: existingGuidedFlow?.entryMode ?? nextGuidedFlow.entryMode,
+                  entryIntent: existingGuidedFlow?.entryIntent ?? nextGuidedFlow.entryIntent,
+                },
+                {
                   sourceType: 'result-action',
                   stage: 'result-action',
                   actionId: action.semanticActionId,
-                  defaultActionId: nextGuidedFlow.defaultActionId ?? existingGuidedFlow?.defaultActionId,
-                  actionPriority: nextGuidedFlow.actionPriority ?? existingGuidedFlow?.actionPriority,
-                  versionLabel: existingGuidedFlow?.loopState?.versionLabel,
-                }),
-              }
+                  followUpMode: 'scene-guided',
+                  defaultActionId:
+                    nextGuidedFlow.defaultActionId ?? existingGuidedFlow?.defaultActionId,
+                  actionPriority:
+                    nextGuidedFlow.actionPriority ?? existingGuidedFlow?.actionPriority,
+                },
+              )
             })()
           : null
 
@@ -352,6 +348,19 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
   const lastTriggeredAction = actionDefinitions.find(
     (action) => action.id === lastTriggeredActionId,
   )
+  const recommendedDirectLinks = versionSource.recommendedDirectLinkIds.reduce<
+    typeof versionSource.directLinks
+  >((accumulator, id) => {
+    const matchedLink = versionSource.directLinks.find((item) => item.id === id)
+    return matchedLink ? [...accumulator, matchedLink] : accumulator
+  }, [])
+  const compactDeltaItems = (() => {
+    const changedItems = versionSource.deltaItems.filter((item) => item.tone !== 'carry')
+    return changedItems.length ? changedItems.slice(0, 2) : versionSource.deltaItems.slice(0, 1)
+  })()
+  const workflowDecisionMap = new Map(
+    versionSource.actionDecisions.map((decision) => [decision.workflowKind, decision]),
+  )
 
   return (
     <section className="mt-5 rounded-[1.7rem] border border-porcelain-50/10 bg-ink-950/[0.52] p-4">
@@ -387,7 +396,9 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
             {versionSource.sourceKindLabel}
           </span>
           <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.1] px-3 py-1 text-sm font-semibold text-signal-cyan">
-            {versionSource.sceneLabel || generationContract.scene.label || getStudioFlowSceneLabel('image-edit')}
+            {versionSource.sceneLabel ||
+              generationContract.scene.label ||
+              getStudioFlowSceneLabel('image-edit')}
           </span>
           <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
             {versionSource.currentLabel}
@@ -409,7 +420,9 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
         </div>
         <div className="mt-3 grid gap-2 text-sm leading-6 text-porcelain-100/58">
           <p className="font-semibold text-porcelain-50">{versionSource.decisionSummary}</p>
+          <p>{versionSource.recommendedActionSummary}</p>
           <p>{versionSource.actionDecisionReason}</p>
+          <p>{versionSource.recommendedDirectLinksLabel}</p>
           {runtimeGuidedFlow?.followUpLabel ? <p>{runtimeGuidedFlow.followUpLabel}</p> : null}
           {runtimeEntrySummary ? <p>入口路径：{runtimeEntrySummary}</p> : null}
           {runtimeEntryReason ? <p>入口判断：{runtimeEntryReason}</p> : null}
@@ -420,7 +433,7 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           <p>{versionSource.deltaHeadline}</p>
         </div>
         <div className="mt-3 grid gap-2 xl:grid-cols-2">
-          {versionSource.directLinks.map((item) => (
+          {recommendedDirectLinks.slice(0, 2).map((item) => (
             <div
               key={`${preview.id}:direct:${item.id}`}
               className="rounded-[1.1rem] border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2 text-sm text-porcelain-100/58"
@@ -431,7 +444,7 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           ))}
         </div>
         <div className="mt-3 grid gap-2 xl:grid-cols-2">
-          {versionSource.deltaItems.slice(0, 4).map((item) => (
+          {compactDeltaItems.map((item) => (
             <div
               key={`${preview.id}:${item.id}`}
               className="rounded-[1.1rem] border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2 text-sm text-porcelain-100/58"
@@ -439,8 +452,9 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
               <p className="font-semibold text-porcelain-50">
                 {item.label} · {item.toneLabel}
               </p>
-                <p className="mt-1">{item.summary}</p>
-              </div>
+              <p className="mt-1">{item.summary}</p>
+              {item.detail ? <p className="mt-1 text-porcelain-100/45">{item.detail}</p> : null}
+            </div>
           ))}
         </div>
       </div>
@@ -450,6 +464,17 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           <p className="text-sm font-semibold text-porcelain-50">当前结果还不能继续往下改</p>
           <p className="mt-1 text-sm leading-6 text-porcelain-100/62">
             这一区域需要一张已经落下来的结果图作为继续基线。等首版结果稳定显示后，下面这些动作才会带着当前版本上下文继续、重试或分叉。
+          </p>
+        </div>
+      ) : null}
+      {hasPreviewSource && replaySummary.missingReferenceCount > 0 ? (
+        <div className="mt-4 rounded-[1.35rem] border border-signal-amber/20 bg-signal-amber/[0.08] p-4">
+          <p className="text-sm font-semibold text-porcelain-50">
+            当前结果可以继续回流，但恢复还不完整
+          </p>
+          <p className="mt-1 text-sm leading-6 text-porcelain-100/62">
+            {replayStatusText}
+            。继续这一版或从这一版分叉仍可用，但如果要直接重试同链路，建议先在工作台补齐缺失参考图。
           </p>
         </div>
       ) : null}
@@ -468,17 +493,32 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
       ) : null}
 
       <div className="mt-4 grid gap-3 xl:grid-cols-3">
-        {workflowDescriptions.map((workflow) => (
-          <div
-            key={workflow.kind}
-            className="rounded-[1.25rem] border border-porcelain-50/10 bg-porcelain-50/[0.03] p-3"
-          >
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-porcelain-100/40">
-              {workflow.label}
-            </p>
-            <p className="mt-2 text-sm leading-6 text-porcelain-100/58">{workflow.description}</p>
-          </div>
-        ))}
+        {workflowDescriptions.map((workflow) => {
+          const workflowDecision = workflowDecisionMap.get(workflow.kind)
+          return (
+            <div
+              key={workflow.kind}
+              className="rounded-[1.25rem] border border-porcelain-50/10 bg-porcelain-50/[0.03] p-3"
+            >
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-porcelain-100/40">
+                {workflow.label}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-porcelain-100/58">
+                {workflowDecision?.summary ?? workflow.description}
+              </p>
+              {workflowDecision?.reason ? (
+                <p className="mt-2 text-xs leading-5 text-porcelain-100/45">
+                  {workflowDecision.reason}
+                </p>
+              ) : null}
+              {workflowDecision?.caution ? (
+                <p className="mt-2 text-xs leading-5 text-signal-amber">
+                  {workflowDecision.caution}
+                </p>
+              ) : null}
+            </div>
+          )
+        })}
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -486,6 +526,9 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           const Icon = action.icon
           const isActive = action.id === lastTriggeredActionId
           const isRecommended = action.semanticActionId === versionSource.recommendedActionId
+          const actionDecision = versionSource.actionDecisions.find(
+            (decision) => decision.actionId === action.semanticActionId,
+          )
           const cardTone =
             action.workflowKind === 'retry'
               ? 'hover:border-signal-amber/45 hover:bg-signal-amber/[0.10]'
@@ -504,7 +547,8 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
               type="button"
               onClick={() => handleAction(action)}
               aria-pressed={isActive}
-              className={`group flex min-h-[140px] flex-col items-start gap-3 rounded-[1.4rem] border p-4 text-left transition hover:-translate-y-0.5 ${cardTone} ${
+              disabled={!hasPreviewSource}
+              className={`group flex min-h-[140px] flex-col items-start gap-3 rounded-[1.4rem] border p-4 text-left transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0 ${cardTone} ${
                 isActive
                   ? activeTone
                   : isRecommended
@@ -528,15 +572,21 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
                 ) : index === 0 && prioritizedActionSummary ? (
                   <p className="mt-2 text-[11px] font-medium text-emerald-300">模板默认优先动作</p>
                 ) : null}
+                {actionDecision ? (
+                  <p className="mt-2 text-xs leading-5 text-porcelain-100/45">
+                    {actionDecision.summary}
+                  </p>
+                ) : null}
               </div>
               <p className="mt-auto text-xs leading-5 text-porcelain-100/42">
-                {action.submit
-                  ? '会沿用这张结果图，直接开始下一轮生成。'
-                  : action.workflowKind === 'retry'
-                    ? '会把这张结果图带回输入区，按同一版方向补一句后再试。'
-                    : action.workflowKind === 'branch'
-                      ? '会把这张结果图带回输入区，当作父版参考图分出新方向。'
-                      : '会把这张结果图带回输入区，保留当前方向继续改。'}
+                {actionDecision?.reason ??
+                  (action.submit
+                    ? '会沿用这张结果图，直接开始下一轮生成。'
+                    : action.workflowKind === 'retry'
+                      ? '会把这张结果图带回输入区，按同一版方向补一句后再试。'
+                      : action.workflowKind === 'branch'
+                        ? '会把这张结果图带回输入区，当作父版参考图分出新方向。'
+                        : '会把这张结果图带回输入区，保留当前方向继续改。')}
               </p>
             </button>
           )

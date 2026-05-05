@@ -89,6 +89,32 @@ describe('promptTemplate.studioEntry', () => {
     })
   })
 
+  it('infers intent when low-frequency launch only keeps mode', () => {
+    const params = new URLSearchParams('template=template-5&entryMode=pro')
+
+    expect(readPromptTemplateStudioLaunch(params)).toEqual({
+      templateId: 'template-5',
+      mode: 'pro',
+      intent: 'panel',
+      sceneId: undefined,
+      sourceType: 'template',
+      nextAction: undefined,
+    })
+  })
+
+  it('infers mode when low-frequency launch only keeps intent', () => {
+    const params = new URLSearchParams('template=template-5&entryIntent=task')
+
+    expect(readPromptTemplateStudioLaunch(params)).toEqual({
+      templateId: 'template-5',
+      mode: 'consumer',
+      intent: 'task',
+      sceneId: undefined,
+      sourceType: 'template',
+      nextAction: undefined,
+    })
+  })
+
   it('builds a normalized launch object before serializing path', () => {
     const launch = buildPromptTemplateStudioLaunch({
       templateId: 'template-6',

@@ -75,6 +75,11 @@ export function StudioProExecutionPanel({
     replayContext && replayContext.expectedReferenceCount > 0
       ? `参考图恢复 ${replayContext.restoredReferenceCount}/${replayContext.expectedReferenceCount} 张`
       : replayContext?.referenceSummaryLabel ?? '这一版没有参考图依赖'
+  const hasReplayReferenceGap = Boolean(
+    replayContext &&
+      !replayContext.hasCompleteReferenceRestore &&
+      replayContext.expectedReferenceCount > 0,
+  )
 
   function getDecisionPillClass(state: typeof executionDecision.state) {
     switch (state) {
@@ -108,6 +113,16 @@ export function StudioProExecutionPanel({
       <p className="studio-pro-panel-copy">
         当 Prompt 和参数已经收紧后，这里最后确认 Provider、模型和执行路径，避免把执行链偏移误判成内容改动。
       </p>
+      {loading ? (
+        <div className="mt-4 rounded-[1.2rem] border border-signal-cyan/20 bg-signal-cyan/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
+          当前执行配置仍在恢复中。你可以继续整理 Prompt 和参数，但发起生成前建议先等 Provider、模型和连接状态稳定下来。
+        </div>
+      ) : null}
+      {!loading && hasReplayReferenceGap ? (
+        <div className="mt-4 rounded-[1.2rem] border border-signal-amber/20 bg-signal-amber/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
+          {replayReferenceStatus}。当前可以继续核对执行链，但如果要验证“同链重跑”是否稳定，仍建议先把参考图补齐。
+        </div>
+      ) : null}
 
       <article
         className={`mt-4 rounded-[1.35rem] border p-4 ${

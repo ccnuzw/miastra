@@ -66,6 +66,12 @@ export function StudioProPromptPanel({
     replayContext && replayContext.expectedReferenceCount > 0
       ? `参考图恢复 ${replayContext.restoredReferenceCount}/${replayContext.expectedReferenceCount} 张`
       : replayContext?.referenceSummaryLabel ?? '这一版没有参考图依赖'
+  const hasPromptRecoveryGap = !workspacePrompt.trim() && (hasTemplateContext || hasReplayContext)
+  const hasReplayReferenceGap = Boolean(
+    replayContext &&
+      !replayContext.hasCompleteReferenceRestore &&
+      replayContext.expectedReferenceCount > 0,
+  )
 
   function getDecisionPillClass(state: typeof promptDecision.state) {
     switch (state) {
@@ -131,6 +137,18 @@ export function StudioProPromptPanel({
       <p className="studio-pro-panel-copy">
         先确认工作区是否仍贴着来源版，再看字段落点和最终 Prompt，这样更容易决定是继续小改还是直接派生。
       </p>
+      {hasPromptRecoveryGap ? (
+        <div className="mt-4 rounded-[1.2rem] border border-signal-amber/20 bg-signal-amber/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
+          当前工作区还是空的。验收这一链路时，建议先用
+          {hasReplayContext ? '「恢复来源 Prompt」' : '「以模板字段重对齐」'}
+          建立可比较基线，再继续判断是重跑、校准还是分叉。
+        </div>
+      ) : null}
+      {!hasPromptRecoveryGap && hasReplayReferenceGap ? (
+        <div className="mt-4 rounded-[1.2rem] border border-porcelain-50/10 bg-ink-950/[0.38] px-4 py-3 text-sm text-porcelain-100/70">
+          {replayReferenceStatus}。Prompt 可以先继续校准，但如果要严格复现来源链路，仍建议先补齐参考图。
+        </div>
+      ) : null}
 
       <article
         className={`mt-4 rounded-[1.35rem] border p-4 ${

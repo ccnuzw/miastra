@@ -21,6 +21,7 @@ import {
 } from '@/features/works/workReplay'
 import type { GalleryImage } from '@/features/works/works.types'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
+import { getErrorDisplay } from '@/shared/errors/app-error'
 import { apiRequest } from '@/shared/http/client'
 
 const activeTaskRefreshIntervalMs = 4000
@@ -236,6 +237,21 @@ function buildTaskBatchView(params: {
   }
 }
 
+function getCompactDeltaItems(versionSource: ReturnType<typeof getTaskVersionSourceSummary>) {
+  const changedItems = versionSource.deltaItems.filter((item) => item.tone !== 'carry')
+  return changedItems.length ? changedItems.slice(0, 2) : versionSource.deltaItems.slice(0, 1)
+}
+
+function getRecommendedDirectLinks(versionSource: ReturnType<typeof getTaskVersionSourceSummary>) {
+  return versionSource.recommendedDirectLinkIds.reduce<typeof versionSource.directLinks>(
+    (accumulator, id) => {
+      const matchedLink = versionSource.directLinks.find((item) => item.id === id)
+      return matchedLink ? [...accumulator, matchedLink] : accumulator
+    },
+    [],
+  )
+}
+
 export function TasksPage() {
   const navigate = useNavigate()
   const [tasks, setTasks] = useState<GenerationTaskRecord[]>([])
@@ -245,6 +261,7 @@ export function TasksPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [actionMessage, setActionMessage] = useState('')
+  const [actionMessageTone, setActionMessageTone] = useState<'success' | 'error'>('success')
   const [busyKey, setBusyKey] = useState('')
   const [expandedSlotId, setExpandedSlotId] = useState('')
   const [expandedBatchIds, setExpandedBatchIds] = useState<string[]>([])
@@ -429,6 +446,7 @@ export function TasksPage() {
       : 0
   const hasRecoverableFailures = overallStats.failed > 0
   const hasRunningTasks = overallStats.running > 0
+  const autoRefreshPaused = hasRunningTasks && !pageVisible
 
   const workIndexes = useMemo<WorkIndexes>(() => {
     const byId = new Map<string, GalleryImage>()
@@ -447,14 +465,22 @@ export function TasksPage() {
 
     return { byId, bySnapshotId, byBatchSlot }
   }, [works])
+  const pendingResultMappingCount = useMemo(
+    () => tasks.filter((task) => Boolean(task.result) && !resolveTaskWork(task, workIndexes)).length,
+    [tasks, workIndexes],
+  )
 
   async function handleCancel(taskId: string) {
     setBusyKey(`cancel:${taskId}`)
     setError(null)
     try {
       await cancelGenerationTask(taskId)
+      setActionMessageTone('success')
+      setActionMessage('已发送取消请求，列表会自动刷新到最新状态。')
       await refresh(true)
     } catch (nextError) {
+      setActionMessageTone('error')
+      setActionMessage(`取消任务失败：${getErrorDisplay(nextError).title}`)
       setError(nextError)
     } finally {
       setBusyKey('')
@@ -467,8 +493,12 @@ export function TasksPage() {
     setActionMessage('')
     try {
       await retryGenerationTask(taskId)
+      setActionMessageTone('success')
+      setActionMessage('已重新排队该失败项，页面会自动刷新。')
       await refresh(true)
     } catch (nextError) {
+      setActionMessageTone('error')
+      setActionMessage(`重试失败项失败：${getErrorDisplay(nextError).title}`)
       setError(nextError)
     } finally {
       setBusyKey('')
@@ -483,9 +513,12 @@ export function TasksPage() {
       const rerunResult = await rerunDrawBatch(batchId)
       setPendingFocusBatchId(rerunResult.batch.id)
       setExpandedSlotId('')
+      setActionMessageTone('success')
       setActionMessage(`已创建复跑批次，排入 ${rerunResult.slotCount} 个任务槽位。`)
       await refresh(true)
     } catch (nextError) {
+      setActionMessageTone('error')
+      setActionMessage(`批次复跑失败：${getErrorDisplay(nextError).title}`)
       setError(nextError)
     } finally {
       setBusyKey('')
@@ -588,6 +621,16 @@ export function TasksPage() {
             任务列表没有完整刷新成功。当前批次进度、结果映射和回流入口可能不是最新状态；继续重试或回到工作台前，建议先完成一次成功刷新。
           </div>
         ) : null}
+        {autoRefreshPaused ? (
+          <div className="mt-6 rounded-[1.3rem] border border-signal-amber/20 bg-signal-amber/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
+            页面当前不在前台，自动刷新已暂停。正在运行的任务可能已经有新结果；回到前台后会继续自动刷新，也可以现在手动刷新一次。
+          </div>
+        ) : null}
+        {!loading && pendingResultMappingCount > 0 ? (
+          <div className="mt-6 rounded-[1.3rem] border border-porcelain-50/10 bg-ink-950/[0.35] px-4 py-3 text-sm text-porcelain-100/70">
+            当前有 {pendingResultMappingCount} 个任务已经返回结果，但作品映射还没完全恢复。回流控制区前建议先刷新一次，确认结果图和快照都已稳定落盘。
+          </div>
+        ) : null}
         {!loading ? (
           <div className="mt-6 rounded-[1.3rem] border border-porcelain-50/10 bg-ink-950/[0.35] px-4 py-3 text-sm text-porcelain-100/70">
             {hasRunningTasks
@@ -598,12 +641,26 @@ export function TasksPage() {
           </div>
         ) : null}
         {actionMessage ? (
-          <p className="mt-6 rounded-[1.3rem] border border-signal-cyan/25 bg-signal-cyan/[0.08] px-4 py-3 text-sm text-signal-cyan">
+          <p
+            className={`mt-6 rounded-[1.3rem] border px-4 py-3 text-sm ${
+              actionMessageTone === 'error'
+                ? 'border-signal-coral/25 bg-signal-coral/10 text-porcelain-100/78'
+                : 'border-signal-cyan/25 bg-signal-cyan/[0.08] text-signal-cyan'
+            }`}
+          >
             {actionMessage}
           </p>
         ) : null}
 
         <div className="mt-8 grid gap-5">
+          {!loading && batchViews.length === 0 ? (
+            <article className="progress-card">
+              <p className="text-base font-semibold text-porcelain-50">当前还没有任务或批次</p>
+              <p className="mt-2 text-sm leading-6 text-porcelain-100/60">
+                先去工作台发起第一轮生成，这里才会开始积累可回流、可重试、可复跑的任务链路。
+              </p>
+            </article>
+          ) : null}
           {batchViews.map((batch) => {
             const expanded = expandedBatchIds.includes(batch.id)
             const completedCount =
@@ -707,6 +764,8 @@ export function TasksPage() {
                         const replaySummary = getWorkReplayReferenceSummary(replayWork)
                         const replayStatusText = getWorkReplayStatusText(replaySummary)
                         const versionSource = getTaskVersionSourceSummary(task, replayWork)
+                        const compactDeltaItems = getCompactDeltaItems(versionSource)
+                        const recommendedDirectLinks = getRecommendedDirectLinks(versionSource)
                         const recoverHint = getWorkReplayHint('task', false, replaySummary)
                         const rerunHint = getWorkReplayHint('task', true, replaySummary)
                         const imageUrl = task.result?.imageUrl ?? resultWork?.src
@@ -731,6 +790,36 @@ export function TasksPage() {
                           : task.result
                             ? '已有结果，待映射'
                             : '尚无结果'
+                        const replayActions = [
+                          {
+                            id: 'continue-version',
+                            label:
+                              versionSource.recommendedActionId === 'continue-version'
+                                ? `推荐：${replayLabels.restore}`
+                                : replayLabels.restore,
+                            autoGenerate: false,
+                            className:
+                              versionSource.recommendedActionId === 'continue-version'
+                                ? 'rounded-full border border-signal-cyan/35 bg-signal-cyan/[0.14] px-4 py-2 text-sm font-semibold text-signal-cyan transition hover:bg-signal-cyan hover:text-ink-950'
+                                : 'rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.08] px-4 py-2 text-sm font-semibold text-signal-cyan transition hover:bg-signal-cyan hover:text-ink-950',
+                          },
+                          {
+                            id: 'retry-version',
+                            label:
+                              versionSource.recommendedActionId === 'retry-version'
+                                ? `推荐：${replayLabels.regenerate}`
+                                : replayLabels.regenerate,
+                            autoGenerate: true,
+                            className:
+                              versionSource.recommendedActionId === 'retry-version'
+                                ? 'rounded-full border border-signal-amber/35 bg-signal-amber/[0.14] px-4 py-2 text-sm font-semibold text-signal-amber transition hover:bg-signal-amber hover:text-ink-950'
+                                : 'rounded-full border border-signal-amber/25 bg-signal-amber/[0.08] px-4 py-2 text-sm font-semibold text-signal-amber transition hover:bg-signal-amber hover:text-ink-950',
+                          },
+                        ].sort(
+                          (left, right) =>
+                            Number(right.id === versionSource.recommendedActionId) -
+                            Number(left.id === versionSource.recommendedActionId),
+                        )
 
                         return (
                           <article
@@ -784,13 +873,31 @@ export function TasksPage() {
                                   ))}
                                 </div>
                                 <div className="mt-3 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.32] p-3 text-xs text-porcelain-100/58">
-                                  <p className="font-semibold text-porcelain-50">
-                                    {versionSource.decisionSummary}
-                                  </p>
-                                  <p className="mt-1">{versionSource.actionDecisionReason}</p>
-                                  <p className="mt-2">{versionSource.deltaHeadline}</p>
+                                  <div className="grid gap-2 md:grid-cols-3">
+                                    <div className="rounded-2xl border border-signal-amber/20 bg-signal-amber/[0.08] px-3 py-2">
+                                      <p className="text-[11px] font-semibold text-signal-amber">建议动作</p>
+                                      <p className="mt-1 font-semibold text-porcelain-50">
+                                        {versionSource.recommendedActionLabel}
+                                      </p>
+                                      <p className="mt-1">{versionSource.recommendedActionSummary}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-signal-cyan/20 bg-signal-cyan/[0.08] px-3 py-2">
+                                      <p className="text-[11px] font-semibold text-signal-cyan">优先直达</p>
+                                      <p className="mt-1 font-semibold text-porcelain-50">
+                                        {versionSource.recommendedDirectLinksLabel}
+                                      </p>
+                                      <p className="mt-1">{versionSource.deltaHeadline}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2">
+                                      <p className="text-[11px] font-semibold text-porcelain-50">判断提示</p>
+                                      <p className="mt-1">{versionSource.decisionSummary}</p>
+                                      <p className="mt-1 text-porcelain-100/45">
+                                        {versionSource.actionDecisionReason}
+                                      </p>
+                                    </div>
+                                  </div>
                                   <div className="mt-3 grid gap-2 md:grid-cols-2">
-                                    {versionSource.directLinks.slice(0, 2).map((item) => (
+                                    {recommendedDirectLinks.slice(0, 2).map((item) => (
                                       <div
                                         key={`${slot.slotId}:${item.id}`}
                                         className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2"
@@ -799,6 +906,22 @@ export function TasksPage() {
                                           {item.label}
                                         </p>
                                         <p className="mt-1">{item.summary}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="mt-3 grid gap-2">
+                                    {compactDeltaItems.map((item) => (
+                                      <div
+                                        key={`${slot.slotId}:${item.id}`}
+                                        className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2"
+                                      >
+                                        <p className="text-[11px] font-semibold text-porcelain-50">
+                                          {item.label} · {item.toneLabel}
+                                        </p>
+                                        <p className="mt-1">{item.summary}</p>
+                                        {item.detail ? (
+                                          <p className="mt-1 text-porcelain-100/45">{item.detail}</p>
+                                        ) : null}
                                       </div>
                                     ))}
                                   </div>
@@ -828,26 +951,22 @@ export function TasksPage() {
                               </div>
 
                               <div className="flex flex-wrap gap-2">
+                                {replayActions.map((action) => (
+                                  <button
+                                    key={`${slot.slotId}:${action.id}`}
+                                    type="button"
+                                    className={action.className}
+                                    onClick={() => handleReplayToStudio(task, resultWork, action.autoGenerate)}
+                                  >
+                                    {action.label}
+                                  </button>
+                                ))}
                                 <button
                                   type="button"
                                   className="rounded-full border border-porcelain-50/10 px-4 py-2 text-sm"
                                   onClick={() => setExpandedSlotId(isExpanded ? '' : slot.slotId)}
                                 >
                                   {isExpanded ? '收起详情' : '查看详情'}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.08] px-4 py-2 text-sm font-semibold text-signal-cyan transition hover:bg-signal-cyan hover:text-ink-950"
-                                  onClick={() => handleReplayToStudio(task, resultWork, false)}
-                                >
-                                  {replayLabels.restore}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="rounded-full border border-signal-amber/25 bg-signal-amber/[0.08] px-4 py-2 text-sm font-semibold text-signal-amber transition hover:bg-signal-amber hover:text-ink-950"
-                                  onClick={() => handleReplayToStudio(task, resultWork, true)}
-                                >
-                                  {replayLabels.regenerate}
                                 </button>
                                 {canRetry ? (
                                   <button

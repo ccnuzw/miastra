@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildPromptTemplateGuidedFlowSnapshot,
+  buildPromptTemplateRuntimeConsumption,
   buildPromptTemplateRuntimeContext,
   resolvePromptTemplateRuntimeMode,
 } from './promptTemplate.runtime'
@@ -180,5 +181,30 @@ describe('promptTemplate runtime', () => {
     expect(context.sceneId).toBe('portrait-avatar')
     expect(context.sourceType).toBe('template')
     expect(context.nextActionId).toBe('guided-refine')
+  })
+
+  it('keeps template runtime context and guided flow aligned when overrides are present', () => {
+    const template = {
+      id: 'template-poster',
+      title: '海报模板',
+      content: '做一张活动海报。',
+      category: '海报',
+      tags: ['海报'],
+      createdAt: 1,
+    }
+
+    const runtime = buildPromptTemplateRuntimeConsumption(template, 'consumer', {
+      sceneId: 'image-edit',
+      sourceType: 'template',
+      nextActionId: 'retry-version',
+    })
+
+    expect(runtime.context.sceneId).toBe('image-edit')
+    expect(runtime.context.nextActionId).toBe('retry-version')
+    expect(runtime.guidedFlow?.sceneId).toBe('image-edit')
+    expect(runtime.guidedFlow?.sourceType).toBe('template')
+    expect(runtime.guidedFlow?.defaultActionId).toBe('retry-version')
+    expect(runtime.guidedFlow?.runtimeDecision?.result.defaultActionId).toBe('retry-version')
+    expect(runtime.promptText).toBe(runtime.guidedFlow?.promptText)
   })
 })

@@ -5,6 +5,7 @@ import {
   buildGenerationSnapshotFromContract,
   resolveGenerationContractFromTask,
   resolveGenerationContractSnapshot,
+  resolveGenerationSnapshotRecord,
 } from './generation.contract'
 
 describe('generation.contract', () => {
@@ -119,6 +120,48 @@ describe('generation.contract', () => {
     expect(snapshot.quality).toBe('low')
     expect(snapshot.stream).toBe(true)
     expect(snapshot.contract?.draw?.variation).toBe('保留主体')
+  })
+
+  it('normalizes snapshot top-level fields back to contract values', () => {
+    const normalized = resolveGenerationSnapshotRecord(
+      {
+        id: 'snapshot-normalized',
+        createdAt: 3,
+        mode: 'text2image',
+        prompt: '旧顶层请求',
+        requestPrompt: '旧顶层请求',
+        workspacePrompt: '旧顶层工作区',
+        size: '1024x1024',
+        quality: 'low',
+        model: 'legacy-model',
+        providerId: 'legacy-provider',
+        apiUrl: '/legacy',
+        requestUrl: '/legacy/request',
+        stream: false,
+        contract: buildGenerationContractSnapshot({
+          scene: getStudioFlowScene('image-edit'),
+          requestPrompt: '合同请求',
+          workspacePrompt: '合同工作区',
+          mode: 'image2image',
+          size: '1536x1024',
+          quality: 'high',
+          model: 'gpt-image-1',
+          providerId: 'openai',
+          stream: true,
+        }),
+      },
+      {
+        requestPrompt: '兜底请求',
+      },
+    )
+
+    expect(normalized.id).toBe('snapshot-normalized')
+    expect(normalized.requestPrompt).toBe('合同请求')
+    expect(normalized.workspacePrompt).toBe('合同工作区')
+    expect(normalized.mode).toBe('image2image')
+    expect(normalized.quality).toBe('high')
+    expect(normalized.providerId).toBe('openai')
+    expect(normalized.contract?.prompt.request).toBe('合同请求')
   })
 
   it('resolves task payload and snapshot into the same contract source of truth', () => {

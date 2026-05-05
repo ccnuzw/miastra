@@ -54,6 +54,20 @@ function isPromptTemplateWorkbenchEntryIntent(
   return value === 'task' || value === 'panel'
 }
 
+function inferIntentFromMode(
+  value?: PromptTemplateWorkbenchEntryMode | null,
+): PromptTemplateWorkbenchEntryIntent | null {
+  if (!value) return null
+  return value === 'consumer' ? 'task' : 'panel'
+}
+
+function inferModeFromIntent(
+  value?: PromptTemplateWorkbenchEntryIntent | null,
+): PromptTemplateWorkbenchEntryMode | null {
+  if (!value) return null
+  return value === 'task' ? 'consumer' : 'pro'
+}
+
 export function buildPromptTemplateStudioPath({
   templateId,
   mode,
@@ -91,15 +105,22 @@ export function readPromptTemplateStudioLaunch(
   searchParams: URLSearchParams,
 ): PromptTemplateStudioLaunch | null {
   const templateId = searchParams.get(promptTemplateIdParam)?.trim()
-  const mode = searchParams.get(studioModeParam) ?? searchParams.get(promptTemplateModeParam)
-  const intent = searchParams.get(studioIntentParam) ?? searchParams.get(promptTemplateIntentParam)
+  const modeValue = searchParams.get(studioModeParam) ?? searchParams.get(promptTemplateModeParam)
+  const intentValue =
+    searchParams.get(studioIntentParam) ?? searchParams.get(promptTemplateIntentParam)
   const sceneIdValue = searchParams.get(studioSceneParam)
   const sourceTypeValue = searchParams.get(studioSourceTypeParam)
   const nextActionValue = searchParams.get(studioNextActionParam)
 
   if (!templateId) return null
-  if (!isPromptTemplateWorkbenchEntryMode(mode)) return null
-  if (!isPromptTemplateWorkbenchEntryIntent(intent)) return null
+  const mode = isPromptTemplateWorkbenchEntryMode(modeValue)
+    ? modeValue
+    : inferModeFromIntent(isPromptTemplateWorkbenchEntryIntent(intentValue) ? intentValue : null)
+  const intent = isPromptTemplateWorkbenchEntryIntent(intentValue)
+    ? intentValue
+    : inferIntentFromMode(mode)
+  if (!mode) return null
+  if (!intent) return null
 
   return {
     templateId,

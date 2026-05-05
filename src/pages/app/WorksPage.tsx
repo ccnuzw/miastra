@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ImageViewerModal } from '@/features/works/ImageViewerModal'
 import { ImageWallModal } from '@/features/works/ImageWallModal'
@@ -26,6 +26,17 @@ export function WorksPage() {
   const [exportMessage, setExportMessage] = useState('')
   const hasActiveFilters =
     Boolean(works.workSearchQuery.trim()) || works.favoritesOnly || Boolean(works.activeTagFilter)
+  const replayRecoveryPendingCount = useMemo(
+    () =>
+      works.filteredGallery.filter(
+        (work) => getWorkReplayReferenceSummary(work).missingReferenceCount > 0,
+      ).length,
+    [works.filteredGallery],
+  )
+  const missingPreviewCount = useMemo(
+    () => works.filteredGallery.filter((work) => !work.src).length,
+    [works.filteredGallery],
+  )
 
   async function handleDelete(id: string) {
     setBusyId(id)
@@ -42,11 +53,54 @@ export function WorksPage() {
     const replaySummary = getWorkReplayReferenceSummary(work)
     const replayStatusText = getWorkReplayStatusText(replaySummary)
     const versionSource = getWorkVersionSourceSummary(work)
+    const recommendedDirectLinks = versionSource.recommendedDirectLinkIds.reduce<
+      typeof versionSource.directLinks
+    >((accumulator, id) => {
+      const matchedLink = versionSource.directLinks.find((item) => item.id === id)
+      return matchedLink ? [...accumulator, matchedLink] : accumulator
+    }, [])
+    const changedDeltaItems = versionSource.deltaItems.filter((item) => item.tone !== 'carry')
+    const compactDeltaItems = changedDeltaItems.length
+      ? changedDeltaItems.slice(0, 2)
+      : versionSource.deltaItems.slice(0, 1)
+    const replayActions = [
+      {
+        id: 'continue-version',
+        label:
+          versionSource.recommendedActionId === 'continue-version'
+            ? `推荐：${replayLabels.restore}`
+            : replayLabels.restore,
+        autoGenerate: false,
+        className:
+          versionSource.recommendedActionId === 'continue-version'
+            ? 'rounded-full border border-signal-cyan/35 bg-signal-cyan/15 px-3 py-2 text-xs font-semibold text-signal-cyan'
+            : 'rounded-full border border-porcelain-50/10 px-3 py-2 text-xs',
+      },
+      {
+        id: 'branch-version',
+        label:
+          versionSource.recommendedActionId === 'branch-version'
+            ? `推荐：${replayLabels.regenerate}`
+            : replayLabels.regenerate,
+        autoGenerate: true,
+        className:
+          versionSource.recommendedActionId === 'branch-version'
+            ? 'rounded-full border border-emerald-300/35 bg-emerald-300/[0.14] px-3 py-2 text-xs font-semibold text-emerald-200'
+            : 'rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-2 text-xs font-semibold text-emerald-200',
+      },
+    ].sort((left, right) => Number(right.id === versionSource.recommendedActionId) - Number(left.id === versionSource.recommendedActionId))
     return (
       <article key={work.id} className="progress-card">
         {work.src ? (
           <img className="h-56 w-full rounded-2xl object-cover" src={work.src} alt={work.title} />
-        ) : null}
+        ) : (
+          <div className="flex h-56 w-full flex-col items-center justify-center rounded-2xl border border-dashed border-porcelain-50/15 bg-ink-950/[0.32] px-4 text-center">
+            <p className="text-sm font-semibold text-porcelain-50">预览图暂未恢复</p>
+            <p className="mt-2 text-xs leading-6 text-porcelain-100/55">
+              当前仍可继续回流参数或重跑这一版，但查看大图前建议先刷新作品库，确认资源已同步落下。
+            </p>
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold text-porcelain-50">{work.title}</h2>
           {isFavorite ? <span className="status-pill">收藏</span> : null}
@@ -81,11 +135,25 @@ export function WorksPage() {
           ))}
         </div>
         <div className="mt-3 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.32] p-3 text-xs text-porcelain-100/58">
-          <p className="font-semibold text-porcelain-50">{versionSource.decisionSummary}</p>
-          <p className="mt-1">{versionSource.actionDecisionReason}</p>
-          <p className="mt-2">{versionSource.deltaHeadline}</p>
+          <div className="grid gap-2 md:grid-cols-3">
+            <div className="rounded-2xl border border-signal-amber/20 bg-signal-amber/[0.08] px-3 py-2">
+              <p className="text-[11px] font-semibold text-signal-amber">建议动作</p>
+              <p className="mt-1 font-semibold text-porcelain-50">{versionSource.recommendedActionLabel}</p>
+              <p className="mt-1">{versionSource.recommendedActionSummary}</p>
+            </div>
+            <div className="rounded-2xl border border-signal-cyan/20 bg-signal-cyan/[0.08] px-3 py-2">
+              <p className="text-[11px] font-semibold text-signal-cyan">优先直达</p>
+              <p className="mt-1 font-semibold text-porcelain-50">{versionSource.recommendedDirectLinksLabel}</p>
+              <p className="mt-1">{versionSource.deltaHeadline}</p>
+            </div>
+            <div className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2">
+              <p className="text-[11px] font-semibold text-porcelain-50">判断提示</p>
+              <p className="mt-1">{versionSource.decisionSummary}</p>
+              <p className="mt-1 text-porcelain-100/45">{versionSource.actionDecisionReason}</p>
+            </div>
+          </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
-            {versionSource.directLinks.map((item) => (
+            {recommendedDirectLinks.slice(0, 2).map((item) => (
               <div
                 key={`${work.id}:${item.id}`}
                 className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2"
@@ -96,7 +164,7 @@ export function WorksPage() {
             ))}
           </div>
           <div className="mt-3 grid gap-2">
-            {versionSource.deltaItems.slice(0, 3).map((item) => (
+            {compactDeltaItems.map((item) => (
               <div
                 key={`${work.id}:${item.id}`}
                 className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2"
@@ -130,26 +198,23 @@ export function WorksPage() {
           </p>
         ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
+          {replayActions.map((action) => (
+            <button
+              key={`${work.id}:${action.id}`}
+              type="button"
+              className={action.className}
+              onClick={() => handleReuseParameters(work, action.autoGenerate)}
+            >
+              {action.label}
+            </button>
+          ))}
           <button
             type="button"
-            className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs"
+            className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-40"
             onClick={() => works.setViewerImage(work)}
+            disabled={!work.src}
           >
             查看
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-signal-cyan/25 bg-signal-cyan/10 px-3 py-2 text-xs font-semibold text-signal-cyan"
-            onClick={() => handleReuseParameters(work, false)}
-          >
-            {replayLabels.restore}
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-2 text-xs font-semibold text-emerald-200"
-            onClick={() => handleReuseParameters(work, true)}
-          >
-            {replayLabels.regenerate}
           </button>
           <button
             type="button"
@@ -242,6 +307,16 @@ export function WorksPage() {
               作品列表没有完整加载成功。当前无法保证回流链、批量导出和标签筛选是最新状态；建议先刷新作品库后再继续从这里回到工作台。
             </div>
           ) : null}
+          {!works.loading && !works.error && replayRecoveryPendingCount > 0 ? (
+            <div className="mt-6 rounded-[1.3rem] border border-signal-amber/20 bg-signal-amber/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
+              当前筛选结果里有 {replayRecoveryPendingCount} 项作品回流时需要手动补参考图。继续这一版仍可用，但自动重跑前建议先回工作台补齐参考图。
+            </div>
+          ) : null}
+          {!works.loading && !works.error && missingPreviewCount > 0 ? (
+            <div className="mt-6 rounded-[1.3rem] border border-porcelain-50/10 bg-ink-950/[0.35] px-4 py-3 text-sm text-porcelain-100/70">
+              当前筛选结果里有 {missingPreviewCount} 项作品只有参数快照、预览图未完全恢复。它们仍可继续回流控制区，但查看和人工验收前建议先刷新作品库确认资源同步完成。
+            </div>
+          ) : null}
           {exportMessage ? (
             <p className="mt-6 rounded-2xl border border-signal-cyan/30 bg-signal-cyan/10 px-4 py-3 text-sm text-signal-cyan">
               {exportMessage}
@@ -284,6 +359,15 @@ export function WorksPage() {
                     ? '这属于筛空态。清空关键词、标签或收藏筛选后，就可以继续从作品回流到工作台。'
                     : '先去工作台出第一版结果，作品回流、继续这一版和批量管理入口都会在这里出现。'}
                 </p>
+                {hasActiveFilters ? (
+                  <button
+                    type="button"
+                    className="mt-4 rounded-full border border-porcelain-50/10 px-4 py-2 text-sm"
+                    onClick={() => works.clearWorkFilters()}
+                  >
+                    清空筛选
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>

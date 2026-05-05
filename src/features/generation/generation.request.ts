@@ -5,6 +5,7 @@ import type { ProviderConfig } from '@/features/provider/provider.types'
 import type { ReferenceImage } from '@/features/references/reference.types'
 import { referenceImageToFile } from '@/features/references/reference.utils'
 import type { GalleryImage } from '@/features/works/works.types'
+import { buildGenerationContractSnapshot } from '@/features/generation/generation.contract'
 import type { GenerationMode, GenerationReferenceSnapshot, GenerationRequestOptions, GenerationSnapshot, GenerationStage } from '@/features/generation/generation.types'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
 import { extractGenerationErrorDetails, extractImageSrc, isGatewayTimeoutPayload, normalizeGenerationError } from '@/features/generation/generation.parser'
@@ -51,24 +52,40 @@ function createGenerationSnapshot(
   resolvedQuality: string,
 ): GenerationSnapshot {
   const requestUrl = mode === 'image2image' || mode === 'draw-image2image' ? context.editRequestUrl : context.requestUrl
-  return {
-    id: options.snapshotId ?? crypto.randomUUID(),
-    createdAt,
+  const references = createReferenceSnapshot(context.referenceImages)
+  const contract = buildGenerationContractSnapshot({
     scene: options.scene,
-    mode,
-    prompt: options.promptText,
     requestPrompt: options.promptText,
     workspacePrompt: options.workspacePrompt ?? options.promptText,
+    mode,
     size: context.size,
     quality: resolvedQuality,
     model: context.config.model,
     providerId: context.config.providerId,
-    apiUrl: context.config.apiUrl,
-    requestUrl,
     stream: options.streamValue ?? context.stream,
-    references: createReferenceSnapshot(context.referenceImages),
+    references,
     draw: options.drawSnapshot,
     guidedFlow: options.guidedFlow ?? null,
+  })
+  return {
+    id: options.snapshotId ?? crypto.randomUUID(),
+    createdAt,
+    scene: contract.scene,
+    mode: contract.parameters.mode,
+    prompt: contract.prompt.request,
+    requestPrompt: contract.prompt.request,
+    workspacePrompt: contract.prompt.workspace,
+    size: contract.parameters.size,
+    quality: contract.parameters.quality,
+    model: contract.parameters.model,
+    providerId: contract.parameters.providerId,
+    apiUrl: context.config.apiUrl,
+    requestUrl,
+    stream: contract.parameters.stream,
+    references: contract.references,
+    draw: contract.draw,
+    guidedFlow: contract.guidedFlow,
+    contract,
   }
 }
 

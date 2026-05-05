@@ -13,6 +13,7 @@ import {
   findConsumerGuidedFlowBySceneId,
   findConsumerGuidedFlowByTaskId,
   getConsumerGuidedFlowNextQuestionIndex,
+  resolveConsumerGuidedFlowSelections,
   type ConsumerGuidedFlowPreset,
   type ConsumerScenePreset,
   type ConsumerTaskPreset,
@@ -97,13 +98,30 @@ export function ConsumerTaskEntrySection({
     )
   }, [guidedFlowValue])
 
-  function emitGuidedFlowChange(guide: ConsumerGuidedFlowPreset, selections: GuidedSelectionMap) {
-    onGuidedFlowChange?.(buildConsumerGuidedFlowSnapshot(guide, selections))
+  function emitGuidedFlowChange(
+    guide: ConsumerGuidedFlowPreset,
+    selections: GuidedSelectionMap,
+    sourceType: 'scene-preset' | 'task-preset' | 'guided-flow' = 'guided-flow',
+  ) {
+    onGuidedFlowChange?.(
+      buildConsumerGuidedFlowSnapshot(guide, selections, {
+        sourceType,
+        selectionSource: sourceType === 'guided-flow' ? 'manual' : 'preset-default',
+      }),
+    )
   }
 
-  function activateGuide(guide: ConsumerGuidedFlowPreset, hint?: string) {
-    const nextSelections = guideSelections[guide.id] ?? {}
+  function activateGuide(
+    guide: ConsumerGuidedFlowPreset,
+    hint?: string,
+    nextSelections = guideSelections[guide.id] ?? {},
+    sourceType: 'scene-preset' | 'task-preset' | 'guided-flow' = 'guided-flow',
+  ) {
     setActiveGuideId(guide.id)
+    setGuideSelections((current) => ({
+      ...current,
+      [guide.id]: nextSelections,
+    }))
     setGuideStepIndexes((current) => ({
       ...current,
       [guide.id]: getConsumerGuidedFlowNextQuestionIndex(guide, nextSelections),
@@ -112,7 +130,7 @@ export function ConsumerTaskEntrySection({
       hint || `已切到「${getStudioFlowSceneLabel(guide.sceneId)}」场景。继续点 2 到 3 个按钮，输入框会同步补全描述。`,
     )
     onUseExample(buildGuidedPrompt(guide, nextSelections))
-    emitGuidedFlowChange(guide, nextSelections)
+    emitGuidedFlowChange(guide, nextSelections, sourceType)
   }
 
   function handleGuideOptionSelect(guide: ConsumerGuidedFlowPreset, questionId: string, optionId: string) {
@@ -150,8 +168,17 @@ export function ConsumerTaskEntrySection({
   function handleTaskSelect(task: ConsumerTaskPreset) {
     onSelectTask(task)
     const guide = findConsumerGuidedFlowByTaskId(task.id)
-    if (guide) activateGuide(guide, task.afterSelectHint)
-    else {
+    if (guide) {
+      activateGuide(
+        guide,
+        task.afterSelectHint,
+        resolveConsumerGuidedFlowSelections(guide, {
+          taskId: task.id,
+          currentSelections: guideSelections[guide.id] ?? {},
+        }),
+        'task-preset',
+      )
+    } else {
       onGuidedFlowChange?.(null)
       if (task.afterSelectHint) setSelectionHint(task.afterSelectHint)
     }
@@ -160,8 +187,17 @@ export function ConsumerTaskEntrySection({
   function handleSceneSelect(scene: ConsumerScenePreset) {
     onSelectScene(scene)
     const guide = findConsumerGuidedFlowBySceneId(scene.id)
-    if (guide) activateGuide(guide, scene.afterSelectHint)
-    else {
+    if (guide) {
+      activateGuide(
+        guide,
+        scene.afterSelectHint,
+        resolveConsumerGuidedFlowSelections(guide, {
+          sceneId: scene.id,
+          currentSelections: guideSelections[guide.id] ?? {},
+        }),
+        'scene-preset',
+      )
+    } else {
       onGuidedFlowChange?.(null)
       if (scene.afterSelectHint) setSelectionHint(scene.afterSelectHint)
     }
@@ -267,7 +303,9 @@ export function ConsumerTaskEntrySection({
               先选一个统一场景，再按步骤补 2 到 3 个按钮，描述会直接进入普通版输入框。
             </p>
           </div>
-          <p className="text-sm text-porcelain-100/55">当前已接入商品图、海报宣传图、头像人像和空间展示 4 个高频场景。</p>
+          <p className="text-sm text-porcelain-100/55">
+            当前已接入 {consumerGuidedFlowPresets.length} 个高频场景，模板字段会自动带出默认和推荐追问。
+          </p>
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-3">
@@ -344,12 +382,20 @@ export function ConsumerTaskEntrySection({
                         {activeQuestion.options.find((option) => option.id === activeQuestion.defaultOptionId)?.label ?? '未设置'}
                       </span>
                     ) : null}
+                    {activeQuestion.recommendedOptionId &&
+                    activeQuestion.recommendedOptionId !== activeQuestion.defaultOptionId ? (
+                      <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.10] px-3 py-1 text-xs text-signal-cyan/80">
+                        推荐优先：
+                        {activeQuestion.options.find((option) => option.id === activeQuestion.recommendedOptionId)?.label ?? '未设置'}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-3 text-base font-semibold text-porcelain-50">{activeQuestion.title}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     {activeQuestion.options.map((option) => {
                       const selected = activeSelections[activeQuestion.id] === option.id
                       const isDefault = option.id === activeQuestion.defaultOptionId
+                      const isRecommended = option.id === activeQuestion.recommendedOptionId
                       return (
                         <button
                           key={option.id}
@@ -362,7 +408,7 @@ export function ConsumerTaskEntrySection({
                           onClick={() => handleGuideOptionSelect(activeGuide, activeQuestion.id, option.id)}
                         >
                           {option.label}
-                          {isDefault ? ' · 默认' : ''}
+                          {isDefault ? ' · 默认' : isRecommended ? ' · 推荐' : ''}
                         </button>
                       )
                     })}

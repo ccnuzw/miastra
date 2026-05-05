@@ -1,4 +1,8 @@
 import type { GenerationTaskRecord } from '@/features/generation/generation.api'
+import {
+  buildGenerationContractSnapshot,
+  resolveGenerationContractSnapshot,
+} from '@/features/generation/generation.contract'
 import type {
   GenerationDrawSnapshot,
   GenerationMode,
@@ -40,7 +44,22 @@ export type WorkVersionSourceSummary = {
   parameterLabel: string
   referenceLabel: string
   promptLabel: string
+  sourceKind: WorkVersionSourceKind
+  sourceKindLabel: string
+  sourceDecisionLabel: string
+  sceneLabel: string
+  structureLabel: string
+  nodePathLabel: string
 }
+
+export type WorkVersionSourceKind =
+  | 'text-root'
+  | 'draw-batch'
+  | 'work-chain'
+  | 'upload-chain'
+  | 'mixed-chain'
+  | 'task-continue'
+  | 'task-retry'
 
 type SerializableWork = Pick<
   GalleryImage,
@@ -144,7 +163,7 @@ export function consumeWorkReplayPayload() {
 }
 
 export function buildReferenceImagesFromWork(work: GalleryImage): ReferenceImage[] {
-  const references = work.generationSnapshot?.references?.sources ?? []
+  const references = resolveGenerationContractSnapshot(work.generationSnapshot).references?.sources ?? []
   return references.flatMap((reference, index) => {
     if (!reference.src) return []
     return [
@@ -229,6 +248,64 @@ function buildOriginLabel(params: {
   return '来自文字起稿首版'
 }
 
+function resolveSourceKind(params: {
+  mode?: GenerationMode
+  workReferenceCount: number
+  uploadReferenceCount: number
+  hasTaskParent?: boolean
+  retryAttempt?: number
+}): WorkVersionSourceKind {
+  const { hasTaskParent = false, mode, retryAttempt = 0, uploadReferenceCount, workReferenceCount } = params
+  if (hasTaskParent) {
+    return retryAttempt > 0 ? 'task-retry' : 'task-continue'
+  }
+  if (workReferenceCount > 0 && uploadReferenceCount > 0) return 'mixed-chain'
+  if (workReferenceCount > 0) return 'work-chain'
+  if (uploadReferenceCount > 0) return 'upload-chain'
+  if (mode?.includes('draw')) return 'draw-batch'
+  return 'text-root'
+}
+
+function getSourceKindLabel(kind: WorkVersionSourceKind) {
+  switch (kind) {
+    case 'task-retry':
+      return '同版重试'
+    case 'task-continue':
+      return '接续上一轮'
+    case 'mixed-chain':
+      return '混合参考派生'
+    case 'work-chain':
+      return '沿作品主线'
+    case 'upload-chain':
+      return '上传参考派生'
+    case 'draw-batch':
+      return '抽卡批次变体'
+    case 'text-root':
+    default:
+      return '文字首版'
+  }
+}
+
+function buildSourceDecisionLabel(kind: WorkVersionSourceKind) {
+  switch (kind) {
+    case 'task-retry':
+      return '来源判断：当前节点属于同一版本的重试链'
+    case 'task-continue':
+      return '来源判断：当前节点沿上一轮结果继续推进'
+    case 'mixed-chain':
+      return '来源判断：当前节点同时承接历史作品和上传参考图'
+    case 'work-chain':
+      return '来源判断：当前节点沿上一版作品主线继续'
+    case 'upload-chain':
+      return '来源判断：当前节点主要由上传参考图驱动'
+    case 'draw-batch':
+      return '来源判断：当前节点仍属于同一抽卡批次变体链'
+    case 'text-root':
+    default:
+      return '来源判断：当前节点仍是文字起稿主线'
+  }
+}
+
 function buildParentSummary(params: {
   mode?: GenerationMode
   drawIndex?: number
@@ -256,12 +333,22 @@ function buildWorkDetailLabel(
     'variation' | 'drawIndex' | 'promptText' | 'promptSnippet' | 'mode' | 'generationSnapshot'
   >,
 ) {
-  const guidedSummary = work.generationSnapshot?.guidedFlow?.summary
+  const contract = resolveGenerationContractSnapshot(work.generationSnapshot, {
+    requestPrompt: work.promptText ?? work.promptSnippet ?? '',
+    workspacePrompt: work.promptText ?? work.promptSnippet ?? '',
+    mode: work.mode,
+  })
+  const guidedSummary = contract.guidedFlow?.summary
   if (guidedSummary && guidedSummary !== '还没选细节') return `追问结果：${guidedSummary}`
-  if (work.variation) return `这一版重点：${work.variation}`
-  if (work.mode?.includes('draw') && work.drawIndex !== undefined)
-    return `当前是这一组里的第 ${work.drawIndex + 1} 张变体`
-  const promptSnippet = buildPromptSnippet(work.promptText || work.promptSnippet || '', '')
+  if (contract.draw?.variation || work.variation) return `这一版重点：${contract.draw?.variation ?? work.variation}`
+  const drawIndex = contract.draw?.drawIndex ?? work.drawIndex
+  if (contract.parameters.mode?.includes('draw')) {
+    if (typeof drawIndex === 'number') return `当前是这一组里的第 ${drawIndex + 1} 张变体`
+  }
+  const promptSnippet = buildPromptSnippet(
+    contract.prompt.workspace || work.promptText || work.promptSnippet || '',
+    '',
+  )
   if (promptSnippet) return `当前描述：${promptSnippet}`
   return '可以直接接着这一版继续改'
 }
@@ -272,18 +359,31 @@ function buildCurrentVersionLabel(
     'variation' | 'drawIndex' | 'promptText' | 'promptSnippet' | 'mode' | 'generationSnapshot'
   >,
 ) {
-  const guidedSummary = work.generationSnapshot?.guidedFlow?.summary
+  const contract = resolveGenerationContractSnapshot(work.generationSnapshot, {
+    requestPrompt: work.promptText ?? work.promptSnippet ?? '',
+    workspacePrompt: work.promptText ?? work.promptSnippet ?? '',
+    mode: work.mode,
+  })
+  const guidedSummary = contract.guidedFlow?.summary
   if (guidedSummary && guidedSummary !== '还没选细节') return `当前版追问：${guidedSummary}`
-  if (work.variation) return `当前版重点：${work.variation}`
-  if (work.mode?.includes('draw') && work.drawIndex !== undefined)
-    return `当前版位于这组里的第 ${work.drawIndex + 1} 张变体`
-  const promptSnippet = buildPromptSnippet(work.promptText || work.promptSnippet || '', '')
+  if (contract.draw?.variation || work.variation)
+    return `当前版重点：${contract.draw?.variation ?? work.variation}`
+  const drawIndex = contract.draw?.drawIndex ?? work.drawIndex
+  if (contract.parameters.mode?.includes('draw')) {
+    if (typeof drawIndex === 'number') return `当前版位于这组里的第 ${drawIndex + 1} 张变体`
+  }
+  const promptSnippet = buildPromptSnippet(
+    contract.prompt.workspace || work.promptText || work.promptSnippet || '',
+    '',
+  )
   if (promptSnippet) return `当前版描述：${promptSnippet}`
   return '当前版可以直接继续调整'
 }
 
-function buildGuidedSummary(snapshot?: GenerationSnapshot | null) {
-  const guidedFlow = snapshot?.guidedFlow
+function buildGuidedSummary(snapshot?: GenerationSnapshot | null, fallback?: { hasReferences?: boolean }) {
+  const guidedFlow = resolveGenerationContractSnapshot(snapshot, {
+    hasReferences: fallback?.hasReferences,
+  }).guidedFlow
   if (!guidedFlow) return '追问：当前没有挂接正式追问结果'
   if (guidedFlow.summary && guidedFlow.summary !== '还没选细节') {
     return `追问：${guidedFlow.summary}（已完成 ${guidedFlow.completedQuestionCount}/${guidedFlow.totalQuestionCount} 步）`
@@ -343,6 +443,26 @@ function buildReferenceContextLabel(params: {
   return '参考：当前版本没有参考图依赖'
 }
 
+function buildSceneLabel(snapshot?: GenerationSnapshot | null, hasReferences = false) {
+  const scene = resolveGenerationContractSnapshot(snapshot, { hasReferences }).scene
+  return scene.label
+}
+
+function buildStructureLabel(params: {
+  snapshot?: GenerationSnapshot | null
+  hasReferences: boolean
+  sourceKind: WorkVersionSourceKind
+}) {
+  const contract = resolveGenerationContractSnapshot(params.snapshot, {
+    hasReferences: params.hasReferences,
+  })
+  const sceneLabel = contract.scene.label
+  const guidedFlow = contract.guidedFlow
+  const guideLabel = guidedFlow?.guideTitle?.trim() || '未挂接追问'
+  const versionLane = params.sourceKind === 'task-retry' ? '同版重试链' : params.sourceKind === 'task-continue' ? '继续链' : '版本链'
+  return `结构：${sceneLabel} · ${guideLabel} · ${versionLane}`
+}
+
 function buildAncestorSummary(params: {
   mode?: GenerationMode
   drawIndex?: number
@@ -361,6 +481,32 @@ function buildAncestorSummary(params: {
       ? '更早来源：当前仍沿用同一抽卡批次语义'
       : `更早来源：当前仍属于抽卡批次第 ${drawIndex + 1} 张的延续链`
   return '更早来源：当前仍在这个主题的首版主线上继续推进'
+}
+
+function buildNodePathLabel(params: {
+  sourceKind: WorkVersionSourceKind
+  parentSummary: string
+  currentLabel: string
+  ancestorLabel: string
+}) {
+  const parent = params.parentSummary.replace(/^父节点：?/, '').trim()
+  const current = params.currentLabel.replace(/^当前(?:版|任务)(?:追问|重点|位于这一组里的|描述)?：?/, '').trim()
+  const ancestor = params.ancestorLabel.replace(/^更早来源：/, '').trim()
+  const sourceHead =
+    params.sourceKind === 'task-retry'
+      ? '同版重试'
+      : params.sourceKind === 'task-continue'
+        ? '上一轮结果'
+        : params.sourceKind === 'mixed-chain'
+          ? '历史作品 + 上传图'
+          : params.sourceKind === 'work-chain'
+            ? '上一版作品'
+            : params.sourceKind === 'upload-chain'
+              ? '上传参考图'
+              : params.sourceKind === 'draw-batch'
+                ? '抽卡批次'
+                : '文字起稿'
+  return `节点链：${sourceHead} → ${parent || ancestor} → ${current || '当前节点'}`
 }
 
 function readParentSummaryFromReferenceNote(note?: string) {
@@ -387,59 +533,91 @@ function buildWorkContext(
     | 'generationSnapshot'
   >,
 ) {
-  const expectedReferenceCount = work.generationSnapshot?.references?.count ?? 0
-  const restorableReferenceCount = (work.generationSnapshot?.references?.sources ?? []).filter(
+  const contract = resolveGenerationContractSnapshot(work.generationSnapshot, {
+    requestPrompt: work.promptText ?? work.promptSnippet ?? '',
+    workspacePrompt: work.promptText ?? work.promptSnippet ?? '',
+    mode: work.mode,
+    size: work.size,
+    quality: work.quality,
+    model: work.providerModel,
+    hasReferences: Boolean(work.generationSnapshot?.references?.count),
+  })
+  const expectedReferenceCount = contract.references?.count ?? 0
+  const restorableReferenceCount = (contract.references?.sources ?? []).filter(
     (item) => Boolean(item.src),
   ).length
-  const originCounts = countReferenceOrigins(work.generationSnapshot?.references)
+  const originCounts = countReferenceOrigins(contract.references)
   const parentSummary =
-    readParentSummaryFromReferenceNote(work.generationSnapshot?.references?.note) ||
+    readParentSummaryFromReferenceNote(contract.references?.note) ||
     buildParentSummary({
-      mode: work.mode ?? work.generationSnapshot?.mode,
-      drawIndex: work.generationSnapshot?.draw?.drawIndex ?? work.drawIndex,
+      mode: contract.parameters.mode,
+      drawIndex: contract.draw?.drawIndex ?? work.drawIndex,
       workReferenceCount: originCounts.workCount,
       uploadReferenceCount: originCounts.uploadCount,
     })
+
+  const sourceKind = resolveSourceKind({
+    mode: contract.parameters.mode,
+    workReferenceCount: originCounts.workCount,
+    uploadReferenceCount: originCounts.uploadCount,
+  })
+  const ancestorSummary = buildAncestorSummary({
+    mode: contract.parameters.mode,
+    drawIndex: contract.draw?.drawIndex ?? work.drawIndex,
+    workReferenceCount: originCounts.workCount,
+    uploadReferenceCount: originCounts.uploadCount,
+  })
+  const currentLabel = buildCurrentVersionLabel({
+    variation: contract.draw?.variation ?? work.variation,
+    drawIndex: contract.draw?.drawIndex ?? work.drawIndex,
+    promptText: contract.prompt.workspace || work.promptText,
+    promptSnippet: work.promptSnippet,
+    mode: contract.parameters.mode,
+    generationSnapshot: work.generationSnapshot,
+  })
 
   return {
     expectedReferenceCount,
     restorableReferenceCount,
     originCounts,
+    sourceKind,
     parentSummary,
-    currentLabel: buildCurrentVersionLabel({
-      variation: work.generationSnapshot?.draw?.variation ?? work.variation,
-      drawIndex: work.generationSnapshot?.draw?.drawIndex ?? work.drawIndex,
-      promptText: work.generationSnapshot?.workspacePrompt || work.promptText,
-      promptSnippet: work.promptSnippet,
-      mode: work.mode ?? work.generationSnapshot?.mode,
-      generationSnapshot: work.generationSnapshot,
-    }),
+    currentLabel,
     detailLabel: buildWorkDetailLabel({
-      variation: work.generationSnapshot?.draw?.variation ?? work.variation,
-      drawIndex: work.generationSnapshot?.draw?.drawIndex ?? work.drawIndex,
-      promptText: work.generationSnapshot?.workspacePrompt || work.promptText,
+      variation: contract.draw?.variation ?? work.variation,
+      drawIndex: contract.draw?.drawIndex ?? work.drawIndex,
+      promptText: contract.prompt.workspace || work.promptText,
       promptSnippet: work.promptSnippet,
-      mode: work.mode ?? work.generationSnapshot?.mode,
+      mode: contract.parameters.mode,
       generationSnapshot: work.generationSnapshot,
     }),
-    ancestorSummary: buildAncestorSummary({
-      mode: work.mode ?? work.generationSnapshot?.mode,
-      drawIndex: work.generationSnapshot?.draw?.drawIndex ?? work.drawIndex,
-      workReferenceCount: originCounts.workCount,
-      uploadReferenceCount: originCounts.uploadCount,
+    ancestorSummary,
+    guidedSummary: buildGuidedSummary(work.generationSnapshot, {
+      hasReferences: expectedReferenceCount > 0,
     }),
-    guidedSummary: buildGuidedSummary(work.generationSnapshot),
     parameterSummary: buildParameterSummary({
-      mode: work.mode ?? work.generationSnapshot?.mode,
-      size: work.generationSnapshot?.size ?? work.size,
-      quality: work.generationSnapshot?.quality ?? work.quality,
-      model: work.generationSnapshot?.model ?? work.providerModel,
-      draw: work.generationSnapshot?.draw,
+      mode: contract.parameters.mode,
+      size: contract.parameters.size || work.size,
+      quality: contract.parameters.quality || work.quality,
+      model: contract.parameters.model || work.providerModel,
+      draw: contract.draw,
     }),
     promptLabel: buildPromptContextLabel({
-      requestPrompt: work.generationSnapshot?.requestPrompt,
-      workspacePrompt: work.generationSnapshot?.workspacePrompt || work.promptText,
+      requestPrompt: contract.prompt.request,
+      workspacePrompt: contract.prompt.workspace || work.promptText,
       fallback: work.promptSnippet,
+    }),
+    sceneLabel: buildSceneLabel(work.generationSnapshot, expectedReferenceCount > 0),
+    structureLabel: buildStructureLabel({
+      snapshot: work.generationSnapshot,
+      hasReferences: expectedReferenceCount > 0,
+      sourceKind,
+    }),
+    nodePathLabel: buildNodePathLabel({
+      sourceKind,
+      parentSummary,
+      currentLabel,
+      ancestorLabel: ancestorSummary,
     }),
   }
 }
@@ -495,9 +673,7 @@ function readTaskGenerationSnapshot(
 }
 
 function resolveReplayScene(snapshot?: GenerationSnapshot, hasReferences = false) {
-  if (snapshot?.scene) return snapshot.scene
-  if (snapshot?.guidedFlow?.scene) return snapshot.guidedFlow.scene
-  return hasReferences ? getStudioFlowScene('image-edit') : getStudioFlowScene()
+  return resolveGenerationContractSnapshot(snapshot, { hasReferences }).scene
 }
 
 export function buildTaskReplayWork(
@@ -512,6 +688,22 @@ export function buildTaskReplayWork(
     resultWork?.title ||
     task.payload.title
   const workspacePrompt = task.payload.workspacePrompt || requestPrompt
+  const fallbackContract = buildGenerationContractSnapshot({
+    scene: resolveReplayScene(
+      resultWork?.generationSnapshot,
+      Boolean(task.payload.referenceImages?.length),
+    ),
+    requestPrompt,
+    workspacePrompt,
+    mode: task.result?.mode ?? resultWork?.mode ?? task.payload.mode,
+    size: task.result?.size ?? resultWork?.size ?? task.payload.size,
+    quality: task.result?.quality ?? resultWork?.quality ?? task.payload.quality,
+    model: task.result?.providerModel ?? resultWork?.providerModel ?? task.payload.model,
+    providerId: task.payload.providerId,
+    stream: task.payload.stream,
+    references: buildTaskReferenceSnapshot(task),
+    draw: task.payload.draw as GenerationDrawSnapshot | undefined,
+  })
   const fallbackSnapshot: GenerationSnapshot = {
     id:
       task.result?.snapshotId ??
@@ -519,45 +711,61 @@ export function buildTaskReplayWork(
       task.payload.snapshotId ??
       crypto.randomUUID(),
     createdAt: toTimestamp(task.updatedAt || task.createdAt),
-    scene: resolveReplayScene(resultWork?.generationSnapshot, Boolean(task.payload.referenceImages?.length)),
-    mode: task.result?.mode ?? resultWork?.mode ?? task.payload.mode,
-    prompt: requestPrompt,
-    requestPrompt,
-    workspacePrompt,
-    size: task.result?.size ?? resultWork?.size ?? task.payload.size,
-    quality: task.result?.quality ?? resultWork?.quality ?? task.payload.quality,
-    model: task.result?.providerModel ?? resultWork?.providerModel ?? task.payload.model,
-    providerId: task.payload.providerId,
+    scene: fallbackContract.scene,
+    mode: fallbackContract.parameters.mode,
+    prompt: fallbackContract.prompt.request,
+    requestPrompt: fallbackContract.prompt.request,
+    workspacePrompt: fallbackContract.prompt.workspace,
+    size: fallbackContract.parameters.size,
+    quality: fallbackContract.parameters.quality,
+    model: fallbackContract.parameters.model,
+    providerId: fallbackContract.parameters.providerId,
     apiUrl: '',
     requestUrl: '',
-    stream: task.payload.stream,
-    references: buildTaskReferenceSnapshot(task),
-    draw: task.payload.draw as GenerationDrawSnapshot | undefined,
+    stream: fallbackContract.parameters.stream,
+    references: fallbackContract.references,
+    draw: fallbackContract.draw,
+    guidedFlow: fallbackContract.guidedFlow,
+    contract: fallbackContract,
   }
 
-  const generationSnapshot: GenerationSnapshot = existingSnapshot
-    ? {
-        ...existingSnapshot,
-        id: existingSnapshot.id || fallbackSnapshot.id,
-        createdAt: existingSnapshot.createdAt || fallbackSnapshot.createdAt,
-        scene:
-          existingSnapshot.scene ??
-          resolveReplayScene(existingSnapshot, Boolean(task.payload.referenceImages?.length)),
-        mode: (existingSnapshot.mode || fallbackSnapshot.mode) as GenerationMode,
-        prompt: existingSnapshot.prompt || fallbackSnapshot.prompt,
-        requestPrompt: existingSnapshot.requestPrompt || fallbackSnapshot.requestPrompt,
-        workspacePrompt: existingSnapshot.workspacePrompt || fallbackSnapshot.workspacePrompt,
-        size: existingSnapshot.size || fallbackSnapshot.size,
-        quality: existingSnapshot.quality || fallbackSnapshot.quality,
-        model: existingSnapshot.model || fallbackSnapshot.model,
-        providerId: existingSnapshot.providerId || fallbackSnapshot.providerId,
-        apiUrl: existingSnapshot.apiUrl || fallbackSnapshot.apiUrl,
-        requestUrl: existingSnapshot.requestUrl || fallbackSnapshot.requestUrl,
-        stream: existingSnapshot.stream ?? fallbackSnapshot.stream,
-        references: existingSnapshot.references ?? fallbackSnapshot.references,
-        draw: existingSnapshot.draw ?? fallbackSnapshot.draw,
-      }
-    : fallbackSnapshot
+  const generationContract = resolveGenerationContractSnapshot(existingSnapshot, {
+    scene: fallbackContract.scene,
+    requestPrompt,
+    workspacePrompt,
+    mode: fallbackContract.parameters.mode,
+    size: fallbackContract.parameters.size,
+    quality: fallbackContract.parameters.quality,
+    model: fallbackContract.parameters.model,
+    providerId: fallbackContract.parameters.providerId,
+    stream: fallbackContract.parameters.stream,
+    references: fallbackContract.references,
+    draw: fallbackContract.draw,
+    guidedFlow: fallbackContract.guidedFlow,
+    hasReferences: Boolean(task.payload.referenceImages?.length),
+  })
+
+  const generationSnapshot: GenerationSnapshot = {
+    ...(existingSnapshot ?? fallbackSnapshot),
+    id: existingSnapshot?.id || fallbackSnapshot.id,
+    createdAt: existingSnapshot?.createdAt || fallbackSnapshot.createdAt,
+    scene: generationContract.scene,
+    mode: generationContract.parameters.mode as GenerationMode,
+    prompt: generationContract.prompt.request,
+    requestPrompt: generationContract.prompt.request,
+    workspacePrompt: generationContract.prompt.workspace,
+    size: generationContract.parameters.size,
+    quality: generationContract.parameters.quality,
+    model: generationContract.parameters.model,
+    providerId: generationContract.parameters.providerId,
+    apiUrl: existingSnapshot?.apiUrl || fallbackSnapshot.apiUrl,
+    requestUrl: existingSnapshot?.requestUrl || fallbackSnapshot.requestUrl,
+    stream: generationContract.parameters.stream,
+    references: generationContract.references,
+    draw: generationContract.draw,
+    guidedFlow: generationContract.guidedFlow,
+    contract: generationContract,
+  }
 
   return {
     id: resultWork?.id ?? task.result?.workId ?? task.id,
@@ -637,6 +845,12 @@ export function getWorkVersionSourceSummary(
       uploadReferenceCount: context.originCounts.uploadCount,
     }),
     promptLabel: context.promptLabel,
+    sourceKind: context.sourceKind,
+    sourceKindLabel: getSourceKindLabel(context.sourceKind),
+    sourceDecisionLabel: buildSourceDecisionLabel(context.sourceKind),
+    sceneLabel: context.sceneLabel,
+    structureLabel: context.structureLabel,
+    nodePathLabel: context.nodePathLabel,
   }
 }
 
@@ -659,13 +873,35 @@ export function getTaskVersionSourceSummary(
   >,
 ): WorkVersionSourceSummary {
   const originCounts = countReferenceOrigins(task.payload.referenceImages)
+  const replayContract = resolveGenerationContractSnapshot(replayWork?.generationSnapshot, {
+    requestPrompt: task.payload.requestPrompt,
+    workspacePrompt: replayWork?.promptText ?? task.payload.workspacePrompt,
+    mode: replayWork?.mode ?? task.payload.mode,
+    size: replayWork?.size ?? task.payload.size,
+    quality: replayWork?.quality ?? task.payload.quality,
+    model: replayWork?.providerModel ?? task.payload.model,
+    providerId: task.payload.providerId,
+    stream: task.payload.stream,
+    references: replayWork?.generationSnapshot?.references,
+    draw:
+      replayWork?.generationSnapshot?.draw ??
+      (task.payload.draw as GenerationDrawSnapshot | undefined),
+    hasReferences: Boolean(task.payload.referenceImages?.length),
+  })
+  const sourceKind = resolveSourceKind({
+    mode: replayContract.parameters.mode,
+    workReferenceCount: originCounts.workCount,
+    uploadReferenceCount: originCounts.uploadCount,
+    hasTaskParent: Boolean(task.parentTaskId),
+    retryAttempt: task.retryAttempt,
+  })
   const originLabel = task.parentTaskId
     ? task.retryAttempt > 0
       ? '来自上一轮结果的同版重试'
       : '来自上一轮结果继续这一版'
     : buildOriginLabel({
-        mode: task.payload.mode,
-        drawIndex: task.payload.draw?.drawIndex ?? task.drawIndex,
+        mode: replayContract.parameters.mode,
+        drawIndex: replayContract.draw?.drawIndex ?? task.drawIndex,
         workReferenceCount: originCounts.workCount,
         uploadReferenceCount: originCounts.uploadCount,
       })
@@ -676,8 +912,8 @@ export function getTaskVersionSourceSummary(
       : `任务 ${trimTaskId(task.parentTaskId)} 的上一轮结果`
     : withParentLabel(
         buildParentSummary({
-          mode: task.payload.mode,
-          drawIndex: task.payload.draw?.drawIndex ?? task.drawIndex,
+          mode: replayContract.parameters.mode,
+          drawIndex: replayContract.draw?.drawIndex ?? task.drawIndex,
           workReferenceCount: originCounts.workCount,
           uploadReferenceCount: originCounts.uploadCount,
         }),
@@ -686,23 +922,23 @@ export function getTaskVersionSourceSummary(
   const detailLabel =
     task.retryAttempt > 0
       ? `当前是第 ${task.retryAttempt + 1} 次尝试`
-      : task.payload.draw?.variation || task.variation
-        ? `这一轮重点：${task.payload.draw?.variation ?? task.variation}`
-        : task.payload.draw?.drawIndex !== undefined
-          ? `当前是这一组里的第 ${task.payload.draw.drawIndex + 1} 张`
-          : task.payload.requestPrompt
-            ? `当前描述：${buildPromptSnippet(task.payload.requestPrompt, task.payload.title)}`
+      : replayContract.draw?.variation || task.variation
+        ? `这一轮重点：${replayContract.draw?.variation ?? task.variation}`
+        : replayContract.draw?.drawIndex !== undefined
+          ? `当前是这一组里的第 ${replayContract.draw.drawIndex + 1} 张`
+          : replayContract.prompt.request
+            ? `当前描述：${buildPromptSnippet(replayContract.prompt.request, task.payload.title)}`
             : '可以恢复到工作台继续改'
 
   const currentLabel =
     task.retryAttempt > 0
       ? `当前任务：第 ${task.retryAttempt + 1} 次同版尝试`
-      : task.payload.draw?.variation || task.variation
-        ? `当前任务重点：${task.payload.draw?.variation ?? task.variation}`
-        : task.payload.draw?.drawIndex !== undefined
-          ? `当前任务位于这一组里的第 ${task.payload.draw.drawIndex + 1} 张`
-          : task.payload.requestPrompt
-            ? `当前任务描述：${buildPromptSnippet(task.payload.requestPrompt, task.payload.title)}`
+      : replayContract.draw?.variation || task.variation
+        ? `当前任务重点：${replayContract.draw?.variation ?? task.variation}`
+        : replayContract.draw?.drawIndex !== undefined
+          ? `当前任务位于这一组里的第 ${replayContract.draw.drawIndex + 1} 张`
+          : replayContract.prompt.request
+            ? `当前任务描述：${buildPromptSnippet(replayContract.prompt.request, task.payload.title)}`
             : '当前任务可恢复到工作台继续改'
 
   const ancestorLabel = task.parentTaskId
@@ -710,11 +946,14 @@ export function getTaskVersionSourceSummary(
       ? `更早来源：根任务 ${trimTaskId(task.rootTaskId)} 已形成多轮继续链`
       : `更早来源：当前仍沿着根任务 ${trimTaskId(task.rootTaskId || task.parentTaskId)} 的主线推进`
     : buildAncestorSummary({
-        mode: task.payload.mode,
-        drawIndex: task.payload.draw?.drawIndex ?? task.drawIndex,
+        mode: replayContract.parameters.mode,
+        drawIndex: replayContract.draw?.drawIndex ?? task.drawIndex,
         workReferenceCount: originCounts.workCount,
         uploadReferenceCount: originCounts.uploadCount,
       })
+
+  const sceneSnapshot = replayWork?.generationSnapshot
+  const hasReferences = (replayContract.references?.count ?? task.payload.referenceImages?.length ?? 0) > 0
 
   return {
     originLabel,
@@ -723,33 +962,43 @@ export function getTaskVersionSourceSummary(
     currentLabel,
     ancestorLabel,
     guidedFlowLabel: replayWork
-      ? buildGuidedSummary(replayWork.generationSnapshot)
+      ? buildGuidedSummary(replayWork.generationSnapshot, { hasReferences })
       : '追问：当前任务快照里没有正式追问结果',
     parameterLabel: buildParameterSummary({
-      mode: task.payload.mode,
-      size: replayWork?.generationSnapshot?.size ?? replayWork?.size ?? task.payload.size,
-      quality:
-        replayWork?.generationSnapshot?.quality ?? replayWork?.quality ?? task.payload.quality,
-      model:
-        replayWork?.generationSnapshot?.model ??
-        replayWork?.providerModel ??
-        task.payload.model,
-      draw: replayWork?.generationSnapshot?.draw ?? (task.payload.draw as GenerationDrawSnapshot | undefined),
+      mode: replayContract.parameters.mode,
+      size: replayContract.parameters.size,
+      quality: replayContract.parameters.quality,
+      model: replayContract.parameters.model,
+      draw: replayContract.draw,
     }),
     referenceLabel: buildReferenceContextLabel({
-      expectedReferenceCount:
-        replayWork?.generationSnapshot?.references?.count ?? task.payload.referenceImages?.length ?? 0,
+      expectedReferenceCount: replayContract.references?.count ?? task.payload.referenceImages?.length ?? 0,
       restorableReferenceCount:
-        replayWork?.generationSnapshot?.references?.sources?.filter((item) => Boolean(item.src))
-          .length ?? task.payload.referenceImages?.filter((item) => Boolean(item.src)).length ?? 0,
+        replayContract.references?.sources?.filter((item) => Boolean(item.src)).length ??
+        task.payload.referenceImages?.filter((item) => Boolean(item.src)).length ??
+        0,
       workReferenceCount: originCounts.workCount,
       uploadReferenceCount: originCounts.uploadCount,
     }),
     promptLabel: buildPromptContextLabel({
-      requestPrompt: task.payload.requestPrompt,
-      workspacePrompt:
-        replayWork?.generationSnapshot?.workspacePrompt ?? task.payload.workspacePrompt,
+      requestPrompt: replayContract.prompt.request,
+      workspacePrompt: replayContract.prompt.workspace,
       fallback: task.payload.title,
+    }),
+    sourceKind,
+    sourceKindLabel: getSourceKindLabel(sourceKind),
+    sourceDecisionLabel: buildSourceDecisionLabel(sourceKind),
+    sceneLabel: buildSceneLabel(sceneSnapshot, hasReferences),
+    structureLabel: buildStructureLabel({
+      snapshot: sceneSnapshot,
+      hasReferences,
+      sourceKind,
+    }),
+    nodePathLabel: buildNodePathLabel({
+      sourceKind,
+      parentSummary,
+      currentLabel,
+      ancestorLabel,
     }),
   }
 }

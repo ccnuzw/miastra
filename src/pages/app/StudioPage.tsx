@@ -11,18 +11,14 @@ import {
   getStudioFlowScene,
   getStudioFlowSceneLabel,
   getStudioFlowSourceLabel,
-  mapPromptScenarioToFlowSceneId,
   resolvePromptTemplateScene,
 } from '@/features/prompt-templates/studioFlowSemantic'
-import {
-  buildConsumerGuidedFlowSnapshot,
-  findConsumerGuidedFlowBySceneId,
-} from '@/features/studio-home/consumerHomePresets'
 import {
   clearPromptTemplateStudioLaunch,
   getPromptTemplateStudioLaunchKey,
   readPromptTemplateStudioLaunch,
 } from '@/features/prompt-templates/promptTemplate.studioEntry'
+import { buildPromptTemplateGuidedFlowSnapshot } from '@/features/prompt-templates/promptTemplate.runtime'
 import { usePromptTemplateActions } from '@/features/prompt-templates/usePromptTemplateActions'
 import { usePromptTemplates } from '@/features/prompt-templates/usePromptTemplates'
 import { useProviderConfig } from '@/features/provider/useProviderConfig'
@@ -272,6 +268,10 @@ export function StudioPage() {
 
   const templateContextSlot = useMemo(() => {
     if (!activeTemplateContext) return null
+    const templateGuidedSummary =
+      consumerGuidedFlow?.sourceType === 'template' ? consumerGuidedFlow.summary : null
+    const templateGuidedLabel =
+      consumerGuidedFlow?.sourceType === 'template' ? consumerGuidedFlow.followUpLabel : null
 
     return (
       <StudioShellCallout
@@ -300,12 +300,17 @@ export function StudioPage() {
           ))}
         </div>
         <div className="mt-3 rounded-[1.05rem] border border-porcelain-50/10 bg-ink-950/[0.22] px-4 py-3 text-xs leading-5 text-porcelain-100/55">
+          {templateGuidedLabel && templateGuidedSummary ? (
+            <p>
+              {templateGuidedLabel}：{templateGuidedSummary}
+            </p>
+          ) : null}
           <p>追问链：{activeTemplateContext.followUpSummary}</p>
           <p className="mt-1">版本链：{activeTemplateContext.versionSummary}</p>
         </div>
       </StudioShellCallout>
     )
-  }, [activeTemplateContext])
+  }, [activeTemplateContext, consumerGuidedFlow])
 
   const applyTemplateStructureDefaults = useCallback((template: PromptTemplateListItem) => {
     const structure = template.structure ?? buildPromptTemplateStructure(template)
@@ -588,9 +593,15 @@ export function StudioPage() {
         sourceLabel: subject,
         actionLabel: replayActionLabel,
         scene: replayScene,
+        sceneLabel: versionSourceSummary.sceneLabel,
         statusText: getWorkReplayStatusText(replaySummary),
         hint: getWorkReplayHint(origin, autoGenerate, replaySummary),
         originLabel: versionSourceSummary.originLabel,
+        sourceKind: versionSourceSummary.sourceKind,
+        sourceKindLabel: versionSourceSummary.sourceKindLabel,
+        sourceDecisionLabel: versionSourceSummary.sourceDecisionLabel,
+        structureLabel: versionSourceSummary.structureLabel,
+        nodePathLabel: versionSourceSummary.nodePathLabel,
         detailLabel: versionSourceSummary.detailLabel,
         currentLabel: versionSourceSummary.currentLabel,
         parentLabel: versionSourceSummary.parentLabel,
@@ -618,6 +629,8 @@ export function StudioPage() {
         sourceDrawTimeoutSec: snapshot?.draw?.timeoutSec ?? null,
         sourceVariationStrength: snapshot?.draw?.variationStrength ?? null,
         sourceVariationDimensionCount: snapshot?.draw?.dimensions.length ?? 0,
+        sourceReferenceCount: snapshot?.references?.count ?? referenceImages.length,
+        sourceWorkspacePrompt: workspacePrompt,
         requestPrompt,
         referenceSummaryLabel:
           replaySummary.expectedReferenceCount > 0
@@ -689,13 +702,13 @@ export function StudioPage() {
 
     workbench.setMode(launch.mode)
     const structure = applyTemplateStructureDefaults(matchedTemplate)
-    studio.setPrompt(matchedTemplate.content)
     const resolvedScene = launch.sceneId
       ? getStudioFlowScene(launch.sceneId)
       : resolvePromptTemplateScene(structure.scenarioId)
-    const resolvedSceneId = resolvedScene.id
-    const guidedGuide = launch.mode === 'consumer' ? findConsumerGuidedFlowBySceneId(resolvedSceneId) : undefined
-    setConsumerGuidedFlow(guidedGuide ? buildConsumerGuidedFlowSnapshot(guidedGuide, {}) : null)
+    const templateGuidedFlow =
+      launch.mode === 'consumer' ? buildPromptTemplateGuidedFlowSnapshot(matchedTemplate) : null
+    studio.setPrompt(templateGuidedFlow?.promptText?.trim() || matchedTemplate.content)
+    setConsumerGuidedFlow(templateGuidedFlow)
     const sourceLabel = getStudioFlowSourceLabel(launch.sourceType)
     const templateContext = buildStudioProTemplateContext(
       matchedTemplate,
@@ -705,7 +718,11 @@ export function StudioPage() {
     runtime.setStatus('success')
     runtime.setStatusText(
       launch.mode === 'consumer'
-        ? `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入普通版任务入口，并同步「${resolvedScene.label}」场景字段。建议先出第一版，再接“${nextActionLabel}”。`
+        ? `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入普通版任务入口，并同步「${resolvedScene.label}」场景字段${
+            templateGuidedFlow
+              ? `，已按模板默认追问路径补齐 ${templateGuidedFlow.completedQuestionCount} 步`
+              : ''
+          }。建议先出第一版，再接“${nextActionLabel}”。`
         : `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入专业版控制面板，并同步「${resolvedScene.label}」场景字段。建议先按模板控制项起手，再接“${nextActionLabel}”。`,
     )
     setActiveTemplateContext(templateContext)
@@ -749,10 +766,13 @@ export function StudioPage() {
           `统一场景：${sceneLabel}`,
           `动作语义：${getStudioFlowActionLabel(event.detail.semanticActionId)}`,
           `来源类型：${getStudioFlowSourceLabel(event.detail.sourceType)}`,
+          event.detail.guidedFlowSummary ? `追问回写：${event.detail.guidedFlowSummary}` : '',
           `当前结果：${previewTitle}`,
           `动作说明：${event.detail.actionDescription}`,
           `下一步：${event.detail.nextStep}`,
-        ].join('\n'),
+        ]
+          .filter(Boolean)
+          .join('\n'),
       )
     }
 
@@ -778,6 +798,22 @@ export function StudioPage() {
     setActiveTemplateContext(buildStudioProTemplateContext(template, '在工作台内应用模板'))
     setProReplayContext(null)
     templateActions.handleApplyPromptTemplate(template)
+    const templateGuidedFlow =
+      workbench.isConsumerMode ? buildPromptTemplateGuidedFlowSnapshot(template) : null
+    if (templateGuidedFlow?.promptText?.trim()) {
+      studio.setPrompt(templateGuidedFlow.promptText)
+    }
+    setConsumerGuidedFlow(templateGuidedFlow)
+    runtime.setStatus('success')
+    runtime.setStatusText(
+      workbench.isConsumerMode
+        ? `已在普通版应用模板「${getPromptTemplateTitle(template)}」${
+            templateGuidedFlow
+              ? `，并按模板默认追问路径补齐 ${templateGuidedFlow.completedQuestionCount} 步`
+              : ''
+          }。`
+        : `已在专业版应用模板「${getPromptTemplateTitle(template)}」，当前已切回模板控制基线。`,
+    )
   }
 
   function handleShortcut(preset: 'safe3' | 'balanced5' | 'fast8' | 'turbo10') {
@@ -907,9 +943,7 @@ export function StudioPage() {
                         replayContext: proReplayContext,
                         onApplyTemplatePrompt: activeTemplateContext ? applyActiveTemplatePrompt : undefined,
                         onApplyReplayPrompt: proReplayContext ? applyReplayPromptToWorkspace : undefined,
-                        onResetPromptToWorkspace: studioProPrompt.workspacePrompt.trim()
-                          ? () => studio.setPrompt(studioProPrompt.workspacePrompt)
-                          : undefined,
+                        onResetPromptToWorkspace: (value) => studio.setPrompt(value),
                       }
                     : null,
                 }}

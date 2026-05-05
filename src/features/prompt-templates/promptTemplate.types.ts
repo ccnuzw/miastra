@@ -1,7 +1,11 @@
 export type PromptTemplateWorkbenchEntryMode = 'consumer' | 'pro'
 export type PromptTemplateWorkbenchEntryIntent = 'task' | 'panel'
 
-import type { StudioFlowScene } from './studioFlowSemantic'
+import type {
+  StudioFlowActionId,
+  StudioFlowFieldId,
+  StudioFlowScene,
+} from './studioFlowSemantic'
 
 export type PromptTemplateStructureStatus = 'derived' | 'structured'
 
@@ -30,10 +34,38 @@ export type PromptTemplateGuidedFieldOption = {
   prompt: string
 }
 
+export type PromptTemplateGuidedValueStrategy =
+  | 'configured'
+  | 'first-option'
+  | 'same-as-default'
+
 export type PromptTemplateGuidedFieldConfig = {
   questionTitle?: string
+  semanticFieldId?: StudioFlowFieldId
   defaultOptionId?: string
+  defaultStrategy?: Exclude<PromptTemplateGuidedValueStrategy, 'same-as-default'>
+  recommendedOptionId?: string
+  recommendedStrategy?: PromptTemplateGuidedValueStrategy
   options: PromptTemplateGuidedFieldOption[]
+}
+
+export type PromptTemplateGuidedSelectionMode = 'empty' | 'default' | 'recommended'
+
+export type PromptTemplateGuidedFlowEntryBinding = {
+  id: string
+  mode?: PromptTemplateGuidedSelectionMode
+  selections?: Record<string, string>
+}
+
+export type PromptTemplateScenarioGuidedFlowConfig = {
+  defaultPromptText: string
+  taskBindings?: PromptTemplateGuidedFlowEntryBinding[]
+  sceneBindings?: PromptTemplateGuidedFlowEntryBinding[]
+  resultActionBindings?: Array<
+    PromptTemplateGuidedFlowEntryBinding & {
+      semanticActionId?: StudioFlowActionId
+    }
+  >
 }
 
 export type PromptTemplateFieldDefinition = {

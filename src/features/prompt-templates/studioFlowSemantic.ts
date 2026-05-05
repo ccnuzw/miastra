@@ -40,6 +40,17 @@ export type StudioFlowFieldId =
   | 'portraitPurpose'
   | 'portraitStyle'
   | 'retouchLevel'
+  | 'spacePurpose'
+  | 'spaceViewpoint'
+  | 'spaceMood'
+  | 'storySubject'
+  | 'storyWorld'
+  | 'storyStyle'
+  | 'colorMood'
+  | 'genericSubject'
+  | 'genericScene'
+  | 'genericStyle'
+  | 'genericConstraint'
 
 export type StudioFlowScene = {
   id: StudioFlowSceneId
@@ -90,14 +101,6 @@ const studioFlowSceneMetaMap: Record<StudioFlowSceneId, StudioFlowSceneMeta> = {
       retouchLevel: '修饰程度',
     },
   },
-  'generic-create': {
-    id: 'generic-create',
-    label: '通用创作',
-    description: '适合先起稿，再逐步补主体、风格和用途。',
-    recommendedMode: 'consumer',
-    recommendedIntent: 'task',
-    fieldLabels: {},
-  },
   'image-edit': {
     id: 'image-edit',
     label: '图片继续修改',
@@ -112,7 +115,11 @@ const studioFlowSceneMetaMap: Record<StudioFlowSceneId, StudioFlowSceneMeta> = {
     description: '适合室内、展台和环境搭建。',
     recommendedMode: 'consumer',
     recommendedIntent: 'task',
-    fieldLabels: {},
+    fieldLabels: {
+      spacePurpose: '空间用途',
+      spaceViewpoint: '观看角度',
+      spaceMood: '氛围光线',
+    },
   },
   'illustration-concept': {
     id: 'illustration-concept',
@@ -120,8 +127,59 @@ const studioFlowSceneMetaMap: Record<StudioFlowSceneId, StudioFlowSceneMeta> = {
     description: '适合概念图、叙事插画和风格实验。',
     recommendedMode: 'pro',
     recommendedIntent: 'panel',
-    fieldLabels: {},
+    fieldLabels: {
+      storySubject: '创作目标',
+      storyWorld: '场景关系',
+      storyStyle: '表现方式',
+      colorMood: '色彩氛围',
+    },
   },
+  'generic-create': {
+    id: 'generic-create',
+    label: '通用创作',
+    description: '适合先起稿，再逐步补主体、风格和用途。',
+    recommendedMode: 'consumer',
+    recommendedIntent: 'task',
+    fieldLabels: {
+      genericSubject: '主体方向',
+      genericScene: '用途场景',
+      genericStyle: '风格方向',
+      genericConstraint: '结果边界',
+    },
+  },
+}
+
+const studioFlowSourceTypes = [
+  'template',
+  'task-preset',
+  'scene-preset',
+  'guided-flow',
+  'result-action',
+  'work-replay',
+  'task-replay',
+] as const
+
+const studioFlowActionIds = [
+  'start-create',
+  'continue-edit',
+  'guided-refine',
+  'continue-version',
+  'branch-version',
+  'retry-version',
+  'restore-controls',
+] as const
+
+export function isStudioFlowSceneId(value: string | null): value is StudioFlowSceneId {
+  if (!value) return false
+  return value in studioFlowSceneMetaMap
+}
+
+export function isStudioFlowSourceType(value: string | null): value is StudioFlowSourceType {
+  return Boolean(value && studioFlowSourceTypes.includes(value as StudioFlowSourceType))
+}
+
+export function isStudioFlowActionId(value: string | null): value is StudioFlowActionId {
+  return Boolean(value && studioFlowActionIds.includes(value as StudioFlowActionId))
 }
 
 const promptScenarioToFlowSceneMap: Record<PromptTemplateScenarioId, StudioFlowSceneId> = {

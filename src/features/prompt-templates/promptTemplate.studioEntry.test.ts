@@ -71,4 +71,19 @@ describe('promptTemplate.studioEntry', () => {
       nextAction: 'branch-version',
     })
   })
+
+  it('ignores invalid scene, source and action params', () => {
+    const params = new URLSearchParams(
+      'template=template-5&entryMode=consumer&entryIntent=task&scene=unknown-scene&source=unknown-source&nextAction=unknown-action',
+    )
+
+    expect(readPromptTemplateStudioLaunch(params)).toEqual({
+      templateId: 'template-5',
+      mode: 'consumer',
+      intent: 'task',
+      sceneId: undefined,
+      sourceType: 'template',
+      nextAction: undefined,
+    })
+  })
 })

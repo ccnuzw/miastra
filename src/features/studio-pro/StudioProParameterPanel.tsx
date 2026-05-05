@@ -1,4 +1,8 @@
 import type { StudioProReplayContext, StudioProTemplateContext } from './studioPro.utils'
+import {
+  buildStudioProComparisonItem,
+  summarizeStudioProComparisons,
+} from './studioPro.utils'
 
 type StudioProParameterPanelProps = {
   studioMode: 'create' | 'draw'
@@ -80,6 +84,104 @@ export function StudioProParameterPanel({
     studioMode === 'draw'
       ? `当前会按 ${drawCount} 次抽卡执行，策略 ${drawStrategyLabelMap[drawStrategy]}，并发 ${drawConcurrency}。`
       : '当前按单次生成流程执行，更适合先精调 Prompt 再重跑。'
+  const currentGenerationModeLabel = studioMode === 'draw' ? '图片抽卡' : '创作生成'
+  const sourceGenerationModeLabel =
+    replayContext?.sourceStudioMode === 'draw'
+      ? '图片抽卡'
+      : replayContext?.sourceStudioMode === 'create'
+        ? '创作生成'
+        : ''
+  const currentBatchLabel =
+    studioMode === 'draw'
+      ? `${drawCount} 次 · ${drawStrategyLabelMap[drawStrategy]} · 并发 ${drawConcurrency}`
+      : '单次生成'
+  const sourceBatchLabel =
+    replayContext?.sourceStudioMode === 'draw'
+      ? `${replayContext.sourceDrawCount ?? 0} 次 · ${
+          replayContext.sourceDrawStrategy
+            ? drawStrategyLabelMap[replayContext.sourceDrawStrategy]
+            : '未记录策略'
+        } · 并发 ${replayContext.sourceDrawConcurrency ?? 0}`
+      : replayContext?.sourceStudioMode === 'create'
+        ? '单次生成'
+        : ''
+  const replayComparisonItems = replayContext
+    ? [
+        buildStudioProComparisonItem(
+          'size',
+          '输出尺寸',
+          `${size} · ${resolutionLabel}`,
+          replayContext.sourceSize
+            ? `${replayContext.sourceSize} · ${replayContext.sourceResolutionLabel ?? '未记录分辨率'}`
+            : '',
+          '当前尺寸或分辨率已偏离来源快照，下一轮会输出新的规格版本。',
+        ),
+        buildStudioProComparisonItem(
+          'quality',
+          '质量',
+          qualityLabelMap[quality] ?? quality,
+          qualityLabelMap[replayContext.sourceQuality ?? ''] ?? replayContext.sourceQuality ?? '',
+          '当前质量档位已改变，会直接影响结果稳定性和清晰度。',
+        ),
+        buildStudioProComparisonItem(
+          'stream',
+          '返回方式',
+          stream ? '流式开启' : '流式关闭',
+          replayContext.sourceStream == null ? '' : replayContext.sourceStream ? '流式开启' : '流式关闭',
+          '当前返回方式与来源不同，会影响查看节奏但不改变画面语义。',
+        ),
+        buildStudioProComparisonItem(
+          'mode',
+          '任务模式',
+          currentGenerationModeLabel,
+          sourceGenerationModeLabel,
+          '当前任务模式与来源不同，说明你已经从单轮生成切到抽卡，或反过来切回单轮。',
+        ),
+        buildStudioProComparisonItem(
+          'batch',
+          '批量策略',
+          currentBatchLabel,
+          sourceBatchLabel,
+          '当前抽卡或批量策略已调整，下一轮更适合当作派生版本看待。',
+        ),
+        buildStudioProComparisonItem(
+          'references',
+          '参考图',
+          `${referenceCount} 张`,
+          replayContext.sourceReferenceCount != null ? `${replayContext.sourceReferenceCount} 张` : '',
+          '当前参考图数量与来源不同，Prompt 再一致也会走成新的控制基线。',
+        ),
+      ]
+    : []
+  const replayComparisonSummary = summarizeStudioProComparisons(replayComparisonItems)
+  const templateComparisonItems = templateContext
+    ? [
+        buildStudioProComparisonItem(
+          'template-aspect',
+          '模板默认画幅',
+          aspectLabel,
+          templateContext.defaultSettings.aspectLabel,
+          '当前画幅已经偏离模板默认值，适合确认这是不是刻意派生。',
+        ),
+        buildStudioProComparisonItem(
+          'template-resolution',
+          '模板默认分辨率',
+          resolutionLabel,
+          templateContext.defaultSettings.resolutionTier?.toUpperCase(),
+          '当前分辨率已经偏离模板默认值，输出规格会和模板基线不同。',
+        ),
+        buildStudioProComparisonItem(
+          'template-quality',
+          '模板默认质量',
+          qualityLabelMap[quality] ?? quality,
+          templateContext.defaultSettings.quality
+            ? qualityLabelMap[templateContext.defaultSettings.quality]
+            : '',
+          '当前质量已经偏离模板默认值，首轮复用稳定性会下降。',
+        ),
+      ]
+    : []
+  const templateComparisonSummary = summarizeStudioProComparisons(templateComparisonItems)
 
   return (
     <section className="studio-pro-panel">
@@ -133,6 +235,12 @@ export function StudioProParameterPanel({
               ? '当你把结果带回控制区时，可以先恢复上一版参数快照，再决定是同基线重跑，还是改动参数形成派生。'
               : '从结果回流后，这里会提供参数快照恢复入口，帮助你直接接着上一版继续控制。'}
           </p>
+          {replayContext?.sourceDecisionLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.sourceDecisionLabel}</p>
+          ) : null}
+          {replayContext?.structureLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.structureLabel}</p>
+          ) : null}
           <div className="studio-pro-action-cluster">
             <button
               type="button"
@@ -239,6 +347,14 @@ export function StudioProParameterPanel({
               ? `${replayContext.statusText}。${replayContext.hint}`
               : '当你从作品或任务回到专业版时，这里会提示可恢复的 Prompt、参数和参考图状态。'}
           </p>
+          {replayContext?.sourceKindLabel ? (
+            <p className="studio-pro-metric-copy">
+              来源链路：{replayContext.sourceKindLabel} · {replayContext.sceneLabel ?? replayContext.scene?.label ?? '未记录场景'}
+            </p>
+          ) : null}
+          {replayContext?.nodePathLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.nodePathLabel}</p>
+          ) : null}
           {replayContext?.currentLabel ? (
             <p className="studio-pro-metric-copy">{replayContext.currentLabel}</p>
           ) : null}
@@ -278,43 +394,112 @@ export function StudioProParameterPanel({
           </p>
         </article>
 
-        <article className="studio-pro-metric-card">
-          <span className="studio-pro-metric-label">参数差异对比预留</span>
-          <strong className="studio-pro-metric-value">
-            {hasReplayContext ? '上一版快照 vs 当前控制区' : '等待挂接一版结果作为对照基线'}
-          </strong>
-          <p className="studio-pro-metric-copy">
-            这一块先为后续快照 diff 预留结构位，当前用于固定展示“来源快照”和“当前设置”的对照位置，避免后面再改版面。
-          </p>
-          <div className="mt-4 grid gap-3 xl:grid-cols-2">
-            <article className="rounded-[1.2rem] border border-porcelain-50/[0.08] bg-ink-950/[0.72] p-4">
-              <span className="studio-pro-metric-label">来源快照</span>
-              <strong className="studio-pro-metric-value">
-                {hasReplayContext ? replayContext?.snapshotId : '未接入'}
-              </strong>
-              <p className="studio-pro-metric-copy">
-                {hasReplayContext
-                  ? `${replayContext?.sourceProviderId} / ${replayContext?.sourceModelLabel} · ${replayContext?.sourceRequestKindLabel}`
-                  : '从作品或任务恢复一版后，这里会固定显示来源 Provider、模型和执行路径。'}
-              </p>
-              {hasReplayContext ? (
-                <p className="studio-pro-metric-copy">
-                  {replayContext?.sourceSize} · {replayContext?.sourceResolutionLabel ?? '未记录分辨率'} · 质量{' '}
-                  {qualityLabelMap[replayContext?.sourceQuality ?? ''] ?? replayContext?.sourceQuality}
-                </p>
-              ) : null}
-            </article>
-            <article className="rounded-[1.2rem] border border-porcelain-50/[0.08] bg-ink-950/[0.72] p-4">
-              <span className="studio-pro-metric-label">当前设置</span>
-              <strong className="studio-pro-metric-value">
-                {providerLabel} / {modelLabel}
-              </strong>
-              <p className="studio-pro-metric-copy">
-                {size} · {resolutionLabel} · 质量 {qualityLabelMap[quality] ?? quality} ·{' '}
-                {studioMode === 'draw' ? `${drawCount} 次抽卡` : '单次生成'}
-              </p>
-            </article>
+        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <span className="studio-pro-metric-label">来源快照校准</span>
+              <strong className="studio-pro-metric-value">{replayComparisonSummary.summary}</strong>
+            </div>
+            <span
+              className={`studio-pro-compare-pill ${
+                replayComparisonSummary.status === 'aligned'
+                  ? 'studio-pro-compare-pill-aligned'
+                  : replayComparisonSummary.status === 'shifted'
+                    ? 'studio-pro-compare-pill-shifted'
+                    : 'studio-pro-compare-pill-missing'
+              }`}
+            >
+              {replayComparisonSummary.statusLabel}
+            </span>
           </div>
+          <p className="studio-pro-metric-copy">{replayComparisonSummary.suggestion}</p>
+          <div className="studio-pro-compare-grid">
+            {replayComparisonItems.length ? (
+              replayComparisonItems.map((item) => (
+                <article key={item.id} className="studio-pro-compare-card">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="studio-pro-metric-label">{item.label}</span>
+                    <span
+                      className={`studio-pro-compare-pill ${
+                        item.status === 'aligned'
+                          ? 'studio-pro-compare-pill-aligned'
+                          : item.status === 'shifted'
+                            ? 'studio-pro-compare-pill-shifted'
+                            : 'studio-pro-compare-pill-missing'
+                      }`}
+                    >
+                      {item.statusLabel}
+                    </span>
+                  </div>
+                  <p className="studio-pro-metric-copy">来源：{item.baselineValue}</p>
+                  <p className="studio-pro-metric-copy">当前：{item.currentValue}</p>
+                  <p className="studio-pro-metric-copy">{item.hint}</p>
+                </article>
+              ))
+            ) : (
+              <article className="studio-pro-compare-card">
+                <span className="studio-pro-metric-label">等待来源快照</span>
+                <strong className="studio-pro-metric-value">还没有可对照的参数基线</strong>
+                <p className="studio-pro-metric-copy">
+                  从作品或任务恢复一版后，这里会固定显示来源参数和当前控制区的差异。
+                </p>
+              </article>
+            )}
+          </div>
+        </article>
+
+        <article className={`studio-pro-metric-card ${hasTemplateContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <span className="studio-pro-metric-label">模板默认值校准</span>
+              <strong className="studio-pro-metric-value">
+                {hasTemplateContext ? templateComparisonSummary.summary : '当前未绑定模板默认参数'}
+              </strong>
+            </div>
+            {hasTemplateContext ? (
+              <span
+                className={`studio-pro-compare-pill ${
+                  templateComparisonSummary.status === 'aligned'
+                    ? 'studio-pro-compare-pill-aligned'
+                    : templateComparisonSummary.status === 'shifted'
+                      ? 'studio-pro-compare-pill-shifted'
+                      : 'studio-pro-compare-pill-missing'
+                }`}
+              >
+                {templateComparisonSummary.statusLabel}
+              </span>
+            ) : null}
+          </div>
+          <p className="studio-pro-metric-copy">
+            {hasTemplateContext
+              ? templateComparisonSummary.suggestion
+              : '从模板进入专业版后，这里会告诉你当前参数和模板默认起跑线差了几项。'}
+          </p>
+          {hasTemplateContext ? (
+            <div className="studio-pro-compare-grid">
+              {templateComparisonItems.map((item) => (
+                <article key={item.id} className="studio-pro-compare-card">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="studio-pro-metric-label">{item.label}</span>
+                    <span
+                      className={`studio-pro-compare-pill ${
+                        item.status === 'aligned'
+                          ? 'studio-pro-compare-pill-aligned'
+                          : item.status === 'shifted'
+                            ? 'studio-pro-compare-pill-shifted'
+                            : 'studio-pro-compare-pill-missing'
+                      }`}
+                    >
+                      {item.statusLabel}
+                    </span>
+                  </div>
+                  <p className="studio-pro-metric-copy">模板：{item.baselineValue}</p>
+                  <p className="studio-pro-metric-copy">当前：{item.currentValue}</p>
+                  <p className="studio-pro-metric-copy">{item.hint}</p>
+                </article>
+              ))}
+            </div>
+          ) : null}
         </article>
       </div>
     </section>

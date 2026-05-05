@@ -33,6 +33,30 @@ export type GenerationDrawSnapshot = {
   variation: string
 }
 
+export type GenerationPromptSnapshot = {
+  request: string
+  workspace: string
+}
+
+export type GenerationParameterSnapshot = {
+  mode: GenerationMode
+  size: string
+  quality: string
+  model: string
+  providerId: string
+  stream: boolean
+}
+
+export type GenerationContractSnapshot = {
+  version: 1
+  scene: StudioFlowScene
+  prompt: GenerationPromptSnapshot
+  parameters: GenerationParameterSnapshot
+  guidedFlow: ConsumerGuidedFlowSnapshot | null
+  references?: GenerationReferenceSnapshot
+  draw?: GenerationDrawSnapshot
+}
+
 export type GenerationErrorCode =
   | 'abort'
   | 'invalid-input'
@@ -92,6 +116,7 @@ export type GenerationSnapshot = {
   references?: GenerationReferenceSnapshot
   draw?: GenerationDrawSnapshot
   guidedFlow?: ConsumerGuidedFlowSnapshot | null
+  contract?: GenerationContractSnapshot
 }
 
 export type GenerationStatus = 'idle' | 'loading' | 'success' | 'error'

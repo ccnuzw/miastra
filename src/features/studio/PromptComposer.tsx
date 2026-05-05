@@ -36,7 +36,7 @@ type PromptComposerProps = {
     replayContext?: import('@/features/studio-pro/studioPro.utils').StudioProReplayContext | null
     onApplyTemplatePrompt?: () => void
     onApplyReplayPrompt?: () => void
-    onResetPromptToWorkspace?: () => void
+    onResetPromptToWorkspace?: (value: string) => void
   } | null
 }
 

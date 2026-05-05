@@ -5,7 +5,7 @@ import type {
   PromptTemplateWorkbenchEntryMode,
 } from './promptTemplate.types'
 import {
-  buildPromptTemplateStructure,
+  getPromptTemplateStructure,
   getPromptTemplateStructureFieldDigest,
   getPromptTemplateStructureStatusLabel,
 } from './promptTemplate.schema'
@@ -89,6 +89,20 @@ export type PromptTemplatePresentation = {
     followUpSummary: string
     versionLabel: string
     versionSummary: string
+  }
+  runtime: {
+    followUpLabel: string
+    followUpSummary: string
+    guidedFieldLabels: string[]
+    guidedQuestionCount: number
+    consumerEntrySummary: string
+    proEntrySummary: string
+    resultActionPrioritySummary: string
+    defaultAction: {
+      id: StudioFlowActionId
+      label: string
+      description: string
+    } | null
   }
   structureMeta: {
     statusLabel: string
@@ -318,7 +332,7 @@ export function getPromptTemplateSortDate(
 }
 
 export function resolvePromptTemplateFamily(template: PromptTemplateListItem) {
-  const structure = template.structure ?? buildPromptTemplateStructure(template)
+  const structure = getPromptTemplateStructure(template)
   return promptTemplateFamilyConfigs[structure.familyId]
 }
 
@@ -348,7 +362,7 @@ export function buildPromptTemplatePresentation(
   const preview = getPromptTemplatePreview(template.content)
   const category = getPromptTemplateCategory(template)
   const tags = getPromptTemplateTags(template)
-  const structure = template.structure ?? buildPromptTemplateStructure(template)
+  const structure = getPromptTemplateStructure(template)
   const family = promptTemplateFamilyConfigs[structure.familyId]
   const isGenericLongform =
     structure.familyId === 'generic' && (preview.length > 120 || tags.length >= 4)
@@ -380,6 +394,32 @@ export function buildPromptTemplatePresentation(
     description:
       family.resultActionDescriptions[actionId] ?? `${getStudioFlowActionLabel(actionId)}会承接当前模板的场景语义。`,
   }))
+  const guidedFields = structure.fields.filter((field) => Boolean(field.guided?.options?.length))
+  const defaultGuidedSelections = guidedFields
+    .map((field) => {
+      const option =
+        field.guided?.options.find((item) => item.id === field.guided?.defaultOptionId) ??
+        field.guided?.options[0]
+      if (!option) return null
+      return `${field.guided?.questionTitle?.trim() || field.label}：${option.label}`
+    })
+    .filter(Boolean) as string[]
+  const defaultAction = resultActions[0] ?? null
+  const resultActionPrioritySummary = resultActions.length
+    ? `默认先走「${resultActions[0].label}」，随后按 ${resultActions
+        .slice(1)
+        .map((action) => `「${action.label}」`)
+        .join(' / ')} 承接。`
+    : '当前模板未声明明确的结果动作优先级。'
+  const followUpSummary = guidedFields.length
+    ? defaultGuidedSelections.length
+      ? `进入普通版时会先按模板默认追问路径补齐 ${guidedFields.length} 个字段：${defaultGuidedSelections.join(' / ')}。`
+      : `进入普通版时会优先围绕 ${guidedFields.map((field) => field.label).join(' / ')} 继续追问。`
+    : family.followUpSummary
+  const consumerEntrySummary = guidedFields.length
+    ? `普通版会直接带上模板起稿内容，并预挂 ${guidedFields.length} 步模板追问，再优先接「${defaultAction?.label ?? '继续处理'}」。`
+    : `普通版会直接带上模板起稿内容，并优先接「${defaultAction?.label ?? '继续处理'}」。`
+  const proEntrySummary = `专业版会把模板作为结构底稿接入控制区，先锁 ${getPromptTemplateStructureFieldDigest(structure.fields, 3).join(' / ')}，再按「${defaultAction?.label ?? '继续处理'}」继续。`
 
   return {
     title,
@@ -428,9 +468,19 @@ export function buildPromptTemplatePresentation(
     },
     chainContext: {
       followUpLabel: '追问链',
-      followUpSummary: family.followUpSummary,
+      followUpSummary,
       versionLabel: '版本链',
       versionSummary: family.versionSummary,
+    },
+    runtime: {
+      followUpLabel: guidedFields.length ? `模板追问 ${guidedFields.length} 步` : '结果后补追问',
+      followUpSummary,
+      guidedFieldLabels: guidedFields.map((field) => field.label),
+      guidedQuestionCount: guidedFields.length,
+      consumerEntrySummary,
+      proEntrySummary,
+      resultActionPrioritySummary,
+      defaultAction,
     },
     structureMeta: {
       statusLabel: getPromptTemplateStructureStatusLabel(structure.status),

@@ -7,6 +7,11 @@ import type {
   StudioFlowSceneId,
   StudioFlowSourceType,
 } from './studioFlowSemantic'
+import {
+  isStudioFlowActionId,
+  isStudioFlowSceneId,
+  isStudioFlowSourceType,
+} from './studioFlowSemantic'
 
 export type PromptTemplateStudioLaunch = {
   templateId: string
@@ -64,9 +69,9 @@ export function readPromptTemplateStudioLaunch(
   const templateId = searchParams.get(promptTemplateIdParam)?.trim()
   const mode = searchParams.get(studioModeParam) ?? searchParams.get(promptTemplateModeParam)
   const intent = searchParams.get(studioIntentParam) ?? searchParams.get(promptTemplateIntentParam)
-  const sceneId = searchParams.get(studioSceneParam) as StudioFlowSceneId | null
-  const sourceType = searchParams.get(studioSourceTypeParam) as StudioFlowSourceType | null
-  const nextAction = searchParams.get(studioNextActionParam) as StudioFlowActionId | null
+  const sceneIdValue = searchParams.get(studioSceneParam)
+  const sourceTypeValue = searchParams.get(studioSourceTypeParam)
+  const nextActionValue = searchParams.get(studioNextActionParam)
 
   if (!templateId) return null
   if (!isPromptTemplateWorkbenchEntryMode(mode)) return null
@@ -76,9 +81,9 @@ export function readPromptTemplateStudioLaunch(
     templateId,
     mode,
     intent,
-    sceneId: sceneId ?? undefined,
-    sourceType: sourceType ?? 'template',
-    nextAction: nextAction ?? undefined,
+    sceneId: isStudioFlowSceneId(sceneIdValue) ? sceneIdValue : undefined,
+    sourceType: isStudioFlowSourceType(sourceTypeValue) ? sourceTypeValue : 'template',
+    nextAction: isStudioFlowActionId(nextActionValue) ? nextActionValue : undefined,
   }
 }
 

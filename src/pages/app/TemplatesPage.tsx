@@ -93,6 +93,10 @@ export function TemplatesPage() {
     return presentation.recommendedEntry.mode === 'pro'
   }).length
   const structuredTemplateCount = filteredTemplates.filter((template) => template.structure).length
+  const guidedRuntimeCount = filteredTemplates.filter((template) => {
+    const presentation = buildPromptTemplatePresentation(template)
+    return presentation.runtime.guidedQuestionCount > 0
+  }).length
   const versionReadyCount = filteredTemplates.filter((template) => {
     const presentation = buildPromptTemplatePresentation(template)
     return presentation.resultBridge.actions.some(
@@ -183,6 +187,7 @@ export function TemplatesPage() {
             <span className="status-pill">推荐普通版起手 {recommendedCount} 个</span>
             <span className="status-pill">推荐专业版起手 {proRecommendedCount} 个</span>
             <span className="status-pill">已读出结构信息 {structuredTemplateCount} 个</span>
+            <span className="status-pill">可直接挂模板追问 {guidedRuntimeCount} 个</span>
             <span className="status-pill">可接版本复用 {versionReadyCount} 个</span>
             <span className="status-pill">
               统一场景 {alignedSceneIds.map((sceneId) => getStudioFlowSceneLabel(sceneId)).join(' / ')}
@@ -205,7 +210,7 @@ export function TemplatesPage() {
                 <p className="field-label">模板如何作为 Skill 入口</p>
                 <h2 className="mt-2 text-xl font-semibold text-porcelain-50">先决定执行意图，再决定从哪里开始</h2>
                 <p className="mt-2 text-sm leading-6 text-porcelain-100/70">
-                  普通版更适合先把模板当成任务起点，快速出第一版，再接结果动作继续改；专业版更适合把模板当成结构底稿，先锁字段、参数和风格控制，再围绕版本链持续重跑或派生。
+                  普通版更适合先把模板当成任务起点，带着模板默认追问路径快速出第一版，再接结果动作继续改；专业版更适合把模板当成结构底稿，先锁字段、参数和风格控制，再围绕版本链持续重跑或派生。
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <span className="status-pill">模板起稿</span>
@@ -234,13 +239,13 @@ export function TemplatesPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="status-pill">字段 schema</span>
+              <span className="status-pill">模板默认追问</span>
               <span className="status-pill">推荐模式</span>
               <span className="status-pill">结果动作</span>
-              <span className="status-pill">轻量追问</span>
               <span className="status-pill">版本语义</span>
             </div>
             <p className="text-sm leading-6 text-porcelain-100/65">
-              这一页已经不再只是读取模板结构信息。后续补更细的追问配置或更稳定的版本生产流时，可以继续沿用同一套场景、字段和进入语义扩展，而不用把模板退回成静态资源页。
+              这一页已经不再只是读取模板结构信息。现在每张卡片都会更明确告诉你：普通版会不会自动挂模板追问、专业版会不会直入控制链，以及首个结果动作默认优先走哪条分支。
             </p>
           </div>
         </div>
@@ -527,11 +532,19 @@ export function TemplatesPage() {
                     <div className="mt-5 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.34] p-4">
                       <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
                         <Sparkles className="h-4 w-4 text-signal-cyan" />
-                        推荐入口
+                        运行入口
                       </div>
                       <p className="mt-2 text-sm leading-6 text-porcelain-100/65">
                         {presentation.recommendedEntry.reason}
                       </p>
+                      <div className="mt-3 rounded-2xl border border-signal-cyan/15 bg-signal-cyan/[0.07] px-3 py-3">
+                        <p className="text-xs font-semibold text-signal-cyan">
+                          {presentation.runtime.followUpLabel}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-porcelain-100/60">
+                          {presentation.runtime.consumerEntrySummary}
+                        </p>
+                      </div>
                       <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
                         更适合：{presentation.recommendedEntry.bestFor}
                       </p>
@@ -580,6 +593,11 @@ export function TemplatesPage() {
                             {entry.description}
                           </p>
                           <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
+                            {entry.mode === 'consumer'
+                              ? presentation.runtime.consumerEntrySummary
+                              : presentation.runtime.proEntrySummary}
+                          </p>
+                          <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
                             更适合：{entry.bestFor}
                           </p>
                           <p className="mt-1 text-xs leading-5 text-porcelain-100/55">
@@ -602,6 +620,12 @@ export function TemplatesPage() {
                       <p className="mt-2 text-sm leading-6 text-porcelain-100/62">
                         {presentation.resultBridge.summary}
                       </p>
+                      <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.08] px-3 py-3">
+                        <p className="text-xs font-semibold text-porcelain-50">默认分支</p>
+                        <p className="mt-1 text-xs leading-5 text-porcelain-100/58">
+                          {presentation.runtime.resultActionPrioritySummary}
+                        </p>
+                      </div>
                       <div className="mt-3 grid gap-2">
                         {presentation.resultBridge.actions.map((action) => (
                           <div
@@ -612,6 +636,11 @@ export function TemplatesPage() {
                             <p className="mt-1 text-xs leading-5 text-porcelain-100/55">
                               {action.description}
                             </p>
+                            {presentation.runtime.defaultAction?.id === action.id ? (
+                              <p className="mt-2 text-[11px] font-medium text-emerald-300">
+                                模板默认优先动作
+                              </p>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -640,10 +669,11 @@ export function TemplatesPage() {
                         ))}
                       </div>
                       <div className="mt-3 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.24] px-3 py-3 text-xs leading-5 text-porcelain-100/56">
-                        <p>
+                        <p>{presentation.runtime.followUpLabel}：{presentation.runtime.followUpSummary}</p>
+                        <p className="mt-1">
                           {presentation.chainContext.followUpLabel}：{presentation.chainContext.followUpSummary}
                         </p>
-                        <p className="mt-1">
+                        <p>
                           {presentation.chainContext.versionLabel}：{presentation.chainContext.versionSummary}
                         </p>
                       </div>

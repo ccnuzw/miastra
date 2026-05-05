@@ -1,8 +1,20 @@
 import type {
+  PromptTemplateWorkbenchEntryIntent,
+  PromptTemplateWorkbenchEntryMode,
+} from '@/features/prompt-templates/promptTemplate.types'
+import type {
+  StudioFlowActionId,
   StudioFlowFieldId,
   StudioFlowScene,
   StudioFlowSceneId,
+  StudioFlowSourceType,
 } from '@/features/prompt-templates/studioFlowSemantic'
+
+export type ConsumerGuidedFlowSelectionSource =
+  | 'manual'
+  | 'template-default'
+  | 'preset-default'
+  | 'result-followup'
 
 export type ConsumerGuidedFlowStepSnapshot = {
   questionId: string
@@ -12,6 +24,7 @@ export type ConsumerGuidedFlowStepSnapshot = {
   optionLabel: string
   promptText: string
   order: number
+  selectionSource?: ConsumerGuidedFlowSelectionSource
 }
 
 export type ConsumerGuidedFlowSnapshot = {
@@ -28,6 +41,17 @@ export type ConsumerGuidedFlowSnapshot = {
   totalQuestionCount: number
   completedQuestionCount: number
   steps: ConsumerGuidedFlowStepSnapshot[]
+  sourceType?: StudioFlowSourceType | 'manual'
+  templateId?: string
+  templateTitle?: string
+  entryMode?: PromptTemplateWorkbenchEntryMode
+  entryIntent?: PromptTemplateWorkbenchEntryIntent
+  followUpMode?: 'template-guided' | 'scene-guided' | 'freeform'
+  followUpLabel?: string
+  actionId?: StudioFlowActionId
+  actionPriority?: StudioFlowActionId[]
+  defaultActionId?: StudioFlowActionId
+  promptAppendix?: string
   updatedAt: number
 }
 

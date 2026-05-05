@@ -1,17 +1,27 @@
 import {
   buildPromptTemplateStructure,
   getPromptTemplateScenarioConfigById,
+  resolvePromptTemplateGuidedFieldDefaultOptionId,
+  resolvePromptTemplateGuidedFieldRecommendedOptionId,
 } from '@/features/prompt-templates/promptTemplate.schema'
 import type {
   PromptTemplateFieldDefinition,
+  PromptTemplateGuidedFlowEntryBinding,
+  PromptTemplateGuidedSelectionMode,
   PromptTemplateScenarioId,
 } from '@/features/prompt-templates/promptTemplate.types'
 import type {
   ConsumerGuidedFlowSelectionMap,
   ConsumerGuidedFlowSnapshot,
   ConsumerGuidedFlowStepSnapshot,
+  ConsumerGuidedFlowSelectionSource,
 } from '@/features/studio-consumer/consumerGuidedFlow'
-import type { StudioFlowFieldId, StudioFlowSceneId } from '@/features/prompt-templates/studioFlowSemantic'
+import type {
+  StudioFlowActionId,
+  StudioFlowFieldId,
+  StudioFlowSceneId,
+  StudioFlowSourceType,
+} from '@/features/prompt-templates/studioFlowSemantic'
 import {
   getStudioFlowFieldLabel,
   getStudioFlowScene,
@@ -52,7 +62,15 @@ export type ConsumerGuidedFlowQuestion = {
   fieldId?: StudioFlowFieldId
   title: string
   defaultOptionId?: string
+  recommendedOptionId?: string
   options: ConsumerGuidedFlowOption[]
+}
+
+export type ConsumerGuidedFlowEntryBinding = {
+  id: string
+  mode: PromptTemplateGuidedSelectionMode
+  selections: ConsumerGuidedFlowSelectionMap
+  semanticActionId?: StudioFlowActionId
 }
 
 export type ConsumerGuidedFlowPreset = {
@@ -66,80 +84,49 @@ export type ConsumerGuidedFlowPreset = {
   taskIds?: string[]
   sceneIds?: string[]
   resultActionIds?: string[]
+  taskBindings?: ConsumerGuidedFlowEntryBinding[]
+  sceneBindings?: ConsumerGuidedFlowEntryBinding[]
+  resultActionBindings?: ConsumerGuidedFlowEntryBinding[]
   questions: ConsumerGuidedFlowQuestion[]
 }
 
-type ConsumerGuidedFlowBinding = {
-  scenarioId: PromptTemplateScenarioId
-  defaultPromptText: string
-  taskIds?: string[]
-  sceneIds?: string[]
-  resultActionIds?: string[]
+export type ConsumerGuidedFlowResolveContext = {
+  taskId?: string
+  sceneId?: string
+  resultActionId?: string
+  currentSelections?: ConsumerGuidedFlowSelectionMap
+  fallbackMode?: PromptTemplateGuidedSelectionMode
 }
 
-const consumerGuidedFlowBindings: ConsumerGuidedFlowBinding[] = [
-  {
-    scenarioId: 'product-shot',
-    defaultPromptText: '做一张适合商品展示的图片，主体清楚，构图利落，适合电商和内容展示。',
-    taskIds: ['product'],
-    sceneIds: ['white-background', 'swap-background'],
-    resultActionIds: ['background'],
-  },
-  {
-    scenarioId: 'poster-campaign',
-    defaultPromptText: '做一张适合宣传传播的海报，主视觉明确，画面完整，适合线上展示。',
-    taskIds: ['poster'],
-    sceneIds: ['event-poster', 'social-cover'],
-  },
-  {
-    scenarioId: 'portrait-look',
-    defaultPromptText: '做一张适合头像或人像展示的图片，人物自然耐看，整体干净，有质感。',
-    taskIds: ['portrait'],
-    sceneIds: ['portrait-retouch'],
-  },
-  {
-    scenarioId: 'space-scene',
-    defaultPromptText: '做一个可直接展示的空间场景，结构清楚，氛围完整，适合继续细化。',
-    sceneIds: ['space-showcase'],
-  },
+export type ConsumerGuidedFlowBuildOptions = {
+  updatedAt?: number
+  sourceType?: StudioFlowSourceType | 'manual'
+  selectionSource?: ConsumerGuidedFlowSelectionSource
+  actionId?: StudioFlowActionId
+  promptAppendix?: string
+}
+
+const consumerGuidedFlowScenarioIds: PromptTemplateScenarioId[] = [
+  'product-shot',
+  'poster-campaign',
+  'portrait-look',
+  'space-scene',
+  'illustration-concept',
+  'generic-starter',
 ]
 
 function createQuestionId(fieldId: string) {
   return fieldId
 }
 
-function toStudioFlowFieldId(fieldId: string): StudioFlowFieldId | undefined {
-  switch (fieldId) {
-    case 'product-subject':
-      return 'usageScenario'
-    case 'usage-scene':
-      return 'backgroundStyle'
-    case 'background-direction':
-      return 'visualTone'
-    case 'headline':
-      return 'campaignGoal'
-    case 'value':
-      return 'visualTone'
-    case 'visual-style':
-      return 'layoutFocus'
-    case 'character-subject':
-      return 'portraitPurpose'
-    case 'wardrobe':
-      return 'portraitStyle'
-    case 'mood-pose':
-      return 'retouchLevel'
-    default:
-      return undefined
-  }
-}
-
 function toGuidedQuestion(field: PromptTemplateFieldDefinition): ConsumerGuidedFlowQuestion | null {
   if (!field.guided?.options?.length) return null
   return {
     id: createQuestionId(field.id),
-    fieldId: toStudioFlowFieldId(field.id),
+    fieldId: field.guided.semanticFieldId,
     title: field.guided.questionTitle?.trim() || field.label,
-    defaultOptionId: field.guided.defaultOptionId,
+    defaultOptionId: resolvePromptTemplateGuidedFieldDefaultOptionId(field),
+    recommendedOptionId: resolvePromptTemplateGuidedFieldRecommendedOptionId(field),
     options: field.guided.options.map((option) => ({
       id: option.id,
       label: option.label,
@@ -148,24 +135,37 @@ function toGuidedQuestion(field: PromptTemplateFieldDefinition): ConsumerGuidedF
   }
 }
 
-function buildGuidedFlowPreset(binding: ConsumerGuidedFlowBinding): ConsumerGuidedFlowPreset | null {
-  const scenarioConfig = getPromptTemplateScenarioConfigById(binding.scenarioId)
-  if (!scenarioConfig) return null
+function toEntryBindings(
+  bindings: PromptTemplateGuidedFlowEntryBinding[] | undefined,
+  semanticActionIds?: Partial<Record<string, StudioFlowActionId | undefined>>,
+) {
+  return (bindings ?? []).map((binding) => ({
+    id: binding.id,
+    mode: binding.mode ?? 'default',
+    selections: binding.selections ?? {},
+    semanticActionId: semanticActionIds?.[binding.id],
+  }))
+}
+
+function buildGuidedFlowPreset(scenarioId: PromptTemplateScenarioId): ConsumerGuidedFlowPreset | null {
+  const scenarioConfig = getPromptTemplateScenarioConfigById(scenarioId)
+  const guidedFlowConfig = scenarioConfig?.guidedFlow
+  if (!scenarioConfig || !guidedFlowConfig) return null
 
   const structure = buildPromptTemplateStructure({
-    id: `consumer-guided-${binding.scenarioId}`,
+    id: `consumer-guided-${scenarioId}`,
     title: scenarioConfig.label,
-    content: binding.defaultPromptText,
+    content: guidedFlowConfig.defaultPromptText,
     createdAt: 0,
     structure: {
-      scenarioId: binding.scenarioId,
+      scenarioId,
       defaults: scenarioConfig.defaults,
       fields: scenarioConfig.fields,
       status: 'structured',
       familyId: scenarioConfig.familyId,
       scenarioLabel: scenarioConfig.label,
       sceneDescription: scenarioConfig.description,
-      scene: getStudioFlowScene(mapPromptScenarioToFlowSceneId(binding.scenarioId)),
+      scene: getStudioFlowScene(mapPromptScenarioToFlowSceneId(scenarioId)),
       recommendedMode: scenarioConfig.recommendedMode,
       recommendedIntent: scenarioConfig.recommendedIntent,
       entryModes: ['consumer'],
@@ -178,17 +178,30 @@ function buildGuidedFlowPreset(binding: ConsumerGuidedFlowBinding): ConsumerGuid
 
   if (!questions.length) return null
 
+  const resultActionSemanticIds = Object.fromEntries(
+    (guidedFlowConfig.resultActionBindings ?? []).map((binding) => [binding.id, binding.semanticActionId]),
+  ) as Partial<Record<string, StudioFlowActionId | undefined>>
+  const taskBindings = toEntryBindings(guidedFlowConfig.taskBindings)
+  const sceneBindings = toEntryBindings(guidedFlowConfig.sceneBindings)
+  const resultActionBindings = toEntryBindings(
+    guidedFlowConfig.resultActionBindings,
+    resultActionSemanticIds,
+  )
+
   return {
-    id: binding.scenarioId,
-    scenarioId: binding.scenarioId,
-    sceneId: mapPromptScenarioToFlowSceneId(binding.scenarioId),
+    id: scenarioId,
+    scenarioId,
+    sceneId: mapPromptScenarioToFlowSceneId(scenarioId),
     title: structure.scenarioLabel,
     description: structure.sceneDescription,
-    prompt: binding.defaultPromptText,
-    defaultPromptText: binding.defaultPromptText,
-    taskIds: binding.taskIds,
-    sceneIds: binding.sceneIds,
-    resultActionIds: binding.resultActionIds,
+    prompt: guidedFlowConfig.defaultPromptText,
+    defaultPromptText: guidedFlowConfig.defaultPromptText,
+    taskIds: taskBindings.map((binding) => binding.id),
+    sceneIds: sceneBindings.map((binding) => binding.id),
+    resultActionIds: resultActionBindings.map((binding) => binding.id),
+    taskBindings,
+    sceneBindings,
+    resultActionBindings,
     questions,
   }
 }
@@ -320,7 +333,7 @@ export const consumerExamplePrompts = [
   '生成一个干净的商品白底图',
 ]
 
-export const consumerGuidedFlowPresets: ConsumerGuidedFlowPreset[] = consumerGuidedFlowBindings
+export const consumerGuidedFlowPresets: ConsumerGuidedFlowPreset[] = consumerGuidedFlowScenarioIds
   .map(buildGuidedFlowPreset)
   .filter((item): item is ConsumerGuidedFlowPreset => Boolean(item))
 
@@ -331,7 +344,9 @@ export function findConsumerGuidedFlowByTaskId(taskId?: string) {
 
 export function findConsumerGuidedFlowBySceneId(sceneId?: string) {
   if (!sceneId) return undefined
-  return consumerGuidedFlowPresets.find((item) => item.sceneIds?.includes(sceneId))
+  return consumerGuidedFlowPresets.find(
+    (item) => item.sceneId === sceneId || item.sceneIds?.includes(sceneId),
+  )
 }
 
 export function findConsumerGuidedFlowByResultActionId(actionId?: string) {
@@ -344,15 +359,64 @@ export function findConsumerGuidedFlowById(guideId?: string) {
   return consumerGuidedFlowPresets.find((item) => item.id === guideId)
 }
 
+function buildGuidedSelectionSeed(
+  guide: ConsumerGuidedFlowPreset,
+  mode: PromptTemplateGuidedSelectionMode,
+) {
+  if (mode === 'empty') return {}
+  return guide.questions.reduce<ConsumerGuidedFlowSelectionMap>((accumulator, question) => {
+    const optionId =
+      mode === 'recommended'
+        ? (question.recommendedOptionId ?? question.defaultOptionId)
+        : question.defaultOptionId
+    if (optionId) accumulator[question.id] = optionId
+    return accumulator
+  }, {})
+}
+
+function findGuidedFlowEntryBinding(
+  guide: ConsumerGuidedFlowPreset,
+  context: ConsumerGuidedFlowResolveContext,
+) {
+  if (context.resultActionId) {
+    return guide.resultActionBindings?.find((binding) => binding.id === context.resultActionId) ?? null
+  }
+  if (context.sceneId) {
+    return guide.sceneBindings?.find((binding) => binding.id === context.sceneId) ?? null
+  }
+  if (context.taskId) {
+    return guide.taskBindings?.find((binding) => binding.id === context.taskId) ?? null
+  }
+  return null
+}
+
+export function resolveConsumerGuidedFlowSelections(
+  guide: ConsumerGuidedFlowPreset,
+  context: ConsumerGuidedFlowResolveContext = {},
+) {
+  const binding = findGuidedFlowEntryBinding(guide, context)
+  const fallbackMode =
+    context.fallbackMode ??
+    (context.sceneId && context.sceneId === guide.sceneId ? 'default' : 'empty')
+  const selectionMode = binding?.mode ?? fallbackMode
+
+  return {
+    ...buildGuidedSelectionSeed(guide, selectionMode),
+    ...(context.currentSelections ?? {}),
+    ...(binding?.selections ?? {}),
+  }
+}
+
 export function buildGuidedPrompt(
   guide: ConsumerGuidedFlowPreset,
   selections: ConsumerGuidedFlowSelectionMap,
+  promptAppendix?: string,
 ) {
   const details = guide.questions
     .map((question) => question.options.find((option) => option.id === selections[question.id])?.prompt)
     .filter(Boolean)
-
-  return [guide.prompt, ...details].join('\n')
+  const appendix = promptAppendix?.trim()
+  return [guide.prompt, ...details, appendix].filter(Boolean).join('\n')
 }
 
 export function buildGuidedSelectionSummary(
@@ -374,8 +438,12 @@ export function buildGuidedSelectionSummary(
 export function buildConsumerGuidedFlowSnapshot(
   guide: ConsumerGuidedFlowPreset,
   selections: ConsumerGuidedFlowSelectionMap,
-  updatedAt = Date.now(),
+  options: number | ConsumerGuidedFlowBuildOptions = Date.now(),
 ): ConsumerGuidedFlowSnapshot {
+  const resolvedOptions =
+    typeof options === 'number'
+      ? { updatedAt: options }
+      : { updatedAt: options.updatedAt ?? Date.now(), ...options }
   const steps = guide.questions.reduce<ConsumerGuidedFlowStepSnapshot[]>((accumulator, question, index) => {
     const optionId = selections[question.id]
     const option = question.options.find((item) => item.id === optionId)
@@ -388,6 +456,7 @@ export function buildConsumerGuidedFlowSnapshot(
       optionLabel: option.label,
       promptText: option.prompt,
       order: index,
+      selectionSource: resolvedOptions.selectionSource,
     })
     return accumulator
   }, [])
@@ -400,14 +469,42 @@ export function buildConsumerGuidedFlowSnapshot(
     guideTitle: guide.title,
     guideDescription: guide.description,
     basePrompt: guide.prompt,
-    promptText: buildGuidedPrompt(guide, selections),
+    promptText: buildGuidedPrompt(guide, selections, resolvedOptions.promptAppendix),
     summary: buildGuidedSelectionSummary(guide, selections),
     questionOrder: guide.questions.map((question) => question.id),
     totalQuestionCount: guide.questions.length,
     completedQuestionCount: steps.length,
     steps,
-    updatedAt,
+    sourceType: resolvedOptions.sourceType,
+    actionId: resolvedOptions.actionId,
+    defaultActionId:
+      guide.resultActionBindings?.find((binding) => binding.id === guide.resultActionIds?.[0])
+        ?.semanticActionId,
+    actionPriority: guide.resultActionBindings
+      ?.map((binding) => binding.semanticActionId)
+      .filter((item): item is StudioFlowActionId => Boolean(item)),
+    followUpMode:
+      resolvedOptions.sourceType === 'result-action' ||
+      resolvedOptions.sourceType === 'scene-preset' ||
+      resolvedOptions.sourceType === 'task-preset'
+        ? 'scene-guided'
+        : 'template-guided',
+    followUpLabel: guide.title,
+    promptAppendix: resolvedOptions.promptAppendix?.trim() || undefined,
+    updatedAt: resolvedOptions.updatedAt,
   }
+}
+
+export function buildConsumerGuidedFlowSnapshotFromContext(
+  guide: ConsumerGuidedFlowPreset,
+  context: ConsumerGuidedFlowResolveContext,
+  options: number | ConsumerGuidedFlowBuildOptions = Date.now(),
+) {
+  return buildConsumerGuidedFlowSnapshot(
+    guide,
+    resolveConsumerGuidedFlowSelections(guide, context),
+    options,
+  )
 }
 
 export function getConsumerSceneSemanticLabel(sceneId?: StudioFlowSceneId) {

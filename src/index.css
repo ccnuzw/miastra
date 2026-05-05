@@ -1369,6 +1369,30 @@
     @apply mt-4 grid gap-3 xl:grid-cols-2;
   }
 
+  .studio-pro-compare-grid {
+    @apply mt-4 grid gap-3 xl:grid-cols-2;
+  }
+
+  .studio-pro-compare-card {
+    @apply rounded-[1.2rem] border border-porcelain-50/[0.08] bg-ink-950/[0.72] p-4;
+  }
+
+  .studio-pro-compare-pill {
+    @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold;
+  }
+
+  .studio-pro-compare-pill-aligned {
+    @apply border-signal-cyan/30 bg-signal-cyan/[0.12] text-signal-cyan;
+  }
+
+  .studio-pro-compare-pill-shifted {
+    @apply border-amber-300/25 bg-amber-300/[0.12] text-amber-200;
+  }
+
+  .studio-pro-compare-pill-missing {
+    @apply border-porcelain-50/10 bg-porcelain-50/[0.06] text-porcelain-100/[0.55];
+  }
+
   .studio-pro-metric-grid {
     @apply mt-4 grid gap-3 xl:grid-cols-2;
   }

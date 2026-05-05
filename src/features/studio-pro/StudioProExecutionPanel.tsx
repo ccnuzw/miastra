@@ -1,4 +1,6 @@
 import {
+  buildStudioProComparisonItem,
+  summarizeStudioProComparisons,
   truncateStudioProText,
   type StudioProControlStep,
   type StudioProReplayContext,
@@ -53,6 +55,32 @@ export function StudioProExecutionPanel({
     replayContext?.sourceProviderId === providerId &&
     replayContext?.sourceModelLabel === modelLabel &&
     replayContext?.sourceRequestKindLabel === requestKindLabel
+  const executionComparisonItems = replayContext
+    ? [
+        buildStudioProComparisonItem(
+          'provider',
+          'Provider',
+          providerId || 'custom',
+          replayContext.sourceProviderId,
+          '当前 Provider 已变化，说明你已经切到另一套执行服务。',
+        ),
+        buildStudioProComparisonItem(
+          'model',
+          '模型',
+          modelLabel,
+          replayContext.sourceModelLabel,
+          '当前模型已变化，生成风格和稳定性都会和来源版不同。',
+        ),
+        buildStudioProComparisonItem(
+          'route',
+          '执行路径',
+          requestKindLabel,
+          replayContext.sourceRequestKindLabel,
+          '当前请求路径已从文生图/图生图之间切换，下一轮更接近派生版本。',
+        ),
+      ]
+    : []
+  const executionComparisonSummary = summarizeStudioProComparisons(executionComparisonItems)
 
   return (
     <section className="studio-pro-panel studio-pro-panel-tight">
@@ -98,6 +126,12 @@ export function StudioProExecutionPanel({
                 : '当前执行基线已偏离来源版本，下一轮会在原快照上形成新的派生。'
               : '从结果回到专业版后，这里会固定告诉你当前更接近重跑还是派生。'}
           </p>
+          {replayContext?.sourceDecisionLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.sourceDecisionLabel}</p>
+          ) : null}
+          {replayContext?.structureLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.structureLabel}</p>
+          ) : null}
           <div className="studio-pro-action-cluster">
             <button
               type="button"
@@ -134,6 +168,66 @@ export function StudioProExecutionPanel({
           </article>
         ))}
       </div>
+
+      <article className={`studio-pro-metric-card mt-4 ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <span className="studio-pro-metric-label">当前版与来源版执行基线</span>
+            <strong className="studio-pro-metric-value">{executionComparisonSummary.summary}</strong>
+          </div>
+          <span
+            className={`studio-pro-compare-pill ${
+              executionComparisonSummary.status === 'aligned'
+                ? 'studio-pro-compare-pill-aligned'
+                : executionComparisonSummary.status === 'shifted'
+                  ? 'studio-pro-compare-pill-shifted'
+                  : 'studio-pro-compare-pill-missing'
+            }`}
+          >
+            {executionComparisonSummary.statusLabel}
+          </span>
+        </div>
+        <p className="studio-pro-metric-copy">
+          {hasReplayContext
+            ? keepsSameExecutionBaseline
+              ? 'Provider、模型和执行路径都还贴着来源版，当前更适合作为同基线重跑。'
+              : executionComparisonSummary.suggestion
+            : '从结果回到专业版后，这里会直接告诉你当前执行链和来源版差了几项。'}
+        </p>
+        <div className="studio-pro-compare-grid">
+          {executionComparisonItems.length ? (
+            executionComparisonItems.map((item) => (
+              <article key={item.id} className="studio-pro-compare-card">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="studio-pro-metric-label">{item.label}</span>
+                  <span
+                    className={`studio-pro-compare-pill ${
+                      item.status === 'aligned'
+                        ? 'studio-pro-compare-pill-aligned'
+                        : item.status === 'shifted'
+                          ? 'studio-pro-compare-pill-shifted'
+                          : 'studio-pro-compare-pill-missing'
+                    }`}
+                  >
+                    {item.statusLabel}
+                  </span>
+                </div>
+                <p className="studio-pro-metric-copy">来源：{item.baselineValue}</p>
+                <p className="studio-pro-metric-copy">当前：{item.currentValue}</p>
+                <p className="studio-pro-metric-copy">{item.hint}</p>
+              </article>
+            ))
+          ) : (
+            <article className="studio-pro-compare-card">
+              <span className="studio-pro-metric-label">等待来源执行基线</span>
+              <strong className="studio-pro-metric-value">还没有可比较的来源版本</strong>
+              <p className="studio-pro-metric-copy">
+                从作品或任务恢复一版后，这里会明确显示 Provider、模型和执行路径的偏移情况。
+              </p>
+            </article>
+          )}
+        </div>
+      </article>
 
       <div className="studio-pro-metric-grid">
         <article className="studio-pro-metric-card">
@@ -178,6 +272,20 @@ export function StudioProExecutionPanel({
               ? `${replayContext?.originLabel}。${replayContext?.detailLabel}`
               : '从作品或任务回到专业版后，这里会固定显示来源版本摘要，帮助判断当前是在继续、重跑还是派生。'}
           </p>
+          {hasReplayContext ? (
+            <p className="studio-pro-metric-copy">
+              来源类型：{replayContext?.sourceKindLabel} · {replayContext?.sceneLabel ?? replayContext?.scene?.label ?? '未记录场景'}
+            </p>
+          ) : null}
+          {hasReplayContext && replayContext?.sourceDecisionLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.sourceDecisionLabel}</p>
+          ) : null}
+          {hasReplayContext && replayContext?.structureLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.structureLabel}</p>
+          ) : null}
+          {hasReplayContext && replayContext?.nodePathLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.nodePathLabel}</p>
+          ) : null}
           {hasReplayContext && replayContext?.currentLabel ? (
             <p className="studio-pro-metric-copy">{replayContext.currentLabel}</p>
           ) : null}

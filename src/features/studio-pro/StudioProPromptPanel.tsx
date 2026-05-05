@@ -6,6 +6,11 @@ import type {
   StudioProReplayContext,
   StudioProTemplateContext,
 } from './studioPro.utils'
+import {
+  buildStudioProPromptFieldAlignment,
+  buildStudioProTextComparison,
+  truncateStudioProText,
+} from './studioPro.utils'
 
 type StudioProPromptPanelProps = {
   workspacePrompt: string
@@ -20,7 +25,7 @@ type StudioProPromptPanelProps = {
   replayContext?: StudioProReplayContext | null
   onApplyTemplatePrompt?: () => void
   onApplyReplayPrompt?: () => void
-  onResetPromptToWorkspace?: () => void
+  onResetPromptToWorkspace?: (value: string) => void
 }
 
 export function StudioProPromptPanel({
@@ -39,14 +44,39 @@ export function StudioProPromptPanel({
   onResetPromptToWorkspace,
 }: StudioProPromptPanelProps) {
   const [copiedTarget, setCopiedTarget] = useState<string | null>(null)
+  const [promptDraftBeforeReset, setPromptDraftBeforeReset] = useState<string | null>(null)
   const hasTemplateContext = Boolean(templateContext)
   const hasReplayContext = Boolean(replayContext)
+  const fieldAlignment = buildStudioProPromptFieldAlignment(templateContext, promptSections)
+  const workspaceBaseline = buildStudioProTextComparison(
+    workspacePrompt,
+    replayContext?.sourceWorkspacePrompt ?? replayContext?.requestPrompt ?? '',
+  )
+  const finalPromptBaseline = buildStudioProTextComparison(finalPrompt, replayContext?.requestPrompt ?? '')
 
   async function handleCopy(target: string, text: string) {
     if (!text.trim()) return
     await navigator.clipboard.writeText(text)
     setCopiedTarget(target)
     window.setTimeout(() => setCopiedTarget((current) => (current === target ? null : current)), 1600)
+  }
+
+  function handleApplyTemplateBaseline() {
+    if (!onApplyTemplatePrompt) return
+    setPromptDraftBeforeReset(workspacePrompt)
+    onApplyTemplatePrompt()
+  }
+
+  function handleApplyReplayBaseline() {
+    if (!onApplyReplayPrompt) return
+    setPromptDraftBeforeReset(workspacePrompt)
+    onApplyReplayPrompt()
+  }
+
+  function handleRestoreDraft() {
+    if (!promptDraftBeforeReset?.trim() || !onResetPromptToWorkspace) return
+    onResetPromptToWorkspace(promptDraftBeforeReset)
+    setPromptDraftBeforeReset(null)
   }
 
   return (
@@ -92,7 +122,7 @@ export function StudioProPromptPanel({
             <button
               type="button"
               className="settings-button"
-              onClick={onApplyTemplatePrompt}
+              onClick={handleApplyTemplateBaseline}
               disabled={!templateContext || !onApplyTemplatePrompt}
             >
               以模板字段重对齐
@@ -109,11 +139,17 @@ export function StudioProPromptPanel({
               ? '当前结果返回控制区后，可以直接把来源请求重新带回工作区，作为重跑或派生起点。'
               : '从作品或任务回流后，这里会提供“回到来源 Prompt”入口，避免手动摘录上一版描述。'}
           </p>
+          {replayContext?.sourceDecisionLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.sourceDecisionLabel}</p>
+          ) : null}
+          {replayContext?.structureLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.structureLabel}</p>
+          ) : null}
           <div className="studio-pro-action-cluster">
             <button
               type="button"
               className="settings-button"
-              onClick={onApplyReplayPrompt}
+              onClick={handleApplyReplayBaseline}
               disabled={!replayContext || !onApplyReplayPrompt}
             >
               恢复来源 Prompt
@@ -121,8 +157,8 @@ export function StudioProPromptPanel({
             <button
               type="button"
               className="settings-button"
-              onClick={onResetPromptToWorkspace}
-              disabled={!workspacePrompt.trim() || !onResetPromptToWorkspace}
+              onClick={handleRestoreDraft}
+              disabled={!promptDraftBeforeReset?.trim() || !onResetPromptToWorkspace}
             >
               回到当前工作区
             </button>
@@ -171,7 +207,141 @@ export function StudioProPromptPanel({
             当前还没有挂接结构模板，专业版会直接把工作区描述当作本轮 Prompt 基线。后续从模板页或模板库进入时，这里会补上字段摘要和推荐承接方式。
           </p>
         )}
+        {replayContext ? (
+          <>
+            <p className="studio-pro-metric-copy">
+              来源链路：{replayContext.sourceKindLabel} · {replayContext.sceneLabel ?? replayContext.scene?.label ?? '未记录场景'}
+            </p>
+            <p className="studio-pro-metric-copy">{replayContext.nodePathLabel}</p>
+          </>
+        ) : null}
       </article>
+
+      <article className={`studio-pro-metric-card mt-4 ${hasTemplateContext ? 'studio-pro-emphasis-card' : ''}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <span className="studio-pro-metric-label">结构字段落点</span>
+            <strong className="studio-pro-metric-value">
+              {hasTemplateContext ? '字段到 Prompt / 参数的承接关系' : '等待模板字段接入'}
+            </strong>
+          </div>
+          {hasTemplateContext ? (
+            <span className="studio-pro-compare-pill studio-pro-compare-pill-aligned">
+              {fieldAlignment.length} 个字段
+            </span>
+          ) : null}
+        </div>
+        <p className="studio-pro-metric-copy">
+          {hasTemplateContext
+            ? '这里固定告诉你每个结构字段主要落到哪一段，方便你按字段做对照和校准。'
+            : '从模板进入专业版后，这里会显示结构字段对应的 Prompt / 参数落点。'}
+        </p>
+        {hasTemplateContext ? (
+          <div className="studio-pro-compare-grid">
+            {fieldAlignment.map((item) => (
+              <article key={item.id} className="studio-pro-compare-card">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="studio-pro-metric-label">{item.label}</span>
+                  <span
+                    className={`studio-pro-compare-pill ${
+                      item.status === 'aligned'
+                        ? 'studio-pro-compare-pill-aligned'
+                        : item.status === 'shifted'
+                          ? 'studio-pro-compare-pill-shifted'
+                          : 'studio-pro-compare-pill-missing'
+                    }`}
+                  >
+                    {item.statusLabel}
+                  </span>
+                </div>
+                <strong className="studio-pro-metric-value">{item.promptAnchorLabel}</strong>
+                <p className="studio-pro-metric-copy">
+                  {item.groupLabel} · {item.value}
+                </p>
+                <p className="studio-pro-metric-copy">{item.hint}</p>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </article>
+
+      <div className="studio-pro-meta-grid">
+        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <span className="studio-pro-metric-label">当前版 vs 来源版</span>
+              <strong className="studio-pro-metric-value">{workspaceBaseline.summary}</strong>
+            </div>
+            <span
+              className={`studio-pro-compare-pill ${
+                workspaceBaseline.status === 'aligned'
+                  ? 'studio-pro-compare-pill-aligned'
+                  : workspaceBaseline.status === 'shifted'
+                    ? 'studio-pro-compare-pill-shifted'
+                    : 'studio-pro-compare-pill-missing'
+              }`}
+            >
+              {workspaceBaseline.statusLabel}
+            </span>
+          </div>
+          <p className="studio-pro-metric-copy">
+            {workspaceBaseline.deltaLabel}。{workspaceBaseline.suggestion}
+          </p>
+          <div className="studio-pro-compare-grid">
+            <article className="studio-pro-compare-card">
+              <span className="studio-pro-metric-label">
+                {replayContext?.sourceWorkspacePrompt ? '来源工作区' : '来源请求'}
+              </span>
+              <strong className="studio-pro-metric-value">
+                {hasReplayContext ? `快照 ${replayContext?.snapshotId}` : '未接入'}
+              </strong>
+              <p className="studio-pro-metric-copy">
+                {truncateStudioProText(
+                  replayContext?.sourceWorkspacePrompt ?? replayContext?.requestPrompt ?? '',
+                  120,
+                ) || '从作品或任务恢复一版后，这里会固定显示来源文本基线。'}
+              </p>
+            </article>
+            <article className="studio-pro-compare-card">
+              <span className="studio-pro-metric-label">当前工作区</span>
+              <strong className="studio-pro-metric-value">
+                {workspacePrompt.trim() ? `${workspacePromptLength} 字` : '等待输入'}
+              </strong>
+              <p className="studio-pro-metric-copy">
+                {truncateStudioProText(workspacePrompt, 120) || '先补一句主体需求，当前版基线就会固定在这里。'}
+              </p>
+            </article>
+          </div>
+        </article>
+
+        <article className={`studio-pro-metric-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <span className="studio-pro-metric-label">最终 Prompt 对照</span>
+              <strong className="studio-pro-metric-value">{finalPromptBaseline.summary}</strong>
+            </div>
+            <span
+              className={`studio-pro-compare-pill ${
+                finalPromptBaseline.status === 'aligned'
+                  ? 'studio-pro-compare-pill-aligned'
+                  : finalPromptBaseline.status === 'shifted'
+                    ? 'studio-pro-compare-pill-shifted'
+                    : 'studio-pro-compare-pill-missing'
+              }`}
+            >
+              {finalPromptBaseline.statusLabel}
+            </span>
+          </div>
+          <p className="studio-pro-metric-copy">
+            {finalPromptBaseline.deltaLabel}。{finalPromptBaseline.suggestion}
+          </p>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? '当前最终 Prompt 已把工作区描述、风格补充和细节控制一起折叠成一版请求，可直接判断是同基线重跑还是带着控制项派生。'
+              : '当前还没有来源请求做参照，这里先帮助你固定最终 Prompt 的组装结果。'}
+          </p>
+        </article>
+      </div>
 
       <div className="studio-pro-chain-grid">
         {promptSections.map((section) => (

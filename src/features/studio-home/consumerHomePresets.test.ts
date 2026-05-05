@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildConsumerGuidedFlowSnapshot,
+  buildConsumerGuidedFlowSnapshotFromContext,
   buildGuidedPrompt,
   findConsumerGuidedFlowById,
   findConsumerGuidedFlowBySceneId,
   getConsumerGuidedFlowNextQuestionIndex,
+  resolveConsumerGuidedFlowSelections,
 } from './consumerHomePresets'
 
 describe('consumerHomePresets guided flow', () => {
@@ -60,5 +62,46 @@ describe('consumerHomePresets guided flow', () => {
     expect(guide.questions).toHaveLength(3)
     expect(guide.questions.map((question) => question.id)).toEqual(['space-type', 'viewpoint', 'lighting'])
     expect(guide.questions[0]?.defaultOptionId).toBe('living')
+  })
+
+  it('matches scene-level guide ids and auto-applies scene defaults', () => {
+    const guide = findConsumerGuidedFlowBySceneId('generic-create')
+    expect(guide).toBeTruthy()
+    if (!guide) return
+
+    expect(guide.id).toBe('generic-starter')
+    const selections = resolveConsumerGuidedFlowSelections(guide, {
+      sceneId: 'generic-create',
+    })
+
+    expect(selections.subject).toBe('visual')
+    expect(selections.scene).toBe('social')
+    expect(selections.style).toBe('realistic')
+    expect(selections.constraints).toBe('stable')
+  })
+
+  it('maps result actions to recommended guided selections and prompt appendix', () => {
+    const guide = findConsumerGuidedFlowById('generic-starter')
+    expect(guide).toBeTruthy()
+    if (!guide) return
+
+    const snapshot = buildConsumerGuidedFlowSnapshotFromContext(
+      guide,
+      {
+        resultActionId: 'style',
+      },
+      {
+        sourceType: 'result-action',
+        selectionSource: 'result-followup',
+        actionId: 'branch-version',
+        promptAppendix: '请保留主体，换一种更有风格感的表现方式。',
+      },
+    )
+
+    expect(snapshot.sourceType).toBe('result-action')
+    expect(snapshot.actionId).toBe('branch-version')
+    expect(snapshot.summary).toContain('风格方向：更有风格')
+    expect(snapshot.promptText).toContain('整体更有风格识别度')
+    expect(snapshot.promptText).toContain('请保留主体，换一种更有风格感的表现方式。')
   })
 })

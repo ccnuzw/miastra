@@ -746,14 +746,21 @@ export function TasksPage() {
                                   <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.08] px-3 py-1 text-[11px] font-semibold text-signal-cyan">
                                     {versionSource.originLabel}
                                   </span>
+                                  <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.08] px-3 py-1 text-[11px] font-semibold text-emerald-200">
+                                    {versionSource.sourceKindLabel}
+                                  </span>
+                                  <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
+                                    场景：{versionSource.sceneLabel}
+                                  </span>
                                   <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
                                     {versionSource.currentLabel}
                                   </span>
-                                  <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
-                                    {versionSource.parentLabel}
-                                  </span>
                                 </div>
                                 <div className="mt-3 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.32] p-3 text-xs text-porcelain-100/58">
+                                  <p>{versionSource.sourceDecisionLabel}</p>
+                                  <p className="mt-1">{versionSource.structureLabel}</p>
+                                  <p className="mt-1">{versionSource.nodePathLabel}</p>
+                                  <p className="mt-1">{versionSource.parentLabel}</p>
                                   <p>{versionSource.ancestorLabel}</p>
                                   <p className="mt-1">{versionSource.guidedFlowLabel}</p>
                                   <p className="mt-1">{versionSource.parameterLabel}</p>
@@ -833,6 +840,11 @@ export function TasksPage() {
                                       </p>
                                       <div className="mt-3 grid gap-2 text-sm text-porcelain-100/72">
                                         <p>当前来源：{versionSource.originLabel}</p>
+                                        <p>来源类型：{versionSource.sourceKindLabel}</p>
+                                        <p>统一场景：{versionSource.sceneLabel}</p>
+                                        <p>{versionSource.sourceDecisionLabel}</p>
+                                        <p>{versionSource.structureLabel}</p>
+                                        <p>{versionSource.nodePathLabel}</p>
                                         <p>当前节点：{versionSource.currentLabel}</p>
                                         <p>{versionSource.parentLabel}</p>
                                         <p>{versionSource.ancestorLabel}</p>

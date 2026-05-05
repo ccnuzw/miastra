@@ -1,10 +1,15 @@
 import { Crop, Images, Mountain, Palette, RotateCcw, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import {
-  buildConsumerGuidedFlowSnapshot,
+  buildConsumerGuidedFlowSnapshotFromContext,
   findConsumerGuidedFlowById,
   findConsumerGuidedFlowByResultActionId,
+  resolveConsumerGuidedFlowSelections,
 } from '@/features/studio-home/consumerHomePresets'
+import {
+  getConsumerGuidedFlowSelectionMap,
+  type ConsumerGuidedFlowSnapshot,
+} from '@/features/studio-consumer/consumerGuidedFlow'
 import {
   getStudioFlowActionLabel,
   getStudioFlowScene,
@@ -38,13 +43,14 @@ export type StudioConsumerResultActionDetail = {
   }
   submit: boolean
   nextStep: string
+  guidedFlowSummary?: string
 }
 
-function mergeGuidedFollowupPrompt(basePrompt: string, followupText: string) {
+function appendFollowupText(basePrompt: string, promptAppendix: string) {
   const trimmedBase = basePrompt.trim()
-  const trimmedFollowup = followupText.trim()
-  if (!trimmedFollowup) return trimmedBase
-  return trimmedBase ? `${trimmedBase}\n${trimmedFollowup}` : trimmedFollowup
+  const trimmedAppendix = promptAppendix.trim()
+  if (!trimmedAppendix) return trimmedBase
+  return trimmedBase ? `${trimmedBase}\n${trimmedAppendix}` : trimmedAppendix
 }
 
 const actionDefinitions = [
@@ -122,6 +128,14 @@ const actionDefinitions = [
   },
 ] as const
 
+const semanticActionToResultActionIds: Record<string, string[]> = {
+  'continue-edit': ['closer', 'partial', 'more'],
+  'guided-refine': ['partial', 'background', 'retry'],
+  'branch-version': ['style', 'background'],
+  'retry-version': ['retry', 'more'],
+  'continue-version': ['closer', 'partial', 'more'],
+}
+
 const workflowDescriptions: Array<{
   kind: 'continue' | 'retry' | 'branch'
   label: string
@@ -150,9 +164,48 @@ function trimText(value?: string, fallback = '当前结果') {
   return normalized.length > 30 ? `${normalized.slice(0, 30)}…` : normalized
 }
 
+function buildRuntimePrioritySummary(actions: ReadonlyArray<(typeof actionDefinitions)[number]>) {
+  if (!actions.length) return null
+  if (actions.length === 1) return `默认优先动作：${actions[0].title}`
+  return `默认先走「${actions[0].title}」，随后优先「${actions
+    .slice(1, 3)
+    .map((action) => action.title)
+    .join('」 / 「')}」`
+}
+
+function getPrioritizedActions(guidedFlow?: ConsumerGuidedFlowSnapshot | null) {
+  const semanticPriority = guidedFlow?.actionPriority ?? []
+  if (!semanticPriority.length) return actionDefinitions
+
+  const rankMap = new Map<string, number>()
+  semanticPriority.forEach((semanticActionId, semanticIndex) => {
+    const resultActionIds = semanticActionToResultActionIds[semanticActionId] ?? []
+    resultActionIds.forEach((actionId, resultIndex) => {
+      const nextRank = semanticIndex * 10 + resultIndex
+      const currentRank = rankMap.get(actionId)
+      if (currentRank == null || nextRank < currentRank) rankMap.set(actionId, nextRank)
+    })
+  })
+
+  return [...actionDefinitions].sort((left, right) => {
+    const leftRank = rankMap.get(left.id) ?? Number.MAX_SAFE_INTEGER
+    const rightRank = rankMap.get(right.id) ?? Number.MAX_SAFE_INTEGER
+    if (leftRank !== rightRank) return leftRank - rightRank
+    return actionDefinitions.indexOf(left) - actionDefinitions.indexOf(right)
+  })
+}
+
 export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
   const [lastTriggeredActionId, setLastTriggeredActionId] = useState<string | null>(null)
   const versionSource = getWorkVersionSourceSummary(preview)
+  const runtimeGuidedFlow = preview.generationSnapshot?.guidedFlow ?? null
+  const prioritizedActions = getPrioritizedActions(runtimeGuidedFlow)
+  const prioritizedActionSummary =
+    runtimeGuidedFlow?.actionPriority?.length ? buildRuntimePrioritySummary(prioritizedActions) : null
+  const templateRuntimeLabel =
+    runtimeGuidedFlow?.sourceType === 'template'
+      ? `已承接模板「${runtimeGuidedFlow.templateTitle || runtimeGuidedFlow.guideTitle}」`
+      : null
 
   function handleAction(action: (typeof actionDefinitions)[number]) {
     if (!preview.src) return
@@ -163,13 +216,34 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
       (existingGuidedFlow ? findConsumerGuidedFlowById(existingGuidedFlow.guideId) : undefined) ??
       findConsumerGuidedFlowByResultActionId(action.id)
     const guidedFlow =
-      preferredGuide && existingGuidedFlow?.guideId === preferredGuide.id
+      existingGuidedFlow?.sourceType === 'template'
         ? {
             ...existingGuidedFlow,
-            promptText: mergeGuidedFollowupPrompt(existingGuidedFlow.promptText, action.text),
+            sourceType: 'result-action' as const,
+            actionId: action.semanticActionId,
+            followUpMode: 'scene-guided' as const,
+            promptAppendix: action.text,
+            promptText: appendFollowupText(existingGuidedFlow.promptText, action.text),
           }
         : preferredGuide
-          ? buildConsumerGuidedFlowSnapshot(preferredGuide, {})
+          ? buildConsumerGuidedFlowSnapshotFromContext(
+              preferredGuide,
+              {
+                resultActionId: action.id,
+                currentSelections:
+                  existingGuidedFlow?.guideId === preferredGuide.id
+                    ? getConsumerGuidedFlowSelectionMap(existingGuidedFlow)
+                    : resolveConsumerGuidedFlowSelections(preferredGuide, {
+                        resultActionId: action.id,
+                      }),
+              },
+              {
+                sourceType: 'result-action',
+                selectionSource: 'result-followup',
+                actionId: action.semanticActionId,
+                promptAppendix: action.text,
+              },
+            )
           : null
 
     dispatchStudioConsumerIntent({
@@ -217,6 +291,7 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           },
           submit: action.submit,
           nextStep,
+          guidedFlowSummary: guidedFlow?.summary,
         },
       }),
     )
@@ -247,17 +322,22 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           当前继续来源
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
+          {templateRuntimeLabel ? (
+            <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.08] px-3 py-1 text-sm font-semibold text-emerald-200">
+              {templateRuntimeLabel}
+            </span>
+          ) : null}
           <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.1] px-3 py-1 text-sm font-semibold text-signal-cyan">
             {versionSource.originLabel}
           </span>
+          <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.08] px-3 py-1 text-sm font-semibold text-emerald-200">
+            {versionSource.sourceKindLabel}
+          </span>
           <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.1] px-3 py-1 text-sm font-semibold text-signal-cyan">
-            {getStudioFlowSceneLabel('image-edit')}
+            {versionSource.sceneLabel || getStudioFlowSceneLabel('image-edit')}
           </span>
           <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
             {versionSource.currentLabel}
-          </span>
-          <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
-            {versionSource.parentLabel}
           </span>
           <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.1] px-3 py-1 text-sm font-semibold text-signal-cyan">
             {previewTitle}
@@ -267,6 +347,12 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           </span>
         </div>
         <div className="mt-3 grid gap-2 text-sm leading-6 text-porcelain-100/58">
+          {runtimeGuidedFlow?.followUpLabel ? <p>{runtimeGuidedFlow.followUpLabel}</p> : null}
+          {prioritizedActionSummary ? <p>动作优先级：{prioritizedActionSummary}</p> : null}
+          <p>{versionSource.sourceDecisionLabel}</p>
+          <p>{versionSource.structureLabel}</p>
+          <p>{versionSource.nodePathLabel}</p>
+          <p>{versionSource.parentLabel}</p>
           <p>{versionSource.ancestorLabel}</p>
           <p>{versionSource.guidedFlowLabel}</p>
           <p>{versionSource.parameterLabel}</p>
@@ -302,7 +388,7 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {actionDefinitions.map((action) => {
+        {prioritizedActions.map((action, index) => {
           const Icon = action.icon
           const isActive = action.id === lastTriggeredActionId
           const cardTone =
@@ -338,6 +424,9 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
               <div>
                 <p className="text-sm font-bold text-porcelain-50">{action.title}</p>
                 <p className="mt-1 text-sm leading-6 text-porcelain-100/52">{action.description}</p>
+                {index === 0 && prioritizedActionSummary ? (
+                  <p className="mt-2 text-[11px] font-medium text-emerald-300">模板默认优先动作</p>
+                ) : null}
               </div>
               <p className="mt-auto text-xs leading-5 text-porcelain-100/42">
                 {action.submit

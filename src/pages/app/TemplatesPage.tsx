@@ -88,7 +88,17 @@ export function TemplatesPage() {
     const presentation = buildPromptTemplatePresentation(template)
     return presentation.recommendedEntry.mode === 'consumer'
   }).length
+  const proRecommendedCount = filteredTemplates.filter((template) => {
+    const presentation = buildPromptTemplatePresentation(template)
+    return presentation.recommendedEntry.mode === 'pro'
+  }).length
   const structuredTemplateCount = filteredTemplates.filter((template) => template.structure).length
+  const versionReadyCount = filteredTemplates.filter((template) => {
+    const presentation = buildPromptTemplatePresentation(template)
+    return presentation.resultBridge.actions.some(
+      (action) => action.id === 'retry-version' || action.id === 'branch-version',
+    )
+  }).length
   const alignedSceneIds: StudioFlowSceneId[] = ['product-shot', 'poster-campaign', 'portrait-avatar']
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -161,17 +171,19 @@ export function TemplatesPage() {
       <section className="panel-shell w-full">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="eyebrow">Template Library</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">模板库</h1>
+            <p className="eyebrow">Skill Entry Collection</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight">模板技能入口</h1>
             <p className="mt-2 max-w-3xl text-sm text-porcelain-100/60">
-              这里不只是保存 Prompt。你可以按模板类型整理用途、决定更适合从普通版还是专业版起手，并为后续结构模板字段预留位置。
+              这里不只是保存 Prompt。每个模板都应该能表达它打算帮你做什么、推荐从普通版还是专业版起手，以及进入后会如何接结果动作、追问和版本复用链。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="status-pill">共 {templates.length} 个模板</span>
             <span className="status-pill">当前筛出 {filteredTemplates.length} 个</span>
             <span className="status-pill">推荐普通版起手 {recommendedCount} 个</span>
+            <span className="status-pill">推荐专业版起手 {proRecommendedCount} 个</span>
             <span className="status-pill">已读出结构信息 {structuredTemplateCount} 个</span>
+            <span className="status-pill">可接版本复用 {versionReadyCount} 个</span>
             <span className="status-pill">
               统一场景 {alignedSceneIds.map((sceneId) => getStudioFlowSceneLabel(sceneId)).join(' / ')}
             </span>
@@ -190,20 +202,26 @@ export function TemplatesPage() {
           <div className="rounded-[1.5rem] border border-signal-cyan/15 bg-[linear-gradient(135deg,rgba(34,211,238,0.14),rgba(15,23,42,0.65))] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-2xl">
-                <p className="field-label">模板如何接工作台</p>
-                <h2 className="mt-2 text-xl font-semibold text-porcelain-50">先选模板，再决定从哪里开始</h2>
+                <p className="field-label">模板如何作为 Skill 入口</p>
+                <h2 className="mt-2 text-xl font-semibold text-porcelain-50">先决定执行意图，再决定从哪里开始</h2>
                 <p className="mt-2 text-sm leading-6 text-porcelain-100/70">
-                  普通版更适合先把模板当成任务起点，快速出第一版；专业版更适合把模板当成底稿，继续补参数、负面提示词和风格控制。
+                  普通版更适合先把模板当成任务起点，快速出第一版，再接结果动作继续改；专业版更适合把模板当成结构底稿，先锁字段、参数和风格控制，再围绕版本链持续重跑或派生。
                 </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="status-pill">模板起稿</span>
+                  <span className="status-pill">结果动作承接</span>
+                  <span className="status-pill">轻量追问回流</span>
+                  <span className="status-pill">版本重跑 / 分叉</span>
+                </div>
               </div>
               <div className="grid gap-2 text-sm text-porcelain-100/65">
                 <div className="rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-4 py-3">
                   <span className="font-semibold text-porcelain-50">普通版入口</span>
-                  <p className="mt-1">更适合先出图、先验证方向。</p>
+                  <p className="mt-1">更适合先出图、先验证方向，再顺手接结果动作。</p>
                 </div>
                 <div className="rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.38] px-4 py-3">
                   <span className="font-semibold text-porcelain-50">专业版入口</span>
-                  <p className="mt-1">更适合需要细控 Prompt 和参数的模板。</p>
+                  <p className="mt-1">更适合先锁字段和参数，再进入稳定复用与版本派生。</p>
                 </div>
               </div>
             </div>
@@ -211,17 +229,18 @@ export function TemplatesPage() {
 
           <div className="grid gap-3 rounded-[1.5rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-5">
             <div>
-              <p className="field-label">结构模板预留</p>
-              <h2 className="mt-2 text-xl font-semibold text-porcelain-50">这一轮先把场景、字段和默认参数立起来</h2>
+              <p className="field-label">进入策略总览</p>
+              <h2 className="mt-2 text-xl font-semibold text-porcelain-50">模板已经开始携带场景、入口和后续动作语义</h2>
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="status-pill">字段 schema</span>
-              <span className="status-pill">推荐尺寸</span>
-              <span className="status-pill">默认风格</span>
+              <span className="status-pill">推荐模式</span>
+              <span className="status-pill">结果动作</span>
               <span className="status-pill">轻量追问</span>
+              <span className="status-pill">版本语义</span>
             </div>
             <p className="text-sm leading-6 text-porcelain-100/65">
-              这一页现在已经开始直接读取模板结构信息。后续补正式追问或更细的模板版本时，可以沿用同一套场景、字段和入口语义继续扩展。
+              这一页已经不再只是读取模板结构信息。后续补更细的追问配置或更稳定的版本生产流时，可以继续沿用同一套场景、字段和进入语义扩展，而不用把模板退回成静态资源页。
             </p>
           </div>
         </div>
@@ -248,7 +267,7 @@ export function TemplatesPage() {
                 <div>
                   <p className="field-label">模板分类概览</p>
                   <p className="mt-2 text-sm text-porcelain-100/60">
-                    先看模板主要落在哪些场景，后续这些分类也会承接结构字段和推荐入口策略。
+                    先看模板主要落在哪些场景，后续这些分类会继续承接结构字段、推荐入口和结果动作策略。
                   </p>
                 </div>
                 <Tags className="h-5 w-5 text-signal-cyan" />
@@ -286,7 +305,7 @@ export function TemplatesPage() {
                 <div>
                   <p className="field-label">模板编辑器</p>
                   <p className="mt-2 text-sm text-porcelain-100/60">
-                    在工作台保存当前 Prompt 后，可以回到这里补标题、分类和标签。现在也建议顺手补充适用场景，让模板更像真正可复用的模板库资产。
+                    在工作台保存当前 Prompt 后，可以回到这里补标题、分类和标签。现在也建议顺手补充适用场景，让模板逐步从“保存文本”变成“可执行入口”。
                   </p>
                 </div>
                 {editingId ? (
@@ -431,7 +450,7 @@ export function TemplatesPage() {
               <div className="rounded-[1.35rem] border border-dashed border-porcelain-50/15 bg-ink-950/[0.32] p-5 text-sm text-porcelain-100/65">
                 <p className="text-base font-semibold text-porcelain-50">还没有模板</p>
                 <p className="mt-2 leading-6">
-                  先在工作台里把当前 Prompt 保存为模板，再回到这里补分类、标签和适用场景；之后你就可以直接把它带回普通版或专业版继续创作。
+                  先在工作台里把当前 Prompt 保存为模板，再回到这里补分类、标签和适用场景；之后你就可以把它当成普通版起稿入口或专业版结构底稿继续创作。
                 </p>
               </div>
             ) : null}
@@ -461,21 +480,37 @@ export function TemplatesPage() {
                         <h2 className="mt-3 truncate text-lg font-semibold text-porcelain-50">
                           {presentation.title}
                         </h2>
+                        <p className="mt-2 text-xs uppercase tracking-[0.18em] text-signal-cyan/80">
+                          {presentation.executionIntent.label}
+                        </p>
                       </div>
                       <span className="shrink-0 rounded-full border border-porcelain-50/10 bg-ink-950/55 px-2.5 py-1 text-[10px] font-bold text-porcelain-100/45">
                         {activityDate}
                       </span>
                     </div>
 
-                    <p className="mt-3 text-sm leading-6 text-porcelain-100/70">
-                      {presentation.family.description}
-                    </p>
+                    <div className="mt-4 rounded-[1.15rem] border border-signal-cyan/15 bg-[linear-gradient(140deg,rgba(34,211,238,0.1),rgba(15,23,42,0.24))] p-4">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
+                        <Sparkles className="h-4 w-4 text-signal-cyan" />
+                        执行意图
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-porcelain-100/70">
+                        {presentation.executionIntent.summary}
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
+                        起手建议：{presentation.executionIntent.starter}
+                      </p>
+                    </div>
+
                     <div className="mt-3 flex flex-wrap gap-2">
                       <span className="status-pill">{presentation.structureMeta.sceneLabel}</span>
                       <span className="status-pill">{presentation.structureMeta.statusLabel}</span>
+                      <span className="status-pill">
+                        {presentation.recommendedEntry.mode === 'consumer' ? '普通版起手' : '专业版起手'}
+                      </span>
                     </div>
                     <p className="mt-3 text-sm leading-6 text-porcelain-100/62">
-                      {presentation.structureMeta.sceneDescription}
+                      {presentation.family.description}
                     </p>
                     <p className="mt-3 line-clamp-4 text-sm leading-6 text-porcelain-100/58">
                       {presentation.preview}
@@ -492,10 +527,16 @@ export function TemplatesPage() {
                     <div className="mt-5 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.34] p-4">
                       <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
                         <Sparkles className="h-4 w-4 text-signal-cyan" />
-                        适用说明
+                        推荐入口
                       </div>
                       <p className="mt-2 text-sm leading-6 text-porcelain-100/65">
                         {presentation.recommendedEntry.reason}
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
+                        更适合：{presentation.recommendedEntry.bestFor}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-porcelain-100/55">
+                        进入后：{presentation.recommendedEntry.nextStep}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {presentation.useCases.map((useCase) => (
@@ -516,6 +557,7 @@ export function TemplatesPage() {
                             intent: entry.intent,
                             sceneId: presentation.structureMeta.sceneId as never,
                             sourceType: 'template',
+                            nextAction: presentation.resultBridge.actions[0]?.id,
                           })}
                           className={`rounded-[1.1rem] border px-4 py-3 transition ${
                             entry.recommended
@@ -537,6 +579,12 @@ export function TemplatesPage() {
                           <p className="mt-2 text-sm leading-6 text-porcelain-100/62">
                             {entry.description}
                           </p>
+                          <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
+                            更适合：{entry.bestFor}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-porcelain-100/55">
+                            下一步：{entry.nextStep}
+                          </p>
                           {entry.recommended ? (
                             <p className="mt-2 text-[11px] font-medium text-signal-cyan">
                               推荐入口
@@ -546,10 +594,33 @@ export function TemplatesPage() {
                       ))}
                     </div>
 
+                    <div className="mt-4 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.3] p-4">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
+                        <Wand2 className="h-4 w-4 text-signal-cyan" />
+                        结果动作与回流链
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-porcelain-100/62">
+                        {presentation.resultBridge.summary}
+                      </p>
+                      <div className="mt-3 grid gap-2">
+                        {presentation.resultBridge.actions.map((action) => (
+                          <div
+                            key={action.id}
+                            className="rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.26] px-3 py-3"
+                          >
+                            <p className="text-xs font-semibold text-porcelain-50">{action.label}</p>
+                            <p className="mt-1 text-xs leading-5 text-porcelain-100/55">
+                              {action.description}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="mt-4 rounded-[1.1rem] border border-dashed border-porcelain-50/15 bg-ink-950/[0.26] p-4">
                       <div className="flex items-center gap-2 text-sm font-semibold text-porcelain-50">
                         <Tags className="h-4 w-4 text-signal-cyan" />
-                        {presentation.structureMeta.statusLabel}
+                        结构与链路上下文
                       </div>
                       <p className="mt-2 text-sm leading-6 text-porcelain-100/62">
                         {presentation.structureMeta.sceneLabel} · {presentation.structureMeta.sceneDescription}
@@ -567,6 +638,14 @@ export function TemplatesPage() {
                             {item.label}：{item.value}
                           </p>
                         ))}
+                      </div>
+                      <div className="mt-3 rounded-2xl border border-porcelain-50/10 bg-ink-950/[0.24] px-3 py-3 text-xs leading-5 text-porcelain-100/56">
+                        <p>
+                          {presentation.chainContext.followUpLabel}：{presentation.chainContext.followUpSummary}
+                        </p>
+                        <p className="mt-1">
+                          {presentation.chainContext.versionLabel}：{presentation.chainContext.versionSummary}
+                        </p>
                       </div>
                       <p className="mt-3 text-xs leading-5 text-porcelain-100/55">
                         {presentation.structureMeta.metadataHint}
@@ -621,7 +700,7 @@ export function TemplatesPage() {
                   <p className="mt-2 text-sm leading-6 text-porcelain-100/60">
                     {hasActiveFilters
                       ? '换个关键词、分类或排序试试，或者清空筛选后查看全部模板。'
-                      : '先创建一个模板，后续就可以把它直接带回工作台作为普通版任务入口或专业版底稿。'}
+                      : '先创建一个模板，后续就可以把它直接带回工作台作为普通版任务入口或专业版结构底稿。'}
                   </p>
                 </div>
               ) : null}

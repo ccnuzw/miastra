@@ -54,6 +54,7 @@ function createGenerationSnapshot(
   return {
     id: options.snapshotId ?? crypto.randomUUID(),
     createdAt,
+    scene: options.scene,
     mode,
     prompt: options.promptText,
     requestPrompt: options.promptText,

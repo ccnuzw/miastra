@@ -1,7 +1,13 @@
 import { Crop, Images, Mountain, Palette, RotateCcw, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import {
+  buildConsumerGuidedFlowSnapshot,
+  findConsumerGuidedFlowById,
+  findConsumerGuidedFlowByResultActionId,
+} from '@/features/studio-home/consumerHomePresets'
+import {
   getStudioFlowActionLabel,
+  getStudioFlowScene,
   getStudioFlowSceneLabel,
 } from '@/features/prompt-templates/studioFlowSemantic'
 import { getWorkVersionSourceSummary } from '@/features/works/workReplay'
@@ -19,6 +25,7 @@ export type StudioConsumerResultActionDetail = {
   actionTitle: string
   actionDescription: string
   sceneId: 'image-edit'
+  scene: ReturnType<typeof getStudioFlowScene>
   sourceType: 'result-action'
   semanticActionId: 'continue-version' | 'retry-version' | 'branch-version'
   workflowKind: 'continue' | 'retry' | 'branch'
@@ -31,6 +38,13 @@ export type StudioConsumerResultActionDetail = {
   }
   submit: boolean
   nextStep: string
+}
+
+function mergeGuidedFollowupPrompt(basePrompt: string, followupText: string) {
+  const trimmedBase = basePrompt.trim()
+  const trimmedFollowup = followupText.trim()
+  if (!trimmedFollowup) return trimmedBase
+  return trimmedBase ? `${trimmedBase}\n${trimmedFollowup}` : trimmedFollowup
 }
 
 const actionDefinitions = [
@@ -144,13 +158,29 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
     if (!preview.src) return
     setLastTriggeredActionId(action.id)
 
+    const existingGuidedFlow = preview.generationSnapshot?.guidedFlow ?? null
+    const preferredGuide =
+      (existingGuidedFlow ? findConsumerGuidedFlowById(existingGuidedFlow.guideId) : undefined) ??
+      findConsumerGuidedFlowByResultActionId(action.id)
+    const guidedFlow =
+      preferredGuide && existingGuidedFlow?.guideId === preferredGuide.id
+        ? {
+            ...existingGuidedFlow,
+            promptText: mergeGuidedFollowupPrompt(existingGuidedFlow.promptText, action.text),
+          }
+        : preferredGuide
+          ? buildConsumerGuidedFlowSnapshot(preferredGuide, {})
+          : null
+
     dispatchStudioConsumerIntent({
       type: 'prompt',
       mode: 'followup',
       sceneId: 'image-edit',
+      scene: getStudioFlowScene('image-edit'),
       sourceType: 'result-action',
       actionId: action.semanticActionId,
       text: action.text,
+      guidedFlow,
       attachPreview: {
         src: preview.src,
         title: preview.title,
@@ -174,6 +204,7 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           actionTitle: action.title,
           actionDescription: action.description,
           sceneId: 'image-edit',
+          scene: getStudioFlowScene('image-edit'),
           sourceType: 'result-action',
           semanticActionId: action.semanticActionId,
           workflowKind: action.workflowKind,
@@ -223,7 +254,7 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
             {getStudioFlowSceneLabel('image-edit')}
           </span>
           <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
-            {versionSource.detailLabel}
+            {versionSource.currentLabel}
           </span>
           <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
             {versionSource.parentLabel}
@@ -234,6 +265,12 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
             {previewMeta}
           </span>
+        </div>
+        <div className="mt-3 grid gap-2 text-sm leading-6 text-porcelain-100/58">
+          <p>{versionSource.ancestorLabel}</p>
+          <p>{versionSource.guidedFlowLabel}</p>
+          <p>{versionSource.parameterLabel}</p>
+          <p>{versionSource.referenceLabel}</p>
         </div>
       </div>
 

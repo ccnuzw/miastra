@@ -14,6 +14,8 @@ describe('promptTemplate schema', () => {
 
     expect(structure.familyId).toBe('product')
     expect(structure.scenarioId).toBe('product-shot')
+    expect(structure.scene.id).toBe('product-shot')
+    expect(structure.scene.label).toBe('商品展示')
     expect(structure.defaults.aspectLabel).toBe('1:1')
     expect(structure.recommendedMode).toBe('consumer')
     expect(getPromptTemplateStructureFieldDigest(structure.fields)).toContain('必填 · 商品主体')
@@ -31,6 +33,7 @@ describe('promptTemplate schema', () => {
 
     expect(structure.familyId).toBe('character')
     expect(structure.scenarioId).toBe('portrait-look')
+    expect(structure.scene.id).toBe('portrait-avatar')
     expect(structure.recommendedMode).toBe('pro')
     expect(structure.summary.find((item) => item.id === 'entry')?.value).toContain('专业版')
   })

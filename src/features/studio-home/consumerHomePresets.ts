@@ -1,3 +1,11 @@
+import {
+  buildPromptTemplateStructure,
+  getPromptTemplateScenarioConfigById,
+} from '@/features/prompt-templates/promptTemplate.schema'
+import type {
+  PromptTemplateFieldDefinition,
+  PromptTemplateScenarioId,
+} from '@/features/prompt-templates/promptTemplate.types'
 import type {
   ConsumerGuidedFlowSelectionMap,
   ConsumerGuidedFlowSnapshot,
@@ -6,7 +14,9 @@ import type {
 import type { StudioFlowFieldId, StudioFlowSceneId } from '@/features/prompt-templates/studioFlowSemantic'
 import {
   getStudioFlowFieldLabel,
+  getStudioFlowScene,
   getStudioFlowSceneLabel,
+  mapPromptScenarioToFlowSceneId,
 } from '@/features/prompt-templates/studioFlowSemantic'
 
 export type ConsumerTaskPreset = {
@@ -47,13 +57,140 @@ export type ConsumerGuidedFlowQuestion = {
 
 export type ConsumerGuidedFlowPreset = {
   id: string
+  scenarioId: PromptTemplateScenarioId
   sceneId: StudioFlowSceneId
   title: string
   description: string
   prompt: string
+  defaultPromptText: string
   taskIds?: string[]
   sceneIds?: string[]
+  resultActionIds?: string[]
   questions: ConsumerGuidedFlowQuestion[]
+}
+
+type ConsumerGuidedFlowBinding = {
+  scenarioId: PromptTemplateScenarioId
+  defaultPromptText: string
+  taskIds?: string[]
+  sceneIds?: string[]
+  resultActionIds?: string[]
+}
+
+const consumerGuidedFlowBindings: ConsumerGuidedFlowBinding[] = [
+  {
+    scenarioId: 'product-shot',
+    defaultPromptText: '做一张适合商品展示的图片，主体清楚，构图利落，适合电商和内容展示。',
+    taskIds: ['product'],
+    sceneIds: ['white-background', 'swap-background'],
+    resultActionIds: ['background'],
+  },
+  {
+    scenarioId: 'poster-campaign',
+    defaultPromptText: '做一张适合宣传传播的海报，主视觉明确，画面完整，适合线上展示。',
+    taskIds: ['poster'],
+    sceneIds: ['event-poster', 'social-cover'],
+  },
+  {
+    scenarioId: 'portrait-look',
+    defaultPromptText: '做一张适合头像或人像展示的图片，人物自然耐看，整体干净，有质感。',
+    taskIds: ['portrait'],
+    sceneIds: ['portrait-retouch'],
+  },
+  {
+    scenarioId: 'space-scene',
+    defaultPromptText: '做一个可直接展示的空间场景，结构清楚，氛围完整，适合继续细化。',
+    sceneIds: ['space-showcase'],
+  },
+]
+
+function createQuestionId(fieldId: string) {
+  return fieldId
+}
+
+function toStudioFlowFieldId(fieldId: string): StudioFlowFieldId | undefined {
+  switch (fieldId) {
+    case 'product-subject':
+      return 'usageScenario'
+    case 'usage-scene':
+      return 'backgroundStyle'
+    case 'background-direction':
+      return 'visualTone'
+    case 'headline':
+      return 'campaignGoal'
+    case 'value':
+      return 'visualTone'
+    case 'visual-style':
+      return 'layoutFocus'
+    case 'character-subject':
+      return 'portraitPurpose'
+    case 'wardrobe':
+      return 'portraitStyle'
+    case 'mood-pose':
+      return 'retouchLevel'
+    default:
+      return undefined
+  }
+}
+
+function toGuidedQuestion(field: PromptTemplateFieldDefinition): ConsumerGuidedFlowQuestion | null {
+  if (!field.guided?.options?.length) return null
+  return {
+    id: createQuestionId(field.id),
+    fieldId: toStudioFlowFieldId(field.id),
+    title: field.guided.questionTitle?.trim() || field.label,
+    defaultOptionId: field.guided.defaultOptionId,
+    options: field.guided.options.map((option) => ({
+      id: option.id,
+      label: option.label,
+      prompt: option.prompt,
+    })),
+  }
+}
+
+function buildGuidedFlowPreset(binding: ConsumerGuidedFlowBinding): ConsumerGuidedFlowPreset | null {
+  const scenarioConfig = getPromptTemplateScenarioConfigById(binding.scenarioId)
+  if (!scenarioConfig) return null
+
+  const structure = buildPromptTemplateStructure({
+    id: `consumer-guided-${binding.scenarioId}`,
+    title: scenarioConfig.label,
+    content: binding.defaultPromptText,
+    createdAt: 0,
+    structure: {
+      scenarioId: binding.scenarioId,
+      defaults: scenarioConfig.defaults,
+      fields: scenarioConfig.fields,
+      status: 'structured',
+      familyId: scenarioConfig.familyId,
+      scenarioLabel: scenarioConfig.label,
+      sceneDescription: scenarioConfig.description,
+      scene: getStudioFlowScene(mapPromptScenarioToFlowSceneId(binding.scenarioId)),
+      recommendedMode: scenarioConfig.recommendedMode,
+      recommendedIntent: scenarioConfig.recommendedIntent,
+      entryModes: ['consumer'],
+      summary: [],
+    },
+  })
+  const questions = structure.fields
+    .map(toGuidedQuestion)
+    .filter((item): item is ConsumerGuidedFlowQuestion => Boolean(item))
+
+  if (!questions.length) return null
+
+  return {
+    id: binding.scenarioId,
+    scenarioId: binding.scenarioId,
+    sceneId: mapPromptScenarioToFlowSceneId(binding.scenarioId),
+    title: structure.scenarioLabel,
+    description: structure.sceneDescription,
+    prompt: binding.defaultPromptText,
+    defaultPromptText: binding.defaultPromptText,
+    taskIds: binding.taskIds,
+    sceneIds: binding.sceneIds,
+    resultActionIds: binding.resultActionIds,
+    questions,
+  }
 }
 
 export const consumerTaskPresets: ConsumerTaskPreset[] = [
@@ -160,6 +297,14 @@ export const consumerScenePresets: ConsumerScenePreset[] = [
     afterSelectHint: '已带入头像美化方向。继续补一句想要更职业、自然还是更有氛围即可。',
   },
   {
+    id: 'space-showcase',
+    title: '空间展示图',
+    description: '适合客厅、展台和门店效果展示',
+    sceneId: 'space-scene',
+    prompt: '做一个完整清楚的空间展示图，结构明确，氛围自然，适合继续细化设计方向。',
+    afterSelectHint: '已带入空间展示方向。继续补一句空间用途、视角或想要的氛围即可。',
+  },
+  {
     id: 'remove-clutter',
     title: '去杂物或去文字',
     description: '去掉干扰内容，让画面更干净',
@@ -175,248 +320,9 @@ export const consumerExamplePrompts = [
   '生成一个干净的商品白底图',
 ]
 
-export const consumerGuidedFlowPresets: ConsumerGuidedFlowPreset[] = [
-  {
-    id: 'product-shot',
-    sceneId: 'product-shot',
-    title: '商品展示图',
-    description: '适合商品主图、详情页和种草展示。',
-    prompt: '做一张适合商品展示的图片，主体清楚，构图利落，适合电商和内容展示。',
-    taskIds: ['product'],
-    sceneIds: ['white-background', 'swap-background'],
-    questions: [
-      {
-        id: 'usage',
-        fieldId: 'usageScenario',
-        title: '主要用在哪？',
-        defaultOptionId: 'listing',
-        options: [
-          {
-            id: 'listing',
-            label: '电商主图',
-            prompt: '优先满足电商主图使用，主体完整醒目，信息清楚。',
-          },
-          {
-            id: 'detail',
-            label: '详情页展示',
-            prompt: '更适合详情页展示，保留材质和细节层次。',
-          },
-          {
-            id: 'social',
-            label: '种草配图',
-            prompt: '更适合社媒种草展示，画面更有氛围和吸引力。',
-          },
-        ],
-      },
-      {
-        id: 'background',
-        fieldId: 'backgroundStyle',
-        title: '背景想要哪种方向？',
-        defaultOptionId: 'pure-white',
-        options: [
-          {
-            id: 'pure-white',
-            label: '纯白干净',
-            prompt: '背景尽量纯白干净，边缘清楚，适合直接上架。',
-          },
-          {
-            id: 'studio',
-            label: '影棚质感',
-            prompt: '背景做成简洁影棚感，光线自然，质感高级。',
-          },
-          {
-            id: 'lifestyle',
-            label: '生活场景',
-            prompt: '背景换成贴合商品的生活化场景，但不要抢主体。',
-          },
-        ],
-      },
-      {
-        id: 'look',
-        fieldId: 'visualTone',
-        title: '整体更偏哪种感觉？',
-        defaultOptionId: 'clean',
-        options: [
-          {
-            id: 'clean',
-            label: '标准清爽',
-            prompt: '整体更标准清爽，少一些夸张效果。',
-          },
-          {
-            id: 'premium',
-            label: '高级质感',
-            prompt: '整体更有高级感，强化材质和灯光质感。',
-          },
-          {
-            id: 'bright',
-            label: '更亮眼',
-            prompt: '整体更亮眼一些，但不要显得廉价。',
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'poster-campaign',
-    sceneId: 'poster-campaign',
-    title: '海报宣传图',
-    description: '适合上新海报、活动宣传和品牌露出。',
-    prompt: '做一张适合宣传传播的海报，主视觉明确，画面完整，适合线上展示。',
-    taskIds: ['poster'],
-    sceneIds: ['event-poster', 'social-cover'],
-    questions: [
-      {
-        id: 'goal',
-        fieldId: 'campaignGoal',
-        title: '更偏什么用途？',
-        defaultOptionId: 'event',
-        options: [
-          {
-            id: 'launch',
-            label: '新品上新',
-            prompt: '突出新品上新感，画面更有新鲜度和吸引力。',
-          },
-          {
-            id: 'event',
-            label: '活动宣传',
-            prompt: '突出活动氛围和传播感，适合引导点击或报名。',
-          },
-          {
-            id: 'brand',
-            label: '品牌展示',
-            prompt: '更偏品牌展示，画面克制但有记忆点。',
-          },
-        ],
-      },
-      {
-        id: 'tone',
-        fieldId: 'visualTone',
-        title: '氛围更接近哪种？',
-        defaultOptionId: 'minimal',
-        options: [
-          {
-            id: 'minimal',
-            label: '高级极简',
-            prompt: '整体更高级极简，减少杂乱元素和堆砌。',
-          },
-          {
-            id: 'energetic',
-            label: '热闹吸睛',
-            prompt: '整体更热闹吸睛，视觉冲击更强一些。',
-          },
-          {
-            id: 'social',
-            label: '年轻社媒感',
-            prompt: '整体更年轻，更适合社媒传播和封面展示。',
-          },
-        ],
-      },
-      {
-        id: 'layout',
-        fieldId: 'layoutFocus',
-        title: '你最在意什么？',
-        defaultOptionId: 'visual',
-        options: [
-          {
-            id: 'visual',
-            label: '主视觉突出',
-            prompt: '优先保证主视觉突出，第一眼就能抓住重点。',
-          },
-          {
-            id: 'copy-space',
-            label: '留出文字位',
-            prompt: '为标题和卖点留出清晰文字区域，排版更好放信息。',
-          },
-          {
-            id: 'brand-mark',
-            label: '品牌露出',
-            prompt: '让品牌露出更自然明确，但不要压过主画面。',
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'portrait-avatar',
-    sceneId: 'portrait-avatar',
-    title: '头像与人像',
-    description: '适合头像优化、职业照和生活感人像。',
-    prompt: '做一张适合头像或人像展示的图片，人物自然耐看，整体干净，有质感。',
-    taskIds: ['portrait'],
-    sceneIds: ['portrait-retouch'],
-    questions: [
-      {
-        id: 'purpose',
-        fieldId: 'portraitPurpose',
-        title: '主要拿来做什么？',
-        defaultOptionId: 'avatar',
-        options: [
-          {
-            id: 'avatar',
-            label: '社媒头像',
-            prompt: '更适合社媒头像使用，人物干净亲近，缩略图里也清楚。',
-          },
-          {
-            id: 'profile',
-            label: '职业形象',
-            prompt: '更适合职业形象展示，气质稳重、可信、利落。',
-          },
-          {
-            id: 'lifestyle',
-            label: '生活写真',
-            prompt: '更偏生活感写真，人物自然放松，有轻松氛围。',
-          },
-        ],
-      },
-      {
-        id: 'style',
-        fieldId: 'portraitStyle',
-        title: '想要哪种人物感觉？',
-        defaultOptionId: 'natural',
-        options: [
-          {
-            id: 'natural',
-            label: '自然耐看',
-            prompt: '人物状态自然耐看，不要过度修饰。',
-          },
-          {
-            id: 'premium',
-            label: '精致高级',
-            prompt: '人物更精致高级，肤质和光线更有质感。',
-          },
-          {
-            id: 'warm',
-            label: '轻松亲切',
-            prompt: '人物更轻松亲切，表情和氛围更有亲和力。',
-          },
-        ],
-      },
-      {
-        id: 'retouch',
-        fieldId: 'retouchLevel',
-        title: '修饰程度想要多少？',
-        defaultOptionId: 'balanced',
-        options: [
-          {
-            id: 'light',
-            label: '少修一点',
-            prompt: '保留真实感，只做轻微优化和整理。',
-          },
-          {
-            id: 'balanced',
-            label: '标准优化',
-            prompt: '做标准优化，让五官、肤质和光线都更上镜。',
-          },
-          {
-            id: 'camera-ready',
-            label: '更上镜',
-            prompt: '更上镜一些，但避免过度磨皮和失真。',
-          },
-        ],
-      },
-    ],
-  },
-]
+export const consumerGuidedFlowPresets: ConsumerGuidedFlowPreset[] = consumerGuidedFlowBindings
+  .map(buildGuidedFlowPreset)
+  .filter((item): item is ConsumerGuidedFlowPreset => Boolean(item))
 
 export function findConsumerGuidedFlowByTaskId(taskId?: string) {
   if (!taskId) return undefined
@@ -426,6 +332,11 @@ export function findConsumerGuidedFlowByTaskId(taskId?: string) {
 export function findConsumerGuidedFlowBySceneId(sceneId?: string) {
   if (!sceneId) return undefined
   return consumerGuidedFlowPresets.find((item) => item.sceneIds?.includes(sceneId))
+}
+
+export function findConsumerGuidedFlowByResultActionId(actionId?: string) {
+  if (!actionId) return undefined
+  return consumerGuidedFlowPresets.find((item) => item.resultActionIds?.includes(actionId))
 }
 
 export function findConsumerGuidedFlowById(guideId?: string) {
@@ -452,7 +363,7 @@ export function buildGuidedSelectionSummary(
     .map((question) => {
       const optionLabel = question.options.find((option) => option.id === selections[question.id])?.label
       if (!optionLabel) return null
-      if (!question.fieldId) return optionLabel
+      if (!question.fieldId) return `${question.title}：${optionLabel}`
       return `${getStudioFlowFieldLabel(guide.sceneId, question.fieldId)}：${optionLabel}`
     })
     .filter(Boolean)
@@ -471,6 +382,7 @@ export function buildConsumerGuidedFlowSnapshot(
     if (!option) return accumulator
     accumulator.push({
       questionId: question.id,
+      fieldId: question.fieldId,
       questionTitle: question.title,
       optionId: option.id,
       optionLabel: option.label,
@@ -483,6 +395,8 @@ export function buildConsumerGuidedFlowSnapshot(
   return {
     version: 1,
     guideId: guide.id,
+    sceneId: guide.sceneId,
+    scene: getStudioFlowScene(guide.sceneId),
     guideTitle: guide.title,
     guideDescription: guide.description,
     basePrompt: guide.prompt,

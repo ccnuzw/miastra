@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { Copy, Eye, Layers3, Sparkles } from 'lucide-react'
 import type { StyleToken } from '@/features/studio/studio.types'
-import type { StudioProPromptSection, StudioProTemplateContext } from './studioPro.utils'
+import type {
+  StudioProPromptSection,
+  StudioProReplayContext,
+  StudioProTemplateContext,
+} from './studioPro.utils'
 
 type StudioProPromptPanelProps = {
   workspacePrompt: string
@@ -13,6 +17,10 @@ type StudioProPromptPanelProps = {
   workspacePromptLength: number
   enabledSectionCount: number
   templateContext?: StudioProTemplateContext | null
+  replayContext?: StudioProReplayContext | null
+  onApplyTemplatePrompt?: () => void
+  onApplyReplayPrompt?: () => void
+  onResetPromptToWorkspace?: () => void
 }
 
 export function StudioProPromptPanel({
@@ -25,8 +33,14 @@ export function StudioProPromptPanel({
   workspacePromptLength,
   enabledSectionCount,
   templateContext = null,
+  replayContext = null,
+  onApplyTemplatePrompt,
+  onApplyReplayPrompt,
+  onResetPromptToWorkspace,
 }: StudioProPromptPanelProps) {
   const [copiedTarget, setCopiedTarget] = useState<string | null>(null)
+  const hasTemplateContext = Boolean(templateContext)
+  const hasReplayContext = Boolean(replayContext)
 
   async function handleCopy(target: string, text: string) {
     if (!text.trim()) return
@@ -62,6 +76,59 @@ export function StudioProPromptPanel({
         这里把工作区描述、风格补充、细节控制和 Negative Prompt 拆开展示，方便你对照
         最终请求是如何组装出来的。
       </p>
+
+      <div className="studio-pro-console-strip">
+        <article className={`studio-pro-console-card ${hasTemplateContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <span className="studio-pro-metric-label">模板基线</span>
+          <strong className="studio-pro-metric-value">
+            {templateContext ? templateContext.title : '当前未绑定模板'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            {templateContext
+              ? `模板字段会先约束工作区 Prompt 的主体、上下文、风格和输出重点，再进入最终组装。`
+              : '现在以自由输入为基线；从模板进入时，这里会固定显示结构字段对 Prompt 的控制基线。'}
+          </p>
+          <div className="studio-pro-action-cluster">
+            <button
+              type="button"
+              className="settings-button"
+              onClick={onApplyTemplatePrompt}
+              disabled={!templateContext || !onApplyTemplatePrompt}
+            >
+              以模板字段重对齐
+            </button>
+          </div>
+        </article>
+        <article className={`studio-pro-console-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <span className="studio-pro-metric-label">来源 Prompt</span>
+          <strong className="studio-pro-metric-value">
+            {replayContext ? `快照 ${replayContext.snapshotId}` : '当前未挂接来源快照'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            {replayContext
+              ? '当前结果返回控制区后，可以直接把来源请求重新带回工作区，作为重跑或派生起点。'
+              : '从作品或任务回流后，这里会提供“回到来源 Prompt”入口，避免手动摘录上一版描述。'}
+          </p>
+          <div className="studio-pro-action-cluster">
+            <button
+              type="button"
+              className="settings-button"
+              onClick={onApplyReplayPrompt}
+              disabled={!replayContext || !onApplyReplayPrompt}
+            >
+              恢复来源 Prompt
+            </button>
+            <button
+              type="button"
+              className="settings-button"
+              onClick={onResetPromptToWorkspace}
+              disabled={!workspacePrompt.trim() || !onResetPromptToWorkspace}
+            >
+              回到当前工作区
+            </button>
+          </div>
+        </article>
+      </div>
 
       <article
         className={`studio-pro-metric-card mt-4 ${templateContext ? 'studio-pro-emphasis-card' : ''}`}
@@ -146,7 +213,14 @@ export function StudioProPromptPanel({
           placeholder="先输入需求，专业版会在这里展示最终 Prompt。"
         />
         <div className="studio-pro-action-row">
-          <span className="studio-pro-support-copy">当前请求会以这段文本作为主 Prompt 发给模型。</span>
+          <span className="studio-pro-support-copy">
+            当前请求会以这段文本作为主 Prompt 发给模型。
+            {hasReplayContext
+              ? ' 如果先恢复来源 Prompt 再调整当前字段，本轮会更接近同基线重跑。'
+              : hasTemplateContext
+                ? ' 如果先按模板字段重对齐，再改局部描述，后续复用会更稳定。'
+                : ''}
+          </span>
           <div className="studio-pro-pill-group">
             <span className="status-pill">最终长度 {finalPromptLength} 字</span>
             <button

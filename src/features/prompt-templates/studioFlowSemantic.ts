@@ -41,12 +41,15 @@ export type StudioFlowFieldId =
   | 'portraitStyle'
   | 'retouchLevel'
 
-type StudioFlowSceneMeta = {
+export type StudioFlowScene = {
   id: StudioFlowSceneId
   label: string
   description: string
   recommendedMode: PromptTemplateWorkbenchEntryMode
   recommendedIntent: PromptTemplateWorkbenchEntryIntent
+}
+
+type StudioFlowSceneMeta = StudioFlowScene & {
   fieldLabels: Partial<Record<StudioFlowFieldId, string>>
 }
 
@@ -142,8 +145,25 @@ export function getStudioFlowSceneMeta(sceneId?: StudioFlowSceneId | null) {
   return studioFlowSceneMetaMap[sceneId] ?? studioFlowSceneMetaMap['generic-create']
 }
 
+export function getStudioFlowScene(sceneId?: StudioFlowSceneId | null): StudioFlowScene {
+  const meta = getStudioFlowSceneMeta(sceneId)
+  return {
+    id: meta.id,
+    label: meta.label,
+    description: meta.description,
+    recommendedMode: meta.recommendedMode,
+    recommendedIntent: meta.recommendedIntent,
+  }
+}
+
 export function getStudioFlowSceneLabel(sceneId?: StudioFlowSceneId | null) {
   return getStudioFlowSceneMeta(sceneId).label
+}
+
+export function resolvePromptTemplateScene(
+  scenarioId?: PromptTemplateScenarioId | null,
+): StudioFlowScene {
+  return getStudioFlowScene(mapPromptScenarioToFlowSceneId(scenarioId ?? undefined))
 }
 
 export function getStudioFlowSourceLabel(sourceType?: StudioFlowSourceType | null) {

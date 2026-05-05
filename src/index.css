@@ -1309,6 +1309,18 @@
     @apply flex flex-wrap items-center gap-2;
   }
 
+  .studio-pro-console-strip {
+    @apply mt-4 grid gap-3 xl:grid-cols-2;
+  }
+
+  .studio-pro-console-card {
+    @apply rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.58] p-4;
+  }
+
+  .studio-pro-action-cluster {
+    @apply mt-4 flex flex-wrap gap-2;
+  }
+
   .studio-pro-prompt-preview {
     @apply mt-4 rounded-[1.4rem] border border-porcelain-50/10 bg-ink-950/[0.55] p-3;
   }

@@ -35,6 +35,36 @@ export function resolveImageSize(aspect: string, tier: ResolutionTier) {
   return aspectSizeMap[aspect]?.[tier] ?? aspectSizeMap['3:4'][tier]
 }
 
+export function findAspectLabelBySize(size: string) {
+  const normalized = size.trim()
+  if (!normalized) return null
+  return (
+    Object.entries(aspectSizeMap).find(([, tierMap]) =>
+      Object.values(tierMap).includes(normalized),
+    )?.[0] ?? null
+  )
+}
+
+export function findResolutionTierBySize(size: string): ResolutionTier | null {
+  const normalized = size.trim()
+  if (!normalized) return null
+
+  for (const tierMap of Object.values(aspectSizeMap)) {
+    const matchedTier = (Object.entries(tierMap).find(([, value]) => value === normalized)?.[0] ??
+      null) as ResolutionTier | null
+    if (matchedTier) return matchedTier
+  }
+
+  return null
+}
+
+export function resolveSizePreset(size: string) {
+  const aspectLabel = findAspectLabelBySize(size)
+  const resolutionTier = findResolutionTierBySize(size)
+  if (!aspectLabel || !resolutionTier) return null
+  return { aspectLabel, resolutionTier }
+}
+
 export const qualityOptions = [
   { label: '低', value: 'low', hint: '更快' },
   { label: '中', value: 'medium', hint: '均衡' },

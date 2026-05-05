@@ -690,7 +690,7 @@ export function TasksPage() {
                         const replayWork = buildTaskReplayWork(task, resultWork)
                         const replaySummary = getWorkReplayReferenceSummary(replayWork)
                         const replayStatusText = getWorkReplayStatusText(replaySummary)
-                        const versionSource = getTaskVersionSourceSummary(task)
+                        const versionSource = getTaskVersionSourceSummary(task, replayWork)
                         const recoverHint = getWorkReplayHint('task', false, replaySummary)
                         const rerunHint = getWorkReplayHint('task', true, replaySummary)
                         const imageUrl = task.result?.imageUrl ?? resultWork?.src
@@ -747,11 +747,17 @@ export function TasksPage() {
                                     {versionSource.originLabel}
                                   </span>
                                   <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
-                                    {versionSource.detailLabel}
+                                    {versionSource.currentLabel}
                                   </span>
                                   <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
                                     {versionSource.parentLabel}
                                   </span>
+                                </div>
+                                <div className="mt-3 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.32] p-3 text-xs text-porcelain-100/58">
+                                  <p>{versionSource.ancestorLabel}</p>
+                                  <p className="mt-1">{versionSource.guidedFlowLabel}</p>
+                                  <p className="mt-1">{versionSource.parameterLabel}</p>
+                                  <p className="mt-1">{versionSource.referenceLabel}</p>
                                 </div>
                                 <p
                                   className={`mt-2 text-xs ${replaySummary.missingReferenceCount > 0 ? 'text-signal-coral' : 'text-signal-cyan'}`}
@@ -827,8 +833,13 @@ export function TasksPage() {
                                       </p>
                                       <div className="mt-3 grid gap-2 text-sm text-porcelain-100/72">
                                         <p>当前来源：{versionSource.originLabel}</p>
-                                        <p>当前说明：{versionSource.detailLabel}</p>
+                                        <p>当前节点：{versionSource.currentLabel}</p>
                                         <p>{versionSource.parentLabel}</p>
+                                        <p>{versionSource.ancestorLabel}</p>
+                                        <p>{versionSource.guidedFlowLabel}</p>
+                                        <p>{versionSource.parameterLabel}</p>
+                                        <p>{versionSource.referenceLabel}</p>
+                                        <p>{versionSource.promptLabel}</p>
                                         <p>恢复状态：{replayStatusText}</p>
                                       </div>
                                     </div>

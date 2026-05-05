@@ -1,5 +1,12 @@
+import type {
+  StudioFlowFieldId,
+  StudioFlowScene,
+  StudioFlowSceneId,
+} from '@/features/prompt-templates/studioFlowSemantic'
+
 export type ConsumerGuidedFlowStepSnapshot = {
   questionId: string
+  fieldId?: StudioFlowFieldId
   questionTitle: string
   optionId: string
   optionLabel: string
@@ -10,6 +17,8 @@ export type ConsumerGuidedFlowStepSnapshot = {
 export type ConsumerGuidedFlowSnapshot = {
   version: 1
   guideId: string
+  sceneId: StudioFlowSceneId
+  scene: StudioFlowScene
   guideTitle: string
   guideDescription: string
   basePrompt: string

@@ -1,5 +1,4 @@
 import type { StudioProReplayContext, StudioProTemplateContext } from './studioPro.utils'
-import { getStudioFlowSceneLabel } from '@/features/prompt-templates/studioFlowSemantic'
 
 type StudioProParameterPanelProps = {
   studioMode: 'create' | 'draw'
@@ -24,6 +23,9 @@ type StudioProParameterPanelProps = {
   modelLabel: string
   templateContext?: StudioProTemplateContext | null
   replayContext?: StudioProReplayContext | null
+  onApplyTemplateDefaults?: () => void
+  onApplyReplayParameters?: () => void
+  onRestoreSourceExecution?: () => void
 }
 
 const qualityLabelMap: Record<string, string> = {
@@ -68,8 +70,12 @@ export function StudioProParameterPanel({
   modelLabel,
   templateContext = null,
   replayContext = null,
+  onApplyTemplateDefaults,
+  onApplyReplayParameters,
+  onRestoreSourceExecution,
 }: StudioProParameterPanelProps) {
   const hasReplayContext = Boolean(replayContext)
+  const hasTemplateContext = Boolean(templateContext)
   const drawModeCopy =
     studioMode === 'draw'
       ? `当前会按 ${drawCount} 次抽卡执行，策略 ${drawStrategyLabelMap[drawStrategy]}，并发 ${drawConcurrency}。`
@@ -92,6 +98,61 @@ export function StudioProParameterPanel({
       <p className="studio-pro-panel-copy">
         当前工作台会把核心参数和执行上下文整理成一组快照，便于继续重跑和回看。
       </p>
+
+      <div className="studio-pro-console-strip">
+        <article className={`studio-pro-console-card ${hasTemplateContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <span className="studio-pro-metric-label">模板默认参数</span>
+          <strong className="studio-pro-metric-value">
+            {templateContext ? templateContext.defaultSettingsLabel : '当前无模板默认基线'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            {templateContext
+              ? `模板字段 ${templateContext.structureFields.join(' / ')} 对应的默认画幅、分辨率和质量，会作为这类场景的首轮复用基线。`
+              : '从模板进入专业版后，这里会提供一键恢复默认参数，帮助你快速回到场景标准起跑线。'}
+          </p>
+          <div className="studio-pro-action-cluster">
+            <button
+              type="button"
+              className="settings-button"
+              onClick={onApplyTemplateDefaults}
+              disabled={!templateContext || !onApplyTemplateDefaults}
+            >
+              恢复模板默认参数
+            </button>
+          </div>
+        </article>
+        <article className={`studio-pro-console-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <span className="studio-pro-metric-label">来源快照参数</span>
+          <strong className="studio-pro-metric-value">
+            {hasReplayContext
+              ? `${replayContext?.sourceSize} · 质量 ${qualityLabelMap[replayContext?.sourceQuality ?? ''] ?? replayContext?.sourceQuality}`
+              : '当前未挂接来源快照'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? '当你把结果带回控制区时，可以先恢复上一版参数快照，再决定是同基线重跑，还是改动参数形成派生。'
+              : '从结果回流后，这里会提供参数快照恢复入口，帮助你直接接着上一版继续控制。'}
+          </p>
+          <div className="studio-pro-action-cluster">
+            <button
+              type="button"
+              className="settings-button"
+              onClick={onApplyReplayParameters}
+              disabled={!replayContext || !onApplyReplayParameters}
+            >
+              恢复来源参数
+            </button>
+            <button
+              type="button"
+              className="settings-button"
+              onClick={onRestoreSourceExecution}
+              disabled={!replayContext || !onRestoreSourceExecution}
+            >
+              恢复来源执行基线
+            </button>
+          </div>
+        </article>
+      </div>
 
       <div className="studio-pro-summary-strip">
         <span className="studio-pro-summary-pill">尺寸 {size}</span>
@@ -170,7 +231,7 @@ export function StudioProParameterPanel({
           <span className="studio-pro-metric-label">结果回到控制区</span>
           <strong className="studio-pro-metric-value">
             {replayContext
-              ? `已从${replayContext.sourceLabel}恢复${templateContext ? `「${getStudioFlowSceneLabel(templateContext.sceneId as never)}」` : ''}参数`
+              ? `已从${replayContext.sourceLabel}恢复${templateContext ? `「${templateContext.sceneLabel}」` : ''}参数`
               : '等待从结果继续调整'}
           </strong>
           <p className="studio-pro-metric-copy">
@@ -178,6 +239,18 @@ export function StudioProParameterPanel({
               ? `${replayContext.statusText}。${replayContext.hint}`
               : '当你从作品或任务回到专业版时，这里会提示可恢复的 Prompt、参数和参考图状态。'}
           </p>
+          {replayContext?.currentLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.currentLabel}</p>
+          ) : null}
+          {replayContext?.parentLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.parentLabel}</p>
+          ) : null}
+          {replayContext?.ancestorLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.ancestorLabel}</p>
+          ) : null}
+          {replayContext?.guidedFlowLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.guidedFlowLabel}</p>
+          ) : null}
         </article>
       </div>
 
@@ -192,6 +265,12 @@ export function StudioProParameterPanel({
               ? `如果继续沿用 ${providerLabel} / ${modelLabel}，这组参数最适合同基线重跑；如果改尺寸、质量、抽卡策略或 Provider，会自然形成新的派生版本。`
               : '本轮生成完成后，尺寸、质量、参考图、抽卡策略和执行方式会一起进入结果快照，后续可一键带回专业版继续调整。'}
           </p>
+          {replayContext?.parameterLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.parameterLabel}</p>
+          ) : null}
+          {replayContext?.referenceSummaryLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.referenceSummaryLabel}</p>
+          ) : null}
           <p className="studio-pro-metric-copy">
             {templateContext
               ? `当前结构模板默认参数：${templateContext.defaultSettingsLabel}。关注字段：${templateContext.structureFields.join(' / ')}。复用参数时可以优先确认这些字段是否仍然成立。`
@@ -218,6 +297,12 @@ export function StudioProParameterPanel({
                   ? `${replayContext?.sourceProviderId} / ${replayContext?.sourceModelLabel} · ${replayContext?.sourceRequestKindLabel}`
                   : '从作品或任务恢复一版后，这里会固定显示来源 Provider、模型和执行路径。'}
               </p>
+              {hasReplayContext ? (
+                <p className="studio-pro-metric-copy">
+                  {replayContext?.sourceSize} · {replayContext?.sourceResolutionLabel ?? '未记录分辨率'} · 质量{' '}
+                  {qualityLabelMap[replayContext?.sourceQuality ?? ''] ?? replayContext?.sourceQuality}
+                </p>
+              ) : null}
             </article>
             <article className="rounded-[1.2rem] border border-porcelain-50/[0.08] bg-ink-950/[0.72] p-4">
               <span className="studio-pro-metric-label">当前设置</span>

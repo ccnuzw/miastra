@@ -8,6 +8,7 @@ import type {
   PromptTemplateWorkbenchEntryIntent,
   PromptTemplateWorkbenchEntryMode,
 } from './promptTemplate.types'
+import { resolvePromptTemplateScene } from './studioFlowSemantic'
 import { normalizePromptTemplateTags } from './promptTemplate.utils'
 
 type PromptTemplateScenarioConfig = {
@@ -49,6 +50,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         input: 'textarea',
         required: true,
         examples: ['新品发布', '限时活动', '品牌联名'],
+        guided: {
+          questionTitle: '更偏什么用途？',
+          defaultOptionId: 'event',
+          options: [
+            {
+              id: 'launch',
+              label: '新品上新',
+              prompt: '突出新品上新感，画面更有新鲜度和吸引力。',
+            },
+            {
+              id: 'event',
+              label: '活动宣传',
+              prompt: '突出活动氛围和传播感，适合引导点击或报名。',
+            },
+            {
+              id: 'brand',
+              label: '品牌展示',
+              prompt: '更偏品牌展示，画面克制但有记忆点。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'value',
@@ -58,6 +80,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         input: 'textarea',
         required: true,
         examples: ['限时折扣', '高级质感', '新品上市'],
+        guided: {
+          questionTitle: '氛围更接近哪种？',
+          defaultOptionId: 'minimal',
+          options: [
+            {
+              id: 'minimal',
+              label: '高级极简',
+              prompt: '整体更高级极简，减少杂乱元素和堆砌。',
+            },
+            {
+              id: 'energetic',
+              label: '热闹吸睛',
+              prompt: '整体更热闹吸睛，视觉冲击更强一些。',
+            },
+            {
+              id: 'social',
+              label: '年轻社媒感',
+              prompt: '整体更年轻，更适合社媒传播和封面展示。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'visual-style',
@@ -66,6 +109,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         group: 'style',
         input: 'text',
         examples: ['高级极简', '亮眼节庆', '品牌感'],
+        guided: {
+          questionTitle: '你最在意什么？',
+          defaultOptionId: 'visual',
+          options: [
+            {
+              id: 'visual',
+              label: '主视觉突出',
+              prompt: '优先保证主视觉突出，第一眼就能抓住重点。',
+            },
+            {
+              id: 'copy-space',
+              label: '留出文字位',
+              prompt: '为标题和卖点留出清晰文字区域，排版更好放信息。',
+            },
+            {
+              id: 'brand-mark',
+              label: '品牌露出',
+              prompt: '让品牌露出更自然明确，但不要压过主画面。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'delivery-size',
@@ -99,6 +163,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         input: 'textarea',
         required: true,
         examples: ['香水瓶', '护肤套装', '咖啡机'],
+        guided: {
+          questionTitle: '主要用在哪？',
+          defaultOptionId: 'listing',
+          options: [
+            {
+              id: 'listing',
+              label: '电商主图',
+              prompt: '优先满足电商主图使用，主体完整醒目，信息清楚。',
+            },
+            {
+              id: 'detail',
+              label: '详情页展示',
+              prompt: '更适合详情页展示，保留材质和细节层次。',
+            },
+            {
+              id: 'social',
+              label: '种草配图',
+              prompt: '更适合社媒种草展示，画面更有氛围和吸引力。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'usage-scene',
@@ -108,6 +193,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         input: 'single-select',
         required: true,
         examples: ['电商主图', '详情页', '社媒展示'],
+        guided: {
+          questionTitle: '背景想要哪种方向？',
+          defaultOptionId: 'pure-white',
+          options: [
+            {
+              id: 'pure-white',
+              label: '纯白干净',
+              prompt: '背景尽量纯白干净，边缘清楚，适合直接上架。',
+            },
+            {
+              id: 'studio',
+              label: '影棚质感',
+              prompt: '背景做成简洁影棚感，光线自然，质感高级。',
+            },
+            {
+              id: 'lifestyle',
+              label: '生活场景',
+              prompt: '背景换成贴合商品的生活化场景，但不要抢主体。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'background-direction',
@@ -116,6 +222,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         group: 'style',
         input: 'single-select',
         examples: ['纯白背景', '影棚布光', '生活场景'],
+        guided: {
+          questionTitle: '整体更偏哪种感觉？',
+          defaultOptionId: 'clean',
+          options: [
+            {
+              id: 'clean',
+              label: '标准清爽',
+              prompt: '整体更标准清爽，少一些夸张效果。',
+            },
+            {
+              id: 'premium',
+              label: '高级质感',
+              prompt: '整体更有高级感，强化材质和灯光质感。',
+            },
+            {
+              id: 'bright',
+              label: '更亮眼',
+              prompt: '整体更亮眼一些，但不要显得廉价。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'hero-angle',
@@ -149,6 +276,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         input: 'textarea',
         required: true,
         examples: ['都市女生', '职业人像', '幻想角色'],
+        guided: {
+          questionTitle: '主要拿来做什么？',
+          defaultOptionId: 'avatar',
+          options: [
+            {
+              id: 'avatar',
+              label: '社媒头像',
+              prompt: '更适合社媒头像使用，人物干净亲近，缩略图里也清楚。',
+            },
+            {
+              id: 'profile',
+              label: '职业形象',
+              prompt: '更适合职业形象展示，气质稳重、可信、利落。',
+            },
+            {
+              id: 'lifestyle',
+              label: '生活写真',
+              prompt: '更偏生活感写真，人物自然放松，有轻松氛围。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'wardrobe',
@@ -157,6 +305,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         group: 'context',
         input: 'text',
         examples: ['西装职业感', '复古连衣裙', '未来风护甲'],
+        guided: {
+          questionTitle: '想要哪种人物感觉？',
+          defaultOptionId: 'natural',
+          options: [
+            {
+              id: 'natural',
+              label: '自然耐看',
+              prompt: '人物状态自然耐看，不要过度修饰。',
+            },
+            {
+              id: 'premium',
+              label: '精致高级',
+              prompt: '人物更精致高级，肤质和光线更有质感。',
+            },
+            {
+              id: 'warm',
+              label: '轻松亲切',
+              prompt: '人物更轻松亲切，表情和氛围更有亲和力。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'mood-pose',
@@ -165,6 +334,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         group: 'style',
         input: 'text',
         examples: ['自然微笑', '冷静克制', '动态回头'],
+        guided: {
+          questionTitle: '修饰程度想要多少？',
+          defaultOptionId: 'balanced',
+          options: [
+            {
+              id: 'light',
+              label: '少修一点',
+              prompt: '保留真实感，只做轻微优化和整理。',
+            },
+            {
+              id: 'balanced',
+              label: '标准优化',
+              prompt: '做标准优化，让五官、肤质和光线都更上镜。',
+            },
+            {
+              id: 'camera-ready',
+              label: '更上镜',
+              prompt: '更上镜一些，但避免过度磨皮和失真。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'camera',
@@ -198,6 +388,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         input: 'text',
         required: true,
         examples: ['客厅', '展台', '咖啡店'],
+        guided: {
+          questionTitle: '这个空间主要用来做什么？',
+          defaultOptionId: 'living',
+          options: [
+            {
+              id: 'living',
+              label: '日常生活',
+              prompt: '空间更偏日常生活场景，舒适自然，容易代入。',
+            },
+            {
+              id: 'retail',
+              label: '商业展示',
+              prompt: '空间更偏商业展示用途，信息清楚，陈列更利落。',
+            },
+            {
+              id: 'event',
+              label: '活动搭建',
+              prompt: '空间更偏活动搭建和露出，整体更有氛围感和传播感。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'viewpoint',
@@ -207,6 +418,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         input: 'text',
         required: true,
         examples: ['平视全景', '入口视角', '局部特写'],
+        guided: {
+          questionTitle: '想从什么角度看这个空间？',
+          defaultOptionId: 'wide',
+          options: [
+            {
+              id: 'wide',
+              label: '整体全景',
+              prompt: '优先展示空间整体关系，构图完整，视线清楚。',
+            },
+            {
+              id: 'entry',
+              label: '入口视角',
+              prompt: '从进入空间的第一视角展开，强调动线和第一印象。',
+            },
+            {
+              id: 'detail',
+              label: '局部亮点',
+              prompt: '更突出空间局部亮点和材质细节，但仍保持整体协调。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'lighting',
@@ -215,6 +447,27 @@ const promptTemplateScenarioConfigs: PromptTemplateScenarioConfig[] = [
         group: 'style',
         input: 'text',
         examples: ['自然采光', '夜景氛围', '暖色灯光'],
+        guided: {
+          questionTitle: '整体氛围更偏哪种？',
+          defaultOptionId: 'natural',
+          options: [
+            {
+              id: 'natural',
+              label: '自然通透',
+              prompt: '空间光线更自然通透，整体清爽、真实。',
+            },
+            {
+              id: 'warm',
+              label: '温暖高级',
+              prompt: '空间更温暖高级，灯光层次更明显，但不要压暗。',
+            },
+            {
+              id: 'dramatic',
+              label: '戏剧氛围',
+              prompt: '空间更有戏剧氛围和情绪感，光影对比更明显。',
+            },
+          ],
+        },
       }),
       createField({
         id: 'decor',
@@ -378,6 +631,7 @@ export function getPromptTemplateScenarioConfigById(id: PromptTemplateScenarioId
 export function buildPromptTemplateStructure(template: PromptTemplateListItem): PromptTemplateStructureMeta {
   const sourceText = buildPromptTemplateSourceText(template)
   const scenarioConfig = resolveScenarioConfig(template, sourceText)
+  const resolvedScene = resolvePromptTemplateScene(scenarioConfig.id)
   const tags = normalizePromptTemplateTags(template.tags)
   const mergedDefaults = {
     ...scenarioConfig.defaults,
@@ -427,6 +681,17 @@ export function buildPromptTemplateStructure(template: PromptTemplateListItem): 
     scenarioId: scenarioConfig.id,
     scenarioLabel: template.structure?.scenarioLabel?.trim() || scenarioConfig.label,
     sceneDescription: template.structure?.sceneDescription?.trim() || scenarioConfig.description,
+    scene: template.structure?.scene
+      ? {
+          ...resolvedScene,
+          ...template.structure.scene,
+          id: template.structure.scene.id ?? resolvedScene.id,
+        }
+      : {
+          ...resolvedScene,
+          label: template.structure?.scenarioLabel?.trim() || resolvedScene.label,
+          description: template.structure?.sceneDescription?.trim() || resolvedScene.description,
+        },
     recommendedMode,
     recommendedIntent,
     entryModes: template.structure?.entryModes?.length ? template.structure.entryModes : ['consumer', 'pro'],

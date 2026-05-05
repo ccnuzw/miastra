@@ -27,6 +27,7 @@ import type {
   GenerationStage,
   GenerationStatus,
 } from '@/features/generation/generation.types'
+import type { StudioFlowScene } from '@/features/prompt-templates/studioFlowSemantic'
 import type { ConsumerGuidedFlowSnapshot } from '@/features/studio-consumer/consumerGuidedFlow'
 import { validateGenerationInputState } from '@/features/generation/generation.validation'
 import type { ProviderConfig } from '@/features/provider/provider.types'
@@ -57,6 +58,7 @@ type UseGenerationFlowOptions = {
   drawRetries: number
   variationStrength: VariationStrength
   enabledVariationDimensions: string[]
+  scene?: StudioFlowScene | null
   consumerGuidedFlow?: ConsumerGuidedFlowSnapshot | null
   buildPrompt: (extraPrompt?: string) => string
   setSettingsOpen: (open: boolean) => void
@@ -179,6 +181,7 @@ export function useGenerationFlow({
   drawRetries,
   variationStrength,
   enabledVariationDimensions,
+  scene = null,
   consumerGuidedFlow = null,
   buildPrompt,
   setSettingsOpen,
@@ -390,6 +393,7 @@ export function useGenerationFlow({
         promptText: requestPrompt,
         workspacePrompt,
         guidedFlow: consumerGuidedFlow,
+        scene: scene ?? consumerGuidedFlow?.scene,
         mode,
         title,
         meta,
@@ -467,6 +471,7 @@ export function useGenerationFlow({
       qualityValue: drawSafeMode ? 'low' : quality,
       streamValue: true,
       guidedFlow: consumerGuidedFlow,
+      scene: scene ?? consumerGuidedFlow?.scene,
       previewMode: 'none',
       abortController,
       drawSnapshot: {

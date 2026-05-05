@@ -33,6 +33,10 @@ type PromptComposerProps = {
     workspacePromptLength: number
     enabledSectionCount: number
     templateContext?: StudioProTemplateContext | null
+    replayContext?: import('@/features/studio-pro/studioPro.utils').StudioProReplayContext | null
+    onApplyTemplatePrompt?: () => void
+    onApplyReplayPrompt?: () => void
+    onResetPromptToWorkspace?: () => void
   } | null
 }
 
@@ -136,6 +140,10 @@ export function PromptComposer({
                 ? upsertFollowup(nextPrompt, event.detail.text)
                 : appendPrompt(nextPrompt, event.detail.text)
           onPromptChange(nextPrompt)
+        }
+
+        if (event.detail.guidedFlow !== undefined) {
+          onConsumerGuidedFlowChange?.(event.detail.guidedFlow ?? null)
         }
 
         if (event.detail.attachPreview?.src) {
@@ -272,6 +280,10 @@ export function PromptComposer({
           workspacePromptLength={proPanel.workspacePromptLength}
           enabledSectionCount={proPanel.enabledSectionCount}
           templateContext={proPanel.templateContext}
+          replayContext={proPanel.replayContext}
+          onApplyTemplatePrompt={proPanel.onApplyTemplatePrompt}
+          onApplyReplayPrompt={proPanel.onApplyReplayPrompt}
+          onResetPromptToWorkspace={proPanel.onResetPromptToWorkspace}
         />
         <div className="reference-tray">
           <div className="reference-strip">

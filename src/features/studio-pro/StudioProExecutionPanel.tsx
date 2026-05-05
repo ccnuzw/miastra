@@ -2,6 +2,7 @@ import {
   truncateStudioProText,
   type StudioProControlStep,
   type StudioProReplayContext,
+  type StudioProTemplateContext,
 } from './studioPro.utils'
 
 type StudioProExecutionPanelProps = {
@@ -19,6 +20,9 @@ type StudioProExecutionPanelProps = {
   loading: boolean
   controlSteps: StudioProControlStep[]
   replayContext?: StudioProReplayContext | null
+  templateContext?: StudioProTemplateContext | null
+  onApplyReplayRoute?: () => void
+  onClearReplayBaseline?: () => void
   onOpenProviderSettings: () => void
 }
 
@@ -37,6 +41,9 @@ export function StudioProExecutionPanel({
   loading,
   controlSteps,
   replayContext = null,
+  templateContext = null,
+  onApplyReplayRoute,
+  onClearReplayBaseline,
   onOpenProviderSettings,
 }: StudioProExecutionPanelProps) {
   const activeRequestUrl = requestKindLabel === '图生图' ? editRequestUrl : requestUrl
@@ -66,6 +73,51 @@ export function StudioProExecutionPanel({
       <p className="studio-pro-panel-copy">
         这里明确展示当前 Provider 来源、模型上下文和请求路由，避免复跑时不知道这一轮到底是按哪套配置执行的。
       </p>
+
+      <div className="studio-pro-console-strip">
+        <article className={`studio-pro-console-card ${templateContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <span className="studio-pro-metric-label">结构字段到执行</span>
+          <strong className="studio-pro-metric-value">
+            {templateContext ? `${templateContext.sceneLabel} · ${templateContext.title}` : '当前按自由工作区执行'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            {templateContext
+              ? `模板字段 ${templateContext.structureFields.join(' / ')} 会先约束 Prompt 与参数，再决定最终走 ${requestKindLabel} 路由。`
+              : `当前没有模板约束，执行路由会直接按工作区 Prompt、参考图和当前参数决定。`}
+          </p>
+        </article>
+        <article className={`studio-pro-console-card ${hasReplayContext ? 'studio-pro-emphasis-card' : ''}`}>
+          <span className="studio-pro-metric-label">重跑 / 派生入口</span>
+          <strong className="studio-pro-metric-value">
+            {hasReplayContext ? replayContext?.actionLabel : '等待来源快照接入'}
+          </strong>
+          <p className="studio-pro-metric-copy">
+            {hasReplayContext
+              ? keepsSameExecutionBaseline
+                ? '当前执行基线与来源版本一致，下一轮更接近同配置重跑。'
+                : '当前执行基线已偏离来源版本，下一轮会在原快照上形成新的派生。'
+              : '从结果回到专业版后，这里会固定告诉你当前更接近重跑还是派生。'}
+          </p>
+          <div className="studio-pro-action-cluster">
+            <button
+              type="button"
+              className="settings-button"
+              onClick={onApplyReplayRoute}
+              disabled={!replayContext || !onApplyReplayRoute}
+            >
+              恢复来源执行路径
+            </button>
+            <button
+              type="button"
+              className="settings-button"
+              onClick={onClearReplayBaseline}
+              disabled={!replayContext || !onClearReplayBaseline}
+            >
+              解除来源绑定
+            </button>
+          </div>
+        </article>
+      </div>
 
       <div className="mt-4 grid gap-3 xl:grid-cols-4">
         {controlSteps.map((step, index) => (
@@ -126,11 +178,29 @@ export function StudioProExecutionPanel({
               ? `${replayContext?.originLabel}。${replayContext?.detailLabel}`
               : '从作品或任务回到专业版后，这里会固定显示来源版本摘要，帮助判断当前是在继续、重跑还是派生。'}
           </p>
+          {hasReplayContext && replayContext?.currentLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.currentLabel}</p>
+          ) : null}
+          {hasReplayContext && replayContext?.parentLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.parentLabel}</p>
+          ) : null}
+          {hasReplayContext && replayContext?.ancestorLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.ancestorLabel}</p>
+          ) : null}
           <p className="studio-pro-metric-copy">
             {hasReplayContext
               ? `来源执行：${replayContext?.sourceProviderId} / ${replayContext?.sourceModelLabel} · ${replayContext?.sourceRequestKindLabel}。${replayContext?.referenceSummaryLabel}`
               : '当前没有历史快照约束，执行链会直接以现在的工作区和参数为准。'}
           </p>
+          {hasReplayContext && replayContext?.parameterLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.parameterLabel}</p>
+          ) : null}
+          {hasReplayContext && replayContext?.guidedFlowLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.guidedFlowLabel}</p>
+          ) : null}
+          {hasReplayContext && replayContext?.promptLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.promptLabel}</p>
+          ) : null}
           {hasReplayContext ? (
             <p className="studio-pro-metric-copy">
               来源请求摘要：{truncateStudioProText(replayContext?.requestPrompt || '', 84) || '未记录'}

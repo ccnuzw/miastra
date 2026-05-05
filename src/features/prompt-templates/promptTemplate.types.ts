@@ -1,6 +1,8 @@
 export type PromptTemplateWorkbenchEntryMode = 'consumer' | 'pro'
 export type PromptTemplateWorkbenchEntryIntent = 'task' | 'panel'
 
+import type { StudioFlowScene } from './studioFlowSemantic'
+
 export type PromptTemplateStructureStatus = 'derived' | 'structured'
 
 export type PromptTemplateFamilyId =
@@ -22,6 +24,18 @@ export type PromptTemplateScenarioId =
 export type PromptTemplateFieldGroup = 'subject' | 'context' | 'style' | 'output'
 export type PromptTemplateFieldInputType = 'text' | 'textarea' | 'single-select' | 'multi-select'
 
+export type PromptTemplateGuidedFieldOption = {
+  id: string
+  label: string
+  prompt: string
+}
+
+export type PromptTemplateGuidedFieldConfig = {
+  questionTitle?: string
+  defaultOptionId?: string
+  options: PromptTemplateGuidedFieldOption[]
+}
+
 export type PromptTemplateFieldDefinition = {
   id: string
   label: string
@@ -30,6 +44,7 @@ export type PromptTemplateFieldDefinition = {
   input: PromptTemplateFieldInputType
   required?: boolean
   examples?: string[]
+  guided?: PromptTemplateGuidedFieldConfig
 }
 
 export type PromptTemplateStructureDefaultSettings = {
@@ -50,6 +65,7 @@ export type PromptTemplateStructureMeta = {
   scenarioId: PromptTemplateScenarioId
   scenarioLabel: string
   sceneDescription: string
+  scene: StudioFlowScene
   recommendedMode: PromptTemplateWorkbenchEntryMode
   recommendedIntent: PromptTemplateWorkbenchEntryIntent
   entryModes: PromptTemplateWorkbenchEntryMode[]

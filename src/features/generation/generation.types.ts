@@ -1,4 +1,5 @@
 import type { ConsumerGuidedFlowSnapshot } from '@/features/studio-consumer/consumerGuidedFlow'
+import type { StudioFlowScene } from '@/features/prompt-templates/studioFlowSemantic'
 
 export type GenerationMode = 'text2image' | 'image2image' | 'draw-text2image' | 'draw-image2image'
 
@@ -54,6 +55,7 @@ export type GenerationError = {
 export type GenerationRequestOptions = {
   promptText: string
   workspacePrompt?: string
+  scene?: StudioFlowScene
   title: string
   meta: string
   mode?: GenerationMode
@@ -75,6 +77,7 @@ export type GenerationRequestOptions = {
 export type GenerationSnapshot = {
   id: string
   createdAt: number
+  scene?: StudioFlowScene
   mode: GenerationMode
   prompt: string
   requestPrompt: string

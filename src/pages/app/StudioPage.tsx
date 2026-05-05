@@ -8,10 +8,16 @@ import { getPromptTemplateTitle } from '@/features/prompt-templates/promptTempla
 import { buildPromptTemplateStructure } from '@/features/prompt-templates/promptTemplate.schema'
 import {
   getStudioFlowActionLabel,
+  getStudioFlowScene,
   getStudioFlowSceneLabel,
   getStudioFlowSourceLabel,
   mapPromptScenarioToFlowSceneId,
+  resolvePromptTemplateScene,
 } from '@/features/prompt-templates/studioFlowSemantic'
+import {
+  buildConsumerGuidedFlowSnapshot,
+  findConsumerGuidedFlowBySceneId,
+} from '@/features/studio-home/consumerHomePresets'
 import {
   clearPromptTemplateStudioLaunch,
   getPromptTemplateStudioLaunchKey,
@@ -27,6 +33,7 @@ import {
 } from '@/features/studio-consumer/ConsumerResultActions'
 import type { ConsumerGuidedFlowSnapshot } from '@/features/studio-consumer/consumerGuidedFlow'
 import { useStudioSettings } from '@/features/studio/useStudioSettings'
+import { resolutionOptions, resolveSizePreset } from '@/features/studio/studio.constants'
 import {
   buildStudioProPromptArtifacts,
   buildStudioProTemplateContext,
@@ -73,6 +80,32 @@ const studioQualityLabelMap: Record<string, string> = {
   auto: '自动',
 }
 
+function getQualityLabel(value: string) {
+  return studioQualityLabelMap[value] ?? value
+}
+
+function getResolutionLabelByTier(value: '1k' | '2k' | '4k' | null) {
+  if (!value) return null
+  return resolutionOptions.find((item) => item.value === value)?.label ?? value.toUpperCase()
+}
+
+function applyResolvedSizePreset(
+  size: string | undefined,
+  handlers: {
+    setSize: (value: string) => void
+    setAspectLabel: (value: string) => void
+    setResolutionTier: (value: '1k' | '2k' | '4k') => void
+  },
+) {
+  const normalized = size?.trim()
+  if (!normalized) return
+  handlers.setSize(normalized)
+  const preset = resolveSizePreset(normalized)
+  if (!preset) return
+  handlers.setAspectLabel(preset.aspectLabel)
+  handlers.setResolutionTier(preset.resolutionTier)
+}
+
 export function StudioPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -106,6 +139,14 @@ export function StudioPage() {
     markTemplateUsed: templates.markTemplateUsed,
   })
 
+  const activeScene = useMemo(() => {
+    if (proReplayContext?.scene) return proReplayContext.scene
+    if (consumerGuidedFlow?.scene) return consumerGuidedFlow.scene
+    if (activeTemplateContext?.scene) return activeTemplateContext.scene
+    if (reference.hasReferenceImage) return getStudioFlowScene('image-edit')
+    return getStudioFlowScene()
+  }, [activeTemplateContext, consumerGuidedFlow, proReplayContext, reference.hasReferenceImage])
+
   const generation = useGenerationFlow({
     config: provider.config,
     providerLoading: provider.loading,
@@ -127,6 +168,7 @@ export function StudioPage() {
     drawRetries: draw.drawRetries,
     variationStrength: draw.variationStrength,
     enabledVariationDimensions: draw.enabledVariationDimensions,
+    scene: activeScene,
     consumerGuidedFlow,
     buildPrompt: studio.buildPrompt,
     setSettingsOpen: provider.setSettingsOpen,
@@ -235,7 +277,7 @@ export function StudioPage() {
       <StudioShellCallout
         eyebrow="模板上下文"
         title={`当前已接入「${activeTemplateContext.title}」`}
-        description={activeTemplateContext.sceneDescription}
+        description={activeTemplateContext.executionIntentSummary}
       >
         <div className="flex flex-wrap gap-2">
           <span className="status-pill">{activeTemplateContext.sceneLabel}</span>
@@ -243,12 +285,23 @@ export function StudioPage() {
           <span className="status-pill">{activeTemplateContext.defaultSettingsLabel}</span>
           <span className="status-pill">{activeTemplateContext.recommendedLabel}</span>
         </div>
+        <div className="mt-3 rounded-[1.05rem] border border-porcelain-50/10 bg-ink-950/[0.28] px-4 py-3 text-sm leading-6 text-porcelain-100/62">
+          <p>更适合：{activeTemplateContext.recommendedBestFor}</p>
+          <p className="mt-1">下一步：{activeTemplateContext.recommendedNextStep}</p>
+          <p className="mt-1">
+            首个结果动作：{activeTemplateContext.primaryNextActionLabel}，{activeTemplateContext.primaryNextActionDescription}
+          </p>
+        </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {activeTemplateContext.structureFields.map((field) => (
             <span key={field} className="status-pill">
               {field}
             </span>
           ))}
+        </div>
+        <div className="mt-3 rounded-[1.05rem] border border-porcelain-50/10 bg-ink-950/[0.22] px-4 py-3 text-xs leading-5 text-porcelain-100/55">
+          <p>追问链：{activeTemplateContext.followUpSummary}</p>
+          <p className="mt-1">版本链：{activeTemplateContext.versionSummary}</p>
         </div>
       </StudioShellCallout>
     )
@@ -261,6 +314,85 @@ export function StudioPage() {
     if (structure.defaults.quality) studio.setQuality(structure.defaults.quality)
     return structure
   }, [studio.setAspectLabel, studio.setQuality, studio.setResolutionTier])
+
+  const applyActiveTemplateDefaults = useCallback(() => {
+    if (!activeTemplateContext) return
+    const template = templates.templates.find((item) => item.id === activeTemplateContext.id)
+    if (!template) return
+    const structure = applyTemplateStructureDefaults(template)
+    runtime.setStatus('success')
+    runtime.setStatusText(
+      `已按模板「${activeTemplateContext.title}」恢复默认参数：${
+        [
+          structure.defaults.aspectLabel ? `${structure.defaults.aspectLabel} 画幅` : '',
+          structure.defaults.resolutionTier ? structure.defaults.resolutionTier.toUpperCase() : '',
+          structure.defaults.quality ? `质量 ${getQualityLabel(structure.defaults.quality)}` : '',
+        ]
+          .filter(Boolean)
+          .join(' / ') || '未记录默认参数'
+      }`,
+    )
+  }, [activeTemplateContext, applyTemplateStructureDefaults, runtime, templates.templates])
+
+  const applyActiveTemplatePrompt = useCallback(() => {
+    if (!activeTemplateContext) return
+    const template = templates.templates.find((item) => item.id === activeTemplateContext.id)
+    if (!template) return
+    studio.setPrompt(template.content)
+    runtime.setStatus('success')
+    runtime.setStatusText(`已按模板「${activeTemplateContext.title}」恢复结构化 Prompt 基线`)
+  }, [activeTemplateContext, runtime, studio, templates.templates])
+
+  const applyReplayPromptToWorkspace = useCallback(() => {
+    if (!proReplayContext?.requestPrompt.trim()) return
+    studio.setPrompt(proReplayContext.requestPrompt)
+    runtime.setStatus('success')
+    runtime.setStatusText(`已将来源快照 ${proReplayContext.snapshotId} 的请求 Prompt 带回工作区`)
+  }, [proReplayContext, runtime, studio])
+
+  const restoreReplayParameters = useCallback(() => {
+    if (!proReplayContext) return
+    if (proReplayContext.sourceSize) {
+      applyResolvedSizePreset(proReplayContext.sourceSize, {
+        setSize: studio.setSize,
+        setAspectLabel: studio.setAspectLabel,
+        setResolutionTier: studio.setResolutionTier,
+      })
+    }
+    if (proReplayContext.sourceQuality) studio.setQuality(proReplayContext.sourceQuality)
+    if (typeof proReplayContext.sourceStream === 'boolean') studio.setStream(proReplayContext.sourceStream)
+    if (proReplayContext.sourceStudioMode) studio.setStudioMode(proReplayContext.sourceStudioMode)
+
+    if (proReplayContext.sourceStudioMode === 'draw') {
+      if (proReplayContext.sourceDrawCount != null) draw.setDrawCount(proReplayContext.sourceDrawCount)
+      if (proReplayContext.sourceDrawStrategy) draw.setDrawStrategy(proReplayContext.sourceDrawStrategy)
+      if (proReplayContext.sourceDrawConcurrency != null) draw.setDrawConcurrency(proReplayContext.sourceDrawConcurrency)
+      if (proReplayContext.sourceDrawDelayMs != null) draw.setDrawDelayMs(proReplayContext.sourceDrawDelayMs)
+      if (proReplayContext.sourceDrawRetries != null) draw.setDrawRetries(proReplayContext.sourceDrawRetries)
+      if (proReplayContext.sourceDrawTimeoutSec != null) draw.setDrawTimeoutSec(proReplayContext.sourceDrawTimeoutSec)
+      if (proReplayContext.sourceVariationStrength) draw.setVariationStrength(proReplayContext.sourceVariationStrength)
+    }
+
+    runtime.setStatus('success')
+    runtime.setStatusText(`已恢复来源快照 ${proReplayContext.snapshotId} 的参数控制基线`)
+  }, [draw, proReplayContext, runtime, studio])
+
+  const restoreReplayExecutionBaseline = useCallback(() => {
+    if (!proReplayContext) return
+    restoreReplayParameters()
+    runtime.setStatus('success')
+    runtime.setStatusText(
+      `已恢复来源快照 ${proReplayContext.snapshotId} 的参数与执行基线；Provider / 模型请按来源信息确认`,
+    )
+  }, [proReplayContext, restoreReplayParameters, runtime])
+
+  const clearReplayBaseline = useCallback(() => {
+    if (!proReplayContext) return
+    const snapshotId = proReplayContext.snapshotId
+    setProReplayContext(null)
+    runtime.setStatus('success')
+    runtime.setStatusText(`已解除来源快照 ${snapshotId} 绑定，后续将按当前控制区直接形成新版本`)
+  }, [proReplayContext, runtime])
 
   const editorTopSlot = useMemo(() => {
     if (workbench.isConsumerMode) {
@@ -417,7 +549,11 @@ export function StudioPage() {
 
       studio.setPrompt(workspacePrompt)
       setConsumerGuidedFlow(snapshot?.guidedFlow ?? null)
-      if (snapshot?.size || item.size) studio.setSize(snapshot?.size ?? item.size ?? '')
+      applyResolvedSizePreset(snapshot?.size ?? item.size, {
+        setSize: studio.setSize,
+        setAspectLabel: studio.setAspectLabel,
+        setResolutionTier: studio.setResolutionTier,
+      })
       if (snapshot?.quality || item.quality)
         studio.setQuality(snapshot?.quality ?? item.quality ?? '')
       if (snapshot?.stream !== undefined) studio.setStream(snapshot.stream)
@@ -442,18 +578,46 @@ export function StudioPage() {
       const replaySummary = getWorkReplayReferenceSummary(item)
       const versionSourceSummary = getWorkVersionSourceSummary(item)
       const replayActionLabel = getWorkReplayIntentLabel(intent, origin)
+      const replayScene =
+        snapshot?.scene ?? (referenceImages.length > 0 ? getStudioFlowScene('image-edit') : getStudioFlowScene())
+      const sourceSize = snapshot?.size ?? item.size ?? ''
+      const sourceSizePreset = resolveSizePreset(sourceSize)
+      const sourceQuality = snapshot?.quality ?? item.quality ?? ''
       setActiveTemplateContext(null)
       setProReplayContext({
         sourceLabel: subject,
         actionLabel: replayActionLabel,
+        scene: replayScene,
         statusText: getWorkReplayStatusText(replaySummary),
         hint: getWorkReplayHint(origin, autoGenerate, replaySummary),
         originLabel: versionSourceSummary.originLabel,
         detailLabel: versionSourceSummary.detailLabel,
+        currentLabel: versionSourceSummary.currentLabel,
+        parentLabel: versionSourceSummary.parentLabel,
+        ancestorLabel: versionSourceSummary.ancestorLabel,
+        guidedFlowLabel: versionSourceSummary.guidedFlowLabel,
+        parameterLabel: versionSourceSummary.parameterLabel,
+        promptLabel: versionSourceSummary.promptLabel,
         snapshotId: snapshot?.id || item.snapshotId || '未记录快照',
         sourceProviderId: snapshot?.providerId || '未记录 Provider',
         sourceModelLabel: snapshot?.model || item.providerModel || '未记录模型',
         sourceRequestKindLabel: getStudioProRequestKindLabel(snapshot?.mode ?? item.mode),
+        sourceSize,
+        sourceQuality,
+        sourceStream: snapshot?.stream ?? null,
+        sourceAspectLabel: sourceSizePreset?.aspectLabel ?? null,
+        sourceResolutionLabel:
+          getResolutionLabelByTier(sourceSizePreset?.resolutionTier ?? null),
+        sourceResolutionTier: sourceSizePreset?.resolutionTier ?? null,
+        sourceStudioMode: snapshot?.draw || (snapshot?.mode ?? item.mode)?.includes('draw') ? 'draw' : 'create',
+        sourceDrawCount: snapshot?.draw?.count ?? null,
+        sourceDrawStrategy: snapshot?.draw?.strategy ?? null,
+        sourceDrawConcurrency: snapshot?.draw?.concurrency ?? null,
+        sourceDrawDelayMs: snapshot?.draw?.delayMs ?? null,
+        sourceDrawRetries: snapshot?.draw?.retries ?? null,
+        sourceDrawTimeoutSec: snapshot?.draw?.timeoutSec ?? null,
+        sourceVariationStrength: snapshot?.draw?.variationStrength ?? null,
+        sourceVariationDimensionCount: snapshot?.draw?.dimensions.length ?? 0,
         requestPrompt,
         referenceSummaryLabel:
           replaySummary.expectedReferenceCount > 0
@@ -526,18 +690,25 @@ export function StudioPage() {
     workbench.setMode(launch.mode)
     const structure = applyTemplateStructureDefaults(matchedTemplate)
     studio.setPrompt(matchedTemplate.content)
-    setConsumerGuidedFlow(null)
-    const sceneLabel = getStudioFlowSceneLabel(
-      launch.sceneId ?? mapPromptScenarioToFlowSceneId(structure.scenarioId),
-    )
+    const resolvedScene = launch.sceneId
+      ? getStudioFlowScene(launch.sceneId)
+      : resolvePromptTemplateScene(structure.scenarioId)
+    const resolvedSceneId = resolvedScene.id
+    const guidedGuide = launch.mode === 'consumer' ? findConsumerGuidedFlowBySceneId(resolvedSceneId) : undefined
+    setConsumerGuidedFlow(guidedGuide ? buildConsumerGuidedFlowSnapshot(guidedGuide, {}) : null)
     const sourceLabel = getStudioFlowSourceLabel(launch.sourceType)
+    const templateContext = buildStudioProTemplateContext(
+      matchedTemplate,
+      launch.mode === 'consumer' ? `从${sourceLabel}进入普通版` : `从${sourceLabel}进入专业版`,
+    )
+    const nextActionLabel = launch.nextAction ? getStudioFlowActionLabel(launch.nextAction) : templateContext.primaryNextActionLabel
     runtime.setStatus('success')
     runtime.setStatusText(
       launch.mode === 'consumer'
-        ? `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入普通版任务入口，并同步「${sceneLabel}」场景的基础字段。`
-        : `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入专业版控制面板，并同步「${sceneLabel}」场景的基础字段。`,
+        ? `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入普通版任务入口，并同步「${resolvedScene.label}」场景字段。建议先出第一版，再接“${nextActionLabel}”。`
+        : `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入专业版控制面板，并同步「${resolvedScene.label}」场景字段。建议先按模板控制项起手，再接“${nextActionLabel}”。`,
     )
-    setActiveTemplateContext(buildStudioProTemplateContext(matchedTemplate, `从${sourceLabel}进入专业版`))
+    setActiveTemplateContext(templateContext)
     setProReplayContext(null)
     void Promise.resolve(templates.markTemplateUsed(matchedTemplate.id)).catch(() => undefined)
     setAppliedTemplateLaunchKey(launchKey)
@@ -563,7 +734,7 @@ export function StudioPage() {
     function handleConsumerResultAction(rawEvent: Event) {
       const event = rawEvent as CustomEvent<StudioConsumerResultActionDetail>
       const previewTitle = trimLabel(event.detail.preview.title, '当前结果')
-      const sceneLabel = getStudioFlowSceneLabel(event.detail.sceneId)
+      const sceneLabel = event.detail.scene?.label ?? getStudioFlowSceneLabel(event.detail.sceneId)
       const statusText = event.detail.submit
         ? `已按“${event.detail.actionTitle}”继续「${sceneLabel}」，正在准备下一轮生成`
         : `已按“${event.detail.actionTitle}”把当前结果带回输入区，继续「${sceneLabel}」`
@@ -733,6 +904,12 @@ export function StudioPage() {
                         workspacePromptLength: studioProPrompt.workspacePromptLength,
                         enabledSectionCount: studioProPrompt.enabledSectionCount,
                         templateContext: activeTemplateContext,
+                        replayContext: proReplayContext,
+                        onApplyTemplatePrompt: activeTemplateContext ? applyActiveTemplatePrompt : undefined,
+                        onApplyReplayPrompt: proReplayContext ? applyReplayPromptToWorkspace : undefined,
+                        onResetPromptToWorkspace: studioProPrompt.workspacePrompt.trim()
+                          ? () => studio.setPrompt(studioProPrompt.workspacePrompt)
+                          : undefined,
                       }
                     : null,
                 }}
@@ -766,6 +943,9 @@ export function StudioPage() {
                         modelLabel: provider.activeModelLabel,
                         templateContext: activeTemplateContext,
                         replayContext: proReplayContext,
+                        onApplyTemplateDefaults: activeTemplateContext ? applyActiveTemplateDefaults : undefined,
+                        onApplyReplayParameters: proReplayContext ? restoreReplayParameters : undefined,
+                        onRestoreSourceExecution: proReplayContext ? restoreReplayExecutionBaseline : undefined,
                       }
                     : null,
                 }}
@@ -789,6 +969,9 @@ export function StudioPage() {
                         loading: provider.loading,
                         controlSteps: proControlSteps,
                         replayContext: proReplayContext,
+                        templateContext: activeTemplateContext,
+                        onApplyReplayRoute: proReplayContext ? restoreReplayExecutionBaseline : undefined,
+                        onClearReplayBaseline: proReplayContext ? clearReplayBaseline : undefined,
                         onOpenProviderSettings: () => provider.setSettingsOpen(true),
                       }
                     : null,

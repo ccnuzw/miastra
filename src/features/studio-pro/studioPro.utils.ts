@@ -6,7 +6,7 @@ import {
   getPromptTemplateStructureFieldDigest,
   getPromptTemplateStructureStatusLabel,
 } from '@/features/prompt-templates/promptTemplate.schema'
-import { mapPromptScenarioToFlowSceneId } from '@/features/prompt-templates/studioFlowSemantic'
+import type { StudioFlowScene } from '@/features/prompt-templates/studioFlowSemantic'
 import type { PromptTemplateListItem } from '@/features/prompt-templates/promptTemplate.types'
 
 export type StudioProPromptSection = {
@@ -31,12 +31,15 @@ export type StudioProTemplateContext = {
   category: string
   familyLabel: string
   familyDescription: string
+  scene: StudioFlowScene
+  sceneId?: string
   sceneLabel: string
-  sceneId: string
   sceneDescription: string
   structureStatusLabel: string
   recommendedLabel: string
   recommendedReason: string
+  recommendedBestFor: string
+  recommendedNextStep: string
   structureFields: string[]
   structureSummary: Array<{
     id: string
@@ -46,20 +49,49 @@ export type StudioProTemplateContext = {
   defaultSettingsLabel: string
   metadataHint: string
   useCases: string[]
+  executionIntentLabel: string
+  executionIntentSummary: string
+  resultBridgeSummary: string
+  primaryNextActionLabel: string
+  primaryNextActionDescription: string
+  followUpSummary: string
+  versionSummary: string
   sourceLabel: string
 }
 
 export type StudioProReplayContext = {
   sourceLabel: string
   actionLabel: string
+  scene?: StudioFlowScene
   statusText: string
   hint: string
   originLabel: string
   detailLabel: string
+  currentLabel?: string
+  parentLabel?: string
+  ancestorLabel?: string
+  guidedFlowLabel?: string
+  parameterLabel?: string
+  promptLabel?: string
   snapshotId: string
   sourceProviderId: string
   sourceModelLabel: string
   sourceRequestKindLabel: string
+  sourceSize?: string
+  sourceQuality?: string
+  sourceStream?: boolean | null
+  sourceAspectLabel?: string | null
+  sourceResolutionLabel?: string | null
+  sourceResolutionTier?: '1k' | '2k' | '4k' | null
+  sourceStudioMode?: 'create' | 'draw'
+  sourceDrawCount?: number | null
+  sourceDrawStrategy?: 'linear' | 'smart' | 'turbo' | null
+  sourceDrawConcurrency?: number | null
+  sourceDrawDelayMs?: number | null
+  sourceDrawRetries?: number | null
+  sourceDrawTimeoutSec?: number | null
+  sourceVariationStrength?: 'low' | 'medium' | 'high' | null
+  sourceVariationDimensionCount?: number
   requestPrompt: string
   referenceSummaryLabel: string
 }
@@ -93,17 +125,28 @@ export function buildStudioProTemplateContext(
     category: presentation.category,
     familyLabel: presentation.family.label,
     familyDescription: presentation.family.description,
-    sceneId: mapPromptScenarioToFlowSceneId(structure.scenarioId),
-    sceneLabel: presentation.structureMeta.sceneLabel,
-    sceneDescription: presentation.structureMeta.sceneDescription,
+    scene: structure.scene,
+    sceneId: structure.scene.id,
+    sceneLabel: structure.scene.label,
+    sceneDescription: structure.scene.description,
     structureStatusLabel: getPromptTemplateStructureStatusLabel(structure.status),
     recommendedLabel: presentation.recommendedEntry.label,
     recommendedReason: presentation.recommendedEntry.reason,
+    recommendedBestFor: presentation.recommendedEntry.bestFor,
+    recommendedNextStep: presentation.recommendedEntry.nextStep,
     structureFields: getPromptTemplateStructureFieldDigest(structure.fields, 4),
     structureSummary: structure.summary,
     defaultSettingsLabel,
     metadataHint: presentation.structureMeta.metadataHint,
     useCases: presentation.useCases,
+    executionIntentLabel: presentation.executionIntent.label,
+    executionIntentSummary: presentation.executionIntent.summary,
+    resultBridgeSummary: presentation.resultBridge.summary,
+    primaryNextActionLabel: presentation.resultBridge.actions[0]?.label ?? '继续处理',
+    primaryNextActionDescription:
+      presentation.resultBridge.actions[0]?.description ?? '当前模板会继续承接结果动作。',
+    followUpSummary: presentation.chainContext.followUpSummary,
+    versionSummary: presentation.chainContext.versionSummary,
     sourceLabel,
   }
 }

@@ -267,7 +267,7 @@ export function ConsumerTaskEntrySection({
               先选一个统一场景，再按步骤补 2 到 3 个按钮，描述会直接进入普通版输入框。
             </p>
           </div>
-          <p className="text-sm text-porcelain-100/55">首批先做商品图、海报宣传图、头像与人像 3 个高频场景。</p>
+          <p className="text-sm text-porcelain-100/55">当前已接入商品图、海报宣传图、头像人像和空间展示 4 个高频场景。</p>
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-3">

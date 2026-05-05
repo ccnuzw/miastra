@@ -35,6 +35,9 @@ type ParameterPanelProps = {
     modelLabel: string
     templateContext?: StudioProTemplateContext | null
     replayContext?: StudioProReplayContext | null
+    onApplyTemplateDefaults?: () => void
+    onApplyReplayParameters?: () => void
+    onRestoreSourceExecution?: () => void
   } | null
 }
 
@@ -155,6 +158,9 @@ export function ParameterPanel(props: ParameterPanelProps) {
           modelLabel={props.proPanel.modelLabel}
           templateContext={props.proPanel.templateContext}
           replayContext={props.proPanel.replayContext}
+          onApplyTemplateDefaults={props.proPanel.onApplyTemplateDefaults}
+          onApplyReplayParameters={props.proPanel.onApplyReplayParameters}
+          onRestoreSourceExecution={props.proPanel.onRestoreSourceExecution}
         />
       </div>
     )

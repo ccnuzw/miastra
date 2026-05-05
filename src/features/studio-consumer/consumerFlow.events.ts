@@ -1,8 +1,10 @@
 import type {
   StudioFlowActionId,
+  StudioFlowScene,
   StudioFlowSceneId,
   StudioFlowSourceType,
 } from '@/features/prompt-templates/studioFlowSemantic'
+import type { ConsumerGuidedFlowSnapshot } from './consumerGuidedFlow'
 
 export const studioConsumerIntentEvent = 'studio-consumer:intent'
 
@@ -11,6 +13,8 @@ export type StudioConsumerIntent = {
   text?: string
   mode?: 'replace' | 'append' | 'followup'
   sceneId?: StudioFlowSceneId
+  scene?: StudioFlowScene
+  guidedFlow?: ConsumerGuidedFlowSnapshot | null
   sourceType?: StudioFlowSourceType
   actionId?: StudioFlowActionId
   submit?: boolean

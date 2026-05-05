@@ -23,6 +23,9 @@ type AdvancedSettingsPanelProps = {
     loading: boolean
     controlSteps: StudioProControlStep[]
     replayContext?: StudioProReplayContext | null
+    templateContext?: import('@/features/studio-pro/studioPro.utils').StudioProTemplateContext | null
+    onApplyReplayRoute?: () => void
+    onClearReplayBaseline?: () => void
     onOpenProviderSettings: () => void
   } | null
 }

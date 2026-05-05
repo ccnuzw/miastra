@@ -5,13 +5,20 @@ import { ImageViewerModal } from '@/features/works/ImageViewerModal'
 import { useWorksGallery } from '@/features/works/useWorksGallery'
 import { getAssetSyncLabel } from '@/features/works/works.asset'
 import type { GalleryImage } from '@/features/works/works.types'
-import { queueWorkReplayPayload } from '@/features/works/workReplay'
+import {
+  getWorkReplayActionLabels,
+  getWorkReplayGuide,
+  getWorkReplayReferenceSummary,
+  getWorkReplayStatusText,
+  queueWorkReplayPayload,
+} from '@/features/works/workReplay'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
 import { createDownloadResultError, downloadImage, downloadWorksZip } from '@/shared/utils/download'
 
 export function WorksPage() {
   const works = useWorksGallery()
   const navigate = useNavigate()
+  const replayLabels = getWorkReplayActionLabels('work')
   const [busyId, setBusyId] = useState('')
   const [includeMetadata, setIncludeMetadata] = useState(true)
   const [exportError, setExportError] = useState<unknown>(null)
@@ -29,6 +36,8 @@ export function WorksPage() {
   function renderWorkCard(work: GalleryImage) {
     const isFavorite = Boolean(work.isFavorite)
     const assetSyncLabel = getAssetSyncLabel(work.assetSyncStatus)
+    const replaySummary = getWorkReplayReferenceSummary(work)
+    const replayStatusText = getWorkReplayStatusText(replaySummary)
     return (
       <article key={work.id} className="progress-card">
         {work.src ? <img className="h-56 w-full rounded-2xl object-cover" src={work.src} alt={work.title} /> : null}
@@ -38,11 +47,14 @@ export function WorksPage() {
         </div>
         <p className="mt-2 text-sm text-porcelain-100/60">{work.meta}</p>
         <p className="mt-2 text-xs text-porcelain-100/45">{[work.providerModel, work.size, work.quality].filter(Boolean).join(' · ') || '—'}</p>
+        <p className={`mt-2 text-xs ${replaySummary.missingReferenceCount > 0 ? 'text-signal-coral' : 'text-signal-cyan'}`}>{replayStatusText}</p>
         {assetSyncLabel ? <p className="mt-2 text-xs text-signal-cyan">{assetSyncLabel}{work.assetRemoteKey ? ` · ${work.assetRemoteKey}` : ''}</p> : null}
         {work.error ? <ErrorNotice error={work.error} className="mt-3" compact /> : null}
         {Array.isArray(work.tags) && work.tags.length > 0 ? <p className="mt-3 text-xs text-signal-cyan">{work.tags.map((tag) => `#${tag}`).join(' ')}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs" onClick={() => works.setViewerImage(work)}>查看</button>
+          <button type="button" className="rounded-full border border-signal-cyan/25 bg-signal-cyan/10 px-3 py-2 text-xs font-semibold text-signal-cyan" onClick={() => handleReuseParameters(work, false)}>{replayLabels.restore}</button>
+          <button type="button" className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-2 text-xs" onClick={() => handleReuseParameters(work, true)}>{replayLabels.regenerate}</button>
           <button type="button" className="rounded-full border border-porcelain-50/10 px-3 py-2 text-xs" onClick={() => works.toggleWorkFavorite(work.id)}>{isFavorite ? '取消收藏' : '收藏'}</button>
           <button type="button" className="rounded-full border border-signal-coral/25 bg-signal-coral/10 px-3 py-2 text-xs text-signal-coral" onClick={() => void handleDelete(work.id)} disabled={busyId === work.id}>{busyId === work.id ? '删除中…' : '删除'}</button>
         </div>
@@ -64,7 +76,12 @@ export function WorksPage() {
   }
 
   function handleReuseParameters(work: GalleryImage, autoGenerate = false) {
-    queueWorkReplayPayload({ work, autoGenerate })
+    queueWorkReplayPayload({
+      work,
+      autoGenerate,
+      origin: 'work',
+      intent: autoGenerate ? 'variant' : 'continue',
+    })
     navigate('/app/studio')
   }
 
@@ -76,13 +93,17 @@ export function WorksPage() {
             <div>
               <p className="eyebrow">Assets</p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight">作品资产</h1>
-              <p className="mt-2 text-sm text-porcelain-100/60">统一查看收藏、标签、筛选与批量管理入口。</p>
+              <p className="mt-2 text-sm text-porcelain-100/60">统一查看收藏、标签、筛选、批量管理和继续创作入口。</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="rounded-full border border-porcelain-50/10 px-4 py-2 text-sm" type="button" onClick={() => void works.refresh()}>刷新</button>
               <button className="rounded-full border border-porcelain-50/10 px-4 py-2 text-sm" type="button" onClick={() => void works.clearWorkFilters()}>清空筛选</button>
               <button className="rounded-full border border-porcelain-50/10 px-4 py-2 text-sm" type="button" onClick={() => void works.setWallOpen(true)}>打开图片墙</button>
             </div>
+          </div>
+
+          <div className="mt-6 rounded-[1.35rem] border border-signal-cyan/20 bg-signal-cyan/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
+            {getWorkReplayGuide('work')}
           </div>
 
           {works.error ? <ErrorNotice error={works.error} className="mt-6" /> : null}

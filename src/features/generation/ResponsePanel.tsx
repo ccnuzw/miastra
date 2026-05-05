@@ -15,17 +15,17 @@ export function ResponsePanel({ responseText, collapsed, summary, onToggle, onCl
         <button type="button" className="response-title-button" onClick={onToggle} aria-expanded={!collapsed}>
           <span className="eyebrow response-eyebrow">
             <PanelRight className="h-4 w-4" />
-            接口响应
+            生成说明
           </span>
           <span className="response-summary">{summary}</span>
           <span className="response-toggle-text">{collapsed ? '展开' : '收起'}</span>
         </button>
-        <button type="button" onClick={onClear} className="icon-button" aria-label="清空响应">
+        <button type="button" onClick={onClear} className="icon-button" aria-label="清空说明">
           <RefreshCcw className="h-4 w-4" />
         </button>
       </div>
       {!collapsed && (
-        <pre className="response-box">{responseText || '等待接口返回。这里会显示前 1800 个字符，便于排查 504、401 或模型参数错误。'}</pre>
+        <pre className="response-box">{responseText || '这里会保留一段简短说明。大多数时候你不需要看它，只有生成失败或想继续微调时再展开就够了。'}</pre>
       )}
     </div>
   )

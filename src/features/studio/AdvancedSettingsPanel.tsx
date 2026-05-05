@@ -1,16 +1,30 @@
+import { StudioProExecutionPanel } from '@/features/studio-pro/StudioProExecutionPanel'
+
 type AdvancedSettingsPanelProps = {
   detailStrength: number
   detailTone: string
   onDetailStrengthChange: (value: number) => void
+  proPanel?: {
+    providerLabel: string
+    providerId: string
+    providerModeLabel: string
+    modelLabel: string
+    requestKindLabel: string
+    requestUrl: string
+    editRequestUrl: string
+    loading: boolean
+    onOpenProviderSettings: () => void
+  } | null
 }
 
 export function AdvancedSettingsPanel({
   detailStrength,
   detailTone,
   onDetailStrengthChange,
+  proPanel = null,
 }: AdvancedSettingsPanelProps) {
   return (
-    <section className="style-inline-panel studio-balanced-card">
+    <section className="style-inline-panel studio-balanced-card space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="eyebrow">Advanced</p>
@@ -40,6 +54,7 @@ export function AdvancedSettingsPanel({
           <span>锐利</span>
         </div>
       </div>
+      {proPanel ? <StudioProExecutionPanel {...proPanel} /> : null}
     </section>
   )
 }

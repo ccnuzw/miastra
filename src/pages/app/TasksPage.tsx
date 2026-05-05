@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   cancelGenerationTask,
   listDrawBatches,
@@ -9,6 +10,15 @@ import {
   type GenerationTaskRecord,
 } from '@/features/generation/generation.api'
 import type { GalleryImage } from '@/features/works/works.types'
+import {
+  buildTaskReplayWork,
+  getWorkReplayActionLabels,
+  getWorkReplayGuide,
+  getWorkReplayHint,
+  getWorkReplayReferenceSummary,
+  getWorkReplayStatusText,
+  queueWorkReplayPayload,
+} from '@/features/works/workReplay'
 import { ErrorNotice } from '@/shared/errors/ErrorNotice'
 import { apiRequest } from '@/shared/http/client'
 
@@ -210,6 +220,7 @@ function buildTaskBatchView(params: {
 }
 
 export function TasksPage() {
+  const navigate = useNavigate()
   const [tasks, setTasks] = useState<GenerationTaskRecord[]>([])
   const [batches, setBatches] = useState<GenerationBatchRecord[]>([])
   const [works, setWorks] = useState<GalleryImage[]>([])
@@ -222,6 +233,7 @@ export function TasksPage() {
   const [expandedBatchIds, setExpandedBatchIds] = useState<string[]>([])
   const [pendingFocusBatchId, setPendingFocusBatchId] = useState('')
   const [pageVisible, setPageVisible] = useState(() => typeof document === 'undefined' ? true : document.visibilityState === 'visible')
+  const replayLabels = getWorkReplayActionLabels('task')
 
   const refresh = useCallback(async (background = false) => {
     if (background) setRefreshing(true)
@@ -440,14 +452,25 @@ export function TasksPage() {
       : [...current, batchId])
   }
 
+  function handleReplayToStudio(task: GenerationTaskRecord, resultWork: GalleryImage | undefined, autoGenerate: boolean) {
+    const replayWork = buildTaskReplayWork(task, resultWork)
+    queueWorkReplayPayload({
+      work: replayWork,
+      autoGenerate,
+      origin: 'task',
+      intent: autoGenerate ? 'rerun' : 'recover',
+    })
+    navigate('/app/studio')
+  }
+
   return (
     <main className="app-page-shell app-page-shell-full">
       <section className="panel-shell w-full">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="eyebrow">Tasks</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">任务与批次</h1>
-            <p className="mt-2 text-sm text-porcelain-100/60">按批次查看生成进度、失败恢复、重试链路和结果明细。页面可在有活跃任务时自动刷新。</p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="eyebrow">Tasks</p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight">任务与批次</h1>
+              <p className="mt-2 text-sm text-porcelain-100/60">按批次查看生成进度、失败恢复、重试链路和结果明细。页面可在有活跃任务时自动刷新。</p>
           </div>
           <button
             className="rounded-full border border-porcelain-50/10 bg-ink-950/[0.65] px-4 py-2 text-sm font-semibold text-porcelain-50 transition hover:border-signal-cyan/50 hover:text-signal-cyan disabled:cursor-not-allowed disabled:opacity-40"
@@ -457,6 +480,10 @@ export function TasksPage() {
           >
             {loading || refreshing ? '刷新中…' : '刷新'}
           </button>
+        </div>
+
+        <div className="mt-6 rounded-[1.35rem] border border-signal-cyan/20 bg-signal-cyan/[0.08] px-4 py-3 text-sm text-porcelain-100/78">
+          {getWorkReplayGuide('task')}
         </div>
 
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3 min-[1600px]:grid-cols-5">
@@ -557,6 +584,11 @@ export function TasksPage() {
                       const task = slot.latestTask
                       const isExpanded = expandedSlotId === slot.slotId
                       const resultWork = resolveTaskWork(task, workIndexes)
+                      const replayWork = buildTaskReplayWork(task, resultWork)
+                      const replaySummary = getWorkReplayReferenceSummary(replayWork)
+                      const replayStatusText = getWorkReplayStatusText(replaySummary)
+                      const recoverHint = getWorkReplayHint('task', false, replaySummary)
+                      const rerunHint = getWorkReplayHint('task', true, replaySummary)
                       const imageUrl = task.result?.imageUrl ?? resultWork?.src
                       const canCancel = activeStatuses.has(task.status)
                       const canRetry = task.retryable && (task.status === 'failed' || task.status === 'timeout' || task.status === 'cancelled')
@@ -582,6 +614,7 @@ export function TasksPage() {
                                 {resultWork ? <span className="status-pill">结果已入库</span> : null}
                               </div>
                               <p className="mt-2 text-sm text-porcelain-100/60">{task.payload.meta}</p>
+                              <p className={`mt-2 text-xs ${replaySummary.missingReferenceCount > 0 ? 'text-signal-coral' : 'text-signal-cyan'}`}>{replayStatusText}</p>
                               <div className="mt-3 flex flex-wrap gap-4 text-xs text-porcelain-100/45">
                                 <span>模式：{modeLabel(task.payload.mode)}</span>
                                 <span>模型：{task.payload.model}</span>
@@ -595,6 +628,20 @@ export function TasksPage() {
 
                             <div className="flex flex-wrap gap-2">
                               <button type="button" className="rounded-full border border-porcelain-50/10 px-4 py-2 text-sm" onClick={() => setExpandedSlotId(isExpanded ? '' : slot.slotId)}>{isExpanded ? '收起详情' : '查看详情'}</button>
+                              <button
+                                type="button"
+                                className="rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.08] px-4 py-2 text-sm font-semibold text-signal-cyan transition hover:bg-signal-cyan hover:text-ink-950"
+                                onClick={() => handleReplayToStudio(task, resultWork, false)}
+                              >
+                                {replayLabels.restore}
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-4 py-2 text-sm transition hover:border-porcelain-50/25"
+                                onClick={() => handleReplayToStudio(task, resultWork, true)}
+                              >
+                                {replayLabels.regenerate}
+                              </button>
                               {canRetry ? (
                                 <button
                                   type="button"
@@ -703,6 +750,12 @@ export function TasksPage() {
                                     ))}
                                   </div>
                                   {task.errorMessage ? <ErrorNotice error={task.errorMessage} compact className="mt-4" /> : null}
+                                </div>
+
+                                <div className="rounded-[1.35rem] border border-signal-cyan/20 bg-signal-cyan/[0.08] p-4">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-porcelain-100/40">回到工作台</p>
+                                  <p className="mt-3 text-sm text-porcelain-100/72">{recoverHint}</p>
+                                  <p className="mt-2 text-sm text-porcelain-100/55">{rerunHint}</p>
                                 </div>
                               </div>
 

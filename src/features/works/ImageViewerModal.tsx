@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { Download, ImagePlus, RefreshCw, SlidersHorizontal, X } from 'lucide-react'
 import type { GenerationDrawSnapshot, GenerationMode, GenerationReferenceSnapshot } from '@/features/generation/generation.types'
 import { getAssetSyncLabel } from './works.asset'
+import { getWorkReplayActionLabels, getWorkReplayHint, getWorkReplayReferenceSummary, getWorkReplayStatusText } from './workReplay'
 import type { GalleryImage } from './works.types'
 
 type ImageViewerModalProps = {
@@ -180,6 +181,10 @@ export function ImageViewerModal({
   const referenceRows = buildReferenceRows(references)
   const hasReusableParameters = Boolean(workspacePrompt || requestPromptText || snapshot || image.providerModel || image.size || image.quality || image.mode)
   const hasReferenceHint = Boolean(references?.count || mode?.includes('image2image'))
+  const replayLabels = getWorkReplayActionLabels('work')
+  const replaySummary = getWorkReplayReferenceSummary(image)
+  const replayHint = getWorkReplayHint('work', true, replaySummary)
+  const replayStatusText = getWorkReplayStatusText(replaySummary)
 
   return createPortal(
     <div
@@ -279,7 +284,7 @@ export function ImageViewerModal({
                   onClick={() => onReuseParameters?.(image)}
                 >
                   <SlidersHorizontal className="h-4 w-4" />
-                  复用参数
+                  {replayLabels.restore}
                 </button>
                 <button
                   type="button"
@@ -288,10 +293,10 @@ export function ImageViewerModal({
                   onClick={() => onRegenerateFromParameters?.(image)}
                 >
                   <RefreshCw className="h-4 w-4" />
-                  再次生成
+                  {replayLabels.regenerate}
                 </button>
               </div>
-              <p className="text-xs leading-5 text-porcelain-100/45">再次生成会先恢复当前参数；请确认工作区参数后点击主生成按钮。</p>
+              <p className="text-xs leading-5 text-porcelain-100/45">{replayStatusText}。{replayHint}</p>
             </div>
           </aside>
         </div>

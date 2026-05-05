@@ -1,8 +1,18 @@
+import type { ReactNode } from 'react'
 import { PreviewStage } from '@/features/generation/PreviewStage'
 import { ResponsePanel } from '@/features/generation/ResponsePanel'
+import { StudioShellCallout } from '@/features/studio-shared/StudioShellCallout'
+import type {
+  StudioShellSectionViewModel,
+  StudioWorkbenchMode,
+} from '@/features/studio-shared/studioShell.adapters'
 import type { GalleryImage } from '@/features/works/works.types'
 
-type StudioGenerationColumnProps = {
+export type StudioGenerationColumnProps = {
+  mode: StudioWorkbenchMode
+  shell: StudioShellSectionViewModel
+  topSlot?: ReactNode
+  bottomSlot?: ReactNode
   activePreview: GalleryImage | null
   onPreview: (item: GalleryImage) => void
   responseText: string
@@ -17,6 +27,10 @@ type StudioGenerationColumnProps = {
 }
 
 export function StudioGenerationColumn({
+  mode,
+  shell,
+  topSlot,
+  bottomSlot,
   activePreview,
   onPreview,
   responseText,
@@ -29,19 +43,33 @@ export function StudioGenerationColumn({
   progressValue,
   onCancel,
 }: StudioGenerationColumnProps) {
+  const consumerIdleText = statusText === '等待生成任务' ? '选好内容后，先试试看' : statusText
+  const displayStatusText = mode === 'consumer' ? consumerIdleText : statusText
+  const displayEyebrow = mode === 'consumer' ? '进度' : 'Status'
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-workbench-mode={mode}>
+      <StudioShellCallout
+        eyebrow={shell.eyebrow}
+        title={shell.title}
+        description={shell.description}
+      />
+      {topSlot}
       <PreviewStage activePreview={activePreview} onPreview={onPreview} />
 
       <article className="progress-card space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="eyebrow">Status</p>
-            <h2 className="mt-2 text-xl font-semibold tracking-tight text-porcelain-50">{statusText}</h2>
+            <p className="eyebrow">{displayEyebrow}</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-porcelain-50">
+              {displayStatusText}
+            </h2>
           </div>
           <div className="flex items-center gap-2">
             <span className="status-pill">{stage}</span>
-            <button type="button" className="settings-button" onClick={onCancel}>取消任务</button>
+            <button type="button" className="settings-button" onClick={onCancel}>
+              {mode === 'consumer' ? '先停一下' : '取消任务'}
+            </button>
           </div>
         </div>
         <div className="studio-status-grid">
@@ -62,6 +90,7 @@ export function StudioGenerationColumn({
         onToggle={onToggleResponse}
         onClear={onClearResponse}
       />
+      {bottomSlot}
     </div>
   )
 }

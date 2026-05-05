@@ -26,7 +26,7 @@ export function AppShell() {
           <Link
             to="/app/studio"
             className="group flex items-center gap-3"
-            aria-label="Miastra Studio 首页"
+            aria-label="Miastra 工作台首页"
           >
             <span className="relative grid h-11 w-11 place-items-center overflow-hidden rounded-2xl border border-signal-cyan/30 bg-signal-cyan/10 shadow-glow">
               <Wand2 className="h-5 w-5 text-signal-cyan transition-transform duration-500 group-hover:rotate-12" />
@@ -36,8 +36,8 @@ export function AppShell() {
               <span className="font-display text-xl tracking-tight text-porcelain-50">
                 Miastra Studio
               </span>
-              <span className="mt-1 text-[0.62rem] uppercase tracking-[0.34em] text-porcelain-100/50">
-                Cloud Image Studio
+              <span className="mt-1 text-[0.7rem] tracking-[0.18em] text-porcelain-100/50">
+                简洁开工 · 进阶控制
               </span>
             </span>
           </Link>

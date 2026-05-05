@@ -6,7 +6,7 @@ import { stageProgress } from '@/features/generation/generation.constants'
 
 export function useGenerationRuntime() {
   const [status, setStatus] = useState<GenerationStatus>('idle')
-  const [statusText, setStatusText] = useState('等待生成任务')
+  const [statusText, setStatusText] = useState('选好内容后，先试试看')
   const [responseText, setResponseText] = useState('')
   const [responseCollapsed, setResponseCollapsed] = useState(true)
   const [liveImageSrc, setLiveImageSrc] = useState('')
@@ -34,7 +34,7 @@ export function useGenerationRuntime() {
     src: liveImageSrc,
     meta: '正在接收最终图片',
   } : null
-  const responseSummary = responseText.split('\n').find((line) => line.trim()) || '等待接口返回'
+  const responseSummary = responseText.split('\n').find((line) => line.trim()) || '等待生成说明'
 
   useEffect(() => {
     if (status !== 'loading') return

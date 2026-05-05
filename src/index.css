@@ -1285,6 +1285,78 @@
     @apply rounded-[2rem] border border-porcelain-50/10 bg-ink-950/[0.42] p-4;
   }
 
+  .studio-pro-panel {
+    @apply rounded-[1.6rem] border border-signal-cyan/20 bg-signal-cyan/[0.05] p-4;
+  }
+
+  .studio-pro-panel-tight {
+    @apply min-h-0;
+  }
+
+  .studio-pro-panel-header {
+    @apply flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between;
+  }
+
+  .studio-pro-panel-title {
+    @apply mt-2 text-lg font-semibold tracking-tight text-porcelain-50;
+  }
+
+  .studio-pro-panel-copy {
+    @apply mt-2 text-sm leading-6 text-porcelain-100/[0.58];
+  }
+
+  .studio-pro-pill-group {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .studio-pro-prompt-preview {
+    @apply mt-4 rounded-[1.4rem] border border-porcelain-50/10 bg-ink-950/[0.55] p-3;
+  }
+
+  .studio-pro-inline-label {
+    @apply inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-signal-cyan;
+  }
+
+  .studio-pro-readonly-area {
+    @apply mt-3 min-h-40 w-full resize-none rounded-[1.2rem] border border-porcelain-50/10 bg-ink-950/[0.82] p-4 text-sm leading-7 text-porcelain-50 outline-none;
+  }
+
+  .studio-pro-meta-grid {
+    @apply mt-4 grid gap-3 xl:grid-cols-2;
+  }
+
+  .studio-pro-metric-grid {
+    @apply mt-4 grid gap-3 xl:grid-cols-2;
+  }
+
+  .studio-pro-metric-card {
+    @apply rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.52] p-4;
+  }
+
+  .studio-pro-metric-label {
+    @apply inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-porcelain-100/[0.48];
+  }
+
+  .studio-pro-metric-value {
+    @apply mt-3 block text-base font-semibold text-porcelain-50;
+  }
+
+  .studio-pro-metric-copy {
+    @apply mt-2 break-words text-sm leading-6 text-porcelain-100/[0.58];
+  }
+
+  .studio-pro-tag-wrap {
+    @apply mt-3 flex flex-wrap gap-2;
+  }
+
+  .studio-pro-tag {
+    @apply inline-flex items-center rounded-full border border-signal-cyan/25 bg-signal-cyan/[0.12] px-3 py-1.5 text-xs font-semibold text-signal-cyan;
+  }
+
+  .studio-pro-code {
+    @apply font-mono text-xs text-porcelain-100/[0.72];
+  }
+
   .works-panel-stacked {
     @apply flex flex-col;
   }

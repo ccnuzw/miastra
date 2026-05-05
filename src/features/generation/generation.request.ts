@@ -5,8 +5,18 @@ import type { ProviderConfig } from '@/features/provider/provider.types'
 import type { ReferenceImage } from '@/features/references/reference.types'
 import { referenceImageToFile } from '@/features/references/reference.utils'
 import type { GalleryImage } from '@/features/works/works.types'
-import { buildGenerationContractSnapshot } from '@/features/generation/generation.contract'
-import type { GenerationMode, GenerationReferenceSnapshot, GenerationRequestOptions, GenerationSnapshot, GenerationStage } from '@/features/generation/generation.types'
+import {
+  buildGenerationReferenceSnapshot,
+  buildGenerationSnapshotFromContract,
+  resolveGenerationContractSnapshot,
+} from '@/features/generation/generation.contract'
+import type {
+  GenerationContractSnapshot,
+  GenerationMode,
+  GenerationRequestOptions,
+  GenerationSnapshot,
+  GenerationStage,
+} from '@/features/generation/generation.types'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
 import { extractGenerationErrorDetails, extractImageSrc, isGatewayTimeoutPayload, normalizeGenerationError } from '@/features/generation/generation.parser'
 import { postFormImageGeneration, postJsonImageGeneration } from '@/features/generation/generation.api'
@@ -27,95 +37,82 @@ type RequestContext = {
   setPreviewImage: Dispatch<SetStateAction<GalleryImage | null>>
 }
 
-function createReferenceSnapshot(referenceImages: ReferenceImage[]): GenerationReferenceSnapshot | undefined {
-  if (!referenceImages.length) return undefined
-  return {
-    count: referenceImages.length,
-    sources: referenceImages.map((reference, index) => ({
-      source: reference.source,
-      name: reference.name || `${reference.source === 'work' ? '作品区参考图' : '上传参考图'} #${index + 1}`,
-      assetId: reference.assetId,
-      assetRemoteKey: reference.assetRemoteKey,
-      src: reference.src,
-      workId: reference.workId,
-      workTitle: reference.workTitle,
-    })),
-    note: '图生图参考图仅保存数量与来源提示，不保存图片二进制；复用参数时需重新提供参考图。',
-  }
+function resolveRequestContract(
+  context: RequestContext,
+  options: GenerationRequestOptions,
+  mode: GenerationMode,
+  resolvedQuality: string,
+): GenerationContractSnapshot {
+  const references = buildGenerationReferenceSnapshot(context.referenceImages)
+  return resolveGenerationContractSnapshot(
+    options.contract ? { contract: options.contract } : undefined,
+    {
+      scene: options.contract?.scene ?? options.scene,
+      requestPrompt: options.contract?.prompt.request ?? options.promptText,
+      workspacePrompt:
+        options.contract?.prompt.workspace ?? options.workspacePrompt ?? options.promptText,
+      mode,
+      size: options.contract?.parameters.size ?? context.size,
+      quality: options.contract?.parameters.quality ?? resolvedQuality,
+      model: options.contract?.parameters.model ?? context.config.model,
+      providerId: options.contract?.parameters.providerId ?? context.config.providerId,
+      stream: options.contract?.parameters.stream ?? options.streamValue ?? context.stream,
+      references: options.contract?.references ?? references,
+      draw: options.contract?.draw ?? options.drawSnapshot,
+      guidedFlow: options.contract?.guidedFlow ?? options.guidedFlow ?? null,
+    },
+  )
 }
 
 function createGenerationSnapshot(
   context: RequestContext,
-  options: GenerationRequestOptions,
-  mode: GenerationMode,
+  contract: GenerationContractSnapshot,
+  snapshotId: string | undefined,
   createdAt: number,
-  resolvedQuality: string,
 ): GenerationSnapshot {
-  const requestUrl = mode === 'image2image' || mode === 'draw-image2image' ? context.editRequestUrl : context.requestUrl
-  const references = createReferenceSnapshot(context.referenceImages)
-  const contract = buildGenerationContractSnapshot({
-    scene: options.scene,
-    requestPrompt: options.promptText,
-    workspacePrompt: options.workspacePrompt ?? options.promptText,
-    mode,
-    size: context.size,
-    quality: resolvedQuality,
-    model: context.config.model,
-    providerId: context.config.providerId,
-    stream: options.streamValue ?? context.stream,
-    references,
-    draw: options.drawSnapshot,
-    guidedFlow: options.guidedFlow ?? null,
-  })
-  return {
-    id: options.snapshotId ?? crypto.randomUUID(),
+  const requestUrl =
+    contract.parameters.mode === 'image2image' || contract.parameters.mode === 'draw-image2image'
+      ? context.editRequestUrl
+      : context.requestUrl
+  return buildGenerationSnapshotFromContract(contract, {
+    id: snapshotId,
     createdAt,
-    scene: contract.scene,
-    mode: contract.parameters.mode,
-    prompt: contract.prompt.request,
-    requestPrompt: contract.prompt.request,
-    workspacePrompt: contract.prompt.workspace,
-    size: contract.parameters.size,
-    quality: contract.parameters.quality,
-    model: contract.parameters.model,
-    providerId: contract.parameters.providerId,
     apiUrl: context.config.apiUrl,
     requestUrl,
-    stream: contract.parameters.stream,
-    references: contract.references,
-    draw: contract.draw,
-    guidedFlow: contract.guidedFlow,
-    contract,
-  }
+  })
 }
 
 function createGalleryImage(
   context: RequestContext,
   options: GenerationRequestOptions,
   src: string,
-  mode: GenerationMode,
+  contract: GenerationContractSnapshot,
 ) {
   const createdAt = Date.now()
-  const resolvedQuality = options.qualityValue ?? context.quality
-  const generationSnapshot = createGenerationSnapshot(context, options, mode, createdAt, resolvedQuality)
+  const generationSnapshot = createGenerationSnapshot(
+    context,
+    contract,
+    options.snapshotId,
+    createdAt,
+  )
 
   return {
     id: crypto.randomUUID(),
     title: options.title,
     src,
     meta: options.meta,
-    variation: options.variation,
-    batchId: options.batchId,
-    drawIndex: options.drawIndex,
+    variation: options.variation ?? contract.draw?.variation,
+    batchId: options.batchId ?? contract.draw?.batchId,
+    drawIndex: options.drawIndex ?? contract.draw?.drawIndex,
     snapshotId: generationSnapshot.id,
     createdAt,
-    mode,
-    providerModel: context.config.model,
-    size: context.size,
-    quality: resolvedQuality,
+    mode: contract.parameters.mode,
+    providerModel: contract.parameters.model,
+    size: contract.parameters.size,
+    quality: contract.parameters.quality,
     generationSnapshot,
-    promptSnippet: options.promptText.slice(0, 180),
-    promptText: options.promptText,
+    promptSnippet: contract.prompt.request.slice(0, 180),
+    promptText: contract.prompt.request,
   }
 }
 
@@ -135,6 +132,12 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
     didTimeout = true
     controller.abort()
   }, timeoutSec * 1000)
+  const contract = resolveRequestContract(
+    context,
+    options,
+    options.contract?.parameters.mode ?? options.mode ?? 'text2image',
+    options.contract?.parameters.quality ?? options.qualityValue ?? context.quality,
+  )
 
   try {
     context.setStage('waiting')
@@ -143,12 +146,12 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
       apiKey: context.config.apiKey,
       signal: controller.signal,
       body: buildProviderJsonBody({
-        model: context.config.model,
-        prompt: options.promptText,
-        size: context.size,
-        quality: options.qualityValue ?? context.quality,
+        model: contract.parameters.model,
+        prompt: contract.prompt.request,
+        size: contract.parameters.size,
+        quality: contract.parameters.quality,
         n: 1,
-        stream: options.streamValue ?? context.stream,
+        stream: contract.parameters.stream,
       }),
       onImage: (src) => {
         options.onReceiveImage?.(src)
@@ -166,7 +169,7 @@ async function requestTextImage(context: RequestContext, options: GenerationRequ
 
     const src = latestImageSrc || extractImageSrc(text)
     if (!src) throw normalizeGenerationError(new Error('接口已返回，但未解析到图片数据，请检查响应格式后重试'))
-    const image = createGalleryImage(context, options, src, options.mode ?? 'text2image')
+    const image = createGalleryImage(context, options, src, contract)
     applyPreview(context, options, image)
     return image
   } catch (error) {
@@ -190,15 +193,21 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
     didTimeout = true
     controller.abort()
   }, timeoutSec * 1000)
+  const contract = resolveRequestContract(
+    context,
+    options,
+    options.contract?.parameters.mode ?? options.mode ?? 'image2image',
+    options.contract?.parameters.quality ?? options.qualityValue ?? context.quality,
+  )
 
   try {
     const imageFiles = await Promise.all(context.referenceImages.map((reference) => referenceImageToFile(reference)))
     const formData = buildProviderEditFormData({
-      model: context.config.model,
-      prompt: options.promptText,
+      model: contract.parameters.model,
+      prompt: contract.prompt.request,
       images: imageFiles,
-      size: context.size,
-      quality: options.qualityValue ?? context.quality,
+      size: contract.parameters.size,
+      quality: contract.parameters.quality,
       n: 1,
     })
 
@@ -225,7 +234,7 @@ async function requestEditImage(context: RequestContext, options: GenerationRequ
 
     const src = latestImageSrc || extractImageSrc(text)
     if (!src) throw normalizeGenerationError(new Error('接口已返回，但未解析到图片数据，请检查图生图响应格式后重试'))
-    const image = createGalleryImage(context, options, src, options.mode ?? 'image2image')
+    const image = createGalleryImage(context, options, src, contract)
     applyPreview(context, options, image)
     return image
   } catch (error) {

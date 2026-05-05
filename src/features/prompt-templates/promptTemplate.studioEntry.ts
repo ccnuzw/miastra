@@ -22,6 +22,15 @@ export type PromptTemplateStudioLaunch = {
   nextAction?: StudioFlowActionId
 }
 
+export type PromptTemplateStudioLaunchInput = {
+  templateId: string
+  sceneId?: StudioFlowSceneId
+  sourceType?: StudioFlowSourceType
+  mode: PromptTemplateWorkbenchEntryMode
+  intent: PromptTemplateWorkbenchEntryIntent
+  nextAction?: StudioFlowActionId
+}
+
 const promptTemplateIdParam = 'template'
 const promptTemplateModeParam = 'templateMode'
 const promptTemplateIntentParam = 'templateEntry'
@@ -61,6 +70,19 @@ export function buildPromptTemplateStudioPath({
   if (sceneId) params.set(studioSceneParam, sceneId)
   if (nextAction) params.set(studioNextActionParam, nextAction)
   return `/app/studio?${params.toString()}`
+}
+
+export function buildPromptTemplateStudioLaunch(
+  input: PromptTemplateStudioLaunchInput,
+): PromptTemplateStudioLaunch {
+  return {
+    templateId: input.templateId,
+    mode: input.mode,
+    intent: input.intent,
+    sceneId: input.sceneId,
+    sourceType: input.sourceType ?? 'template',
+    nextAction: input.nextAction,
+  }
 }
 
 export function readPromptTemplateStudioLaunch(

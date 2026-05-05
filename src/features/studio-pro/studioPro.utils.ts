@@ -63,6 +63,26 @@ export type StudioProTextComparison = {
   suggestion: string
 }
 
+export type StudioProPromptFieldAlignmentItem = StudioProPromptFieldMapping & {
+  status: StudioProComparisonStatus
+  statusLabel: string
+  hint: string
+  recommendedAction: string
+}
+
+export type StudioProDecisionState = 'restore' | 'rerun' | 'calibrate' | 'branch'
+
+export type StudioProDecisionCard = {
+  state: StudioProDecisionState
+  stateLabel: string
+  title: string
+  summary: string
+  recommendation: string
+  primaryAction: string
+  secondaryAction?: string
+  focusItems: string[]
+}
+
 type BuildStudioProPromptPreviewInput = {
   prompt: string
   negativePrompt: string
@@ -124,6 +144,11 @@ export type StudioProReplayContext = {
   sourceDecisionLabel: string
   structureLabel: string
   nodePathLabel: string
+  deltaHeadline: string
+  parentDeltaLabel: string
+  sourceDeltaLabel: string
+  quickDeltaLabels: string[]
+  deltaItems: Array<import('@/features/works/workReplay').WorkVersionDeltaItem>
   detailLabel: string
   currentLabel?: string
   parentLabel?: string
@@ -220,6 +245,40 @@ function getStudioProLengthDeltaLabel(currentLength: number, baselineLength: num
   return `当前比基线少 ${Math.abs(delta)} 字（${currentLength} vs ${baselineLength}）`
 }
 
+function getStudioProDecisionStateLabel(state: StudioProDecisionState) {
+  switch (state) {
+    case 'rerun':
+      return '适合重跑'
+    case 'calibrate':
+      return '适合校准'
+    case 'branch':
+      return '适合派生'
+    default:
+      return '先立基线'
+  }
+}
+
+function createStudioProDecisionCard(input: {
+  state: StudioProDecisionState
+  title: string
+  summary: string
+  recommendation: string
+  primaryAction: string
+  secondaryAction?: string
+  focusItems?: string[]
+}): StudioProDecisionCard {
+  return {
+    state: input.state,
+    stateLabel: getStudioProDecisionStateLabel(input.state),
+    title: input.title,
+    summary: input.summary,
+    recommendation: input.recommendation,
+    primaryAction: input.primaryAction,
+    secondaryAction: input.secondaryAction,
+    focusItems: input.focusItems?.filter(Boolean).slice(0, 3) ?? [],
+  }
+}
+
 export function resolveSelectedStudioStyleTokens(selectedIds: string[]) {
   return styleTokens.filter((token) => selectedIds.includes(token.id))
 }
@@ -297,7 +356,7 @@ export function truncateStudioProText(value: string, maxLength = 96) {
 export function buildStudioProPromptFieldAlignment(
   templateContext: StudioProTemplateContext | null | undefined,
   promptSections: StudioProPromptSection[],
-) {
+): StudioProPromptFieldAlignmentItem[] {
   if (!templateContext) return []
 
   return templateContext.structureFieldMappings.map((field) => {
@@ -307,21 +366,37 @@ export function buildStudioProPromptFieldAlignment(
         status: 'aligned' as const,
         statusLabel: getStudioProComparisonStatusLabel('aligned'),
         hint: `${field.promptAnchorHint} 这一类字段建议直接到参数快照里确认尺寸、质量和执行基线。`,
+        recommendedAction: '先到参数面板确认默认画幅、分辨率和质量，再决定是否偏离模板起跑线。',
       }
     }
 
+    const workspaceValue = getPromptSectionValue(promptSections, 'workspace')
+    const styleValue = getPromptSectionValue(promptSections, 'styles')
     const anchorValue =
       field.promptAnchor === 'styles'
-        ? getPromptSectionValue(promptSections, 'styles') || getPromptSectionValue(promptSections, 'workspace')
+        ? styleValue || workspaceValue
         : getPromptSectionValue(promptSections, field.promptAnchor)
-    const status = anchorValue ? 'aligned' : 'missing'
+    const status =
+      !anchorValue
+        ? 'missing'
+        : field.promptAnchor === 'styles' && !styleValue
+          ? 'shifted'
+          : 'aligned'
     return {
       ...field,
       status,
       statusLabel: getStudioProComparisonStatusLabel(status),
       hint: anchorValue
-        ? `${field.promptAnchorHint} 当前这部分已有内容，可直接对照这一段是否承接了字段意图。`
+        ? status === 'shifted'
+          ? `${field.promptAnchorHint} 当前主要靠工作区主描述承接，适合再补一层独立风格控制，后续复用更稳。`
+          : `${field.promptAnchorHint} 当前这部分已有内容，可直接对照这一段是否承接了字段意图。`
         : `${field.promptAnchorHint} 当前这部分还是空的，建议先补这一段或恢复模板基线。`,
+      recommendedAction:
+        !anchorValue
+          ? `先补 ${field.promptAnchorLabel}，把「${field.label}」对应的控制点立起来。`
+          : status === 'shifted'
+            ? `把「${field.label}」从主描述里再沉到 ${field.promptAnchorLabel}，减少下一轮漂移。`
+            : `继续围绕 ${field.promptAnchorLabel} 微调「${field.label}」，当前承接路径是通的。`,
     }
   })
 }
@@ -477,6 +552,243 @@ export function summarizeStudioProComparisons(items: StudioProComparisonItem[]):
         ? '当前已经偏离多项基线，更接近派生版本；如需严格对照，建议先恢复来源参数。'
         : '当前是小幅校准，可继续围绕现有基线微调 1 到 2 项。',
   }
+}
+
+export function buildStudioProPromptDecision(input: {
+  templateContext?: StudioProTemplateContext | null
+  replayContext?: StudioProReplayContext | null
+  fieldAlignment: StudioProPromptFieldAlignmentItem[]
+  workspaceBaseline: StudioProTextComparison
+  finalPromptBaseline: StudioProTextComparison
+  workspacePromptLength: number
+}): StudioProDecisionCard {
+  const { templateContext, replayContext, fieldAlignment, workspaceBaseline, finalPromptBaseline, workspacePromptLength } = input
+  const missingFields = fieldAlignment.filter((item) => item.status === 'missing')
+  const shiftedFields = fieldAlignment.filter((item) => item.status === 'shifted')
+  const focusItems = [
+    ...missingFields.map((item) => `${item.label}：${item.recommendedAction}`),
+    ...shiftedFields.map((item) => `${item.label}：${item.recommendedAction}`),
+  ]
+
+  if (!workspacePromptLength && !templateContext && !replayContext) {
+    return createStudioProDecisionCard({
+      state: 'restore',
+      title: '先建立本轮 Prompt 基线',
+      summary: '当前还没有工作区描述，也没有模板或来源版可对照。',
+      recommendation: '先写一句主体需求，或从模板 / 结果回流进入，再开始判断是重跑还是派生。',
+      primaryAction: '先补工作区 Prompt',
+      secondaryAction: '也可以先接入模板或来源版',
+    })
+  }
+
+  if (replayContext && workspaceBaseline.status === 'aligned' && finalPromptBaseline.status === 'aligned' && !missingFields.length && !shiftedFields.length) {
+    return createStudioProDecisionCard({
+      state: 'rerun',
+      title: '当前 Prompt 仍贴着来源版',
+      summary: '工作区、最终 Prompt 和结构字段承接都还没有明显偏离来源基线。',
+      recommendation: '现在最适合同基线重跑；如果只想验证模型随机性，不必先改文字。',
+      primaryAction: '直接重跑来源版基线',
+      secondaryAction: '如需派生，再改 1 到 2 个字段',
+      focusItems,
+    })
+  }
+
+  if (missingFields.length > 0) {
+    return createStudioProDecisionCard({
+      state: 'calibrate',
+      title: '先把缺失字段补回 Prompt 落点',
+      summary: `还有 ${missingFields.length} 个结构字段没有落到当前 Prompt 链路里。`,
+      recommendation: '这时继续硬改最终 Prompt 容易漂移，先把缺的主体 / 风格 / 输出控制点补齐更稳。',
+      primaryAction: '优先补齐缺失字段',
+      secondaryAction: replayContext ? '必要时先恢复来源 Prompt 再补字段' : '必要时先恢复模板 Prompt 基线',
+      focusItems,
+    })
+  }
+
+  if (workspaceBaseline.status === 'shifted' || finalPromptBaseline.status === 'shifted' || shiftedFields.length > 0) {
+    const isIncrementalEdit =
+      workspaceBaseline.summary.includes('局部增删') || finalPromptBaseline.summary.includes('局部增删')
+    return createStudioProDecisionCard({
+      state: isIncrementalEdit && shiftedFields.length <= 1 ? 'calibrate' : 'branch',
+      title: isIncrementalEdit ? '当前更适合做局部校准' : '当前 Prompt 已接近新分支',
+      summary: isIncrementalEdit
+        ? '你已经在来源版上做了小步文字调整，但还保留着大部分原始控制链。'
+        : '工作区或最终 Prompt 已明显偏离来源基线，下一轮更像独立派生。',
+      recommendation: isIncrementalEdit
+        ? '继续围绕 1 到 2 个字段收紧描述即可；如果想回到严格对照，先恢复来源 Prompt。'
+        : '如果目标是复现上一版，先回到来源 Prompt；如果目标是新方向，保留当前改动直接派生更高效。',
+      primaryAction: isIncrementalEdit ? '继续按字段做小步校准' : '把当前改动当作派生起点',
+      secondaryAction: replayContext ? '需要复现时恢复来源 Prompt' : '需要收紧时恢复模板 Prompt',
+      focusItems,
+    })
+  }
+
+  if (templateContext) {
+    return createStudioProDecisionCard({
+      state: 'rerun',
+      title: '模板 Prompt 基线已经接稳',
+      summary: `当前工作区已按「${templateContext.title}」的结构字段承接。`,
+      recommendation: '如果只是验证模板首轮稳定性，现在可以直接跑；如需微调，优先改字段对应段落，不要一次重写整段。',
+      primaryAction: '按模板基线直接生成',
+      secondaryAction: '围绕字段落点做小改',
+      focusItems,
+    })
+  }
+
+  return createStudioProDecisionCard({
+    state: 'calibrate',
+    title: '当前 Prompt 已可继续收紧',
+    summary: '虽然没有来源版基线，但工作区 Prompt 已经形成一条可执行主线。',
+    recommendation: '现在适合继续补风格、细节或 Negative Prompt，把本轮控制点收紧成稳定快照。',
+    primaryAction: '继续补强当前 Prompt',
+    focusItems,
+  })
+}
+
+export function buildStudioProParameterDecision(input: {
+  templateContext?: StudioProTemplateContext | null
+  replayContext?: StudioProReplayContext | null
+  replayComparisonItems: StudioProComparisonItem[]
+  replayComparisonSummary: StudioProComparisonSummary
+  templateComparisonItems: StudioProComparisonItem[]
+  templateComparisonSummary: StudioProComparisonSummary
+  studioMode: 'create' | 'draw'
+  referenceCount: number
+}): StudioProDecisionCard {
+  const {
+    templateContext,
+    replayContext,
+    replayComparisonItems,
+    replayComparisonSummary,
+    templateComparisonItems,
+    templateComparisonSummary,
+    studioMode,
+    referenceCount,
+  } = input
+  const shiftedReplayItems = replayComparisonItems.filter((item) => item.status === 'shifted')
+  const shiftedTemplateItems = templateComparisonItems.filter((item) => item.status === 'shifted')
+  const focusItems = [
+    ...shiftedReplayItems.map((item) => `${item.label}：${item.hint}`),
+    ...shiftedTemplateItems.map((item) => `${item.label}：${item.hint}`),
+  ]
+
+  if (replayContext && replayComparisonSummary.status === 'aligned') {
+    return createStudioProDecisionCard({
+      state: 'rerun',
+      title: '参数快照仍贴着来源版',
+      summary: `当前参数与来源快照保持一致，${studioMode === 'draw' ? '抽卡策略' : '单轮生成设置'}也没有偏移。`,
+      recommendation: '如果只是验证 Prompt 调整带来的差异，现在直接重跑最干净。',
+      primaryAction: '按来源参数直接重跑',
+      secondaryAction: '如需派生，再改尺寸 / 质量 / 参考图',
+      focusItems,
+    })
+  }
+
+  if (templateContext && !replayContext && templateComparisonSummary.status === 'aligned') {
+    return createStudioProDecisionCard({
+      state: 'rerun',
+      title: '模板默认参数已经接稳',
+      summary: `当前尺寸、分辨率和质量都还贴着「${templateContext.title}」默认值。`,
+      recommendation: '适合先验证模板首轮参数是否够用，再决定是否偏离默认起跑线。',
+      primaryAction: '先按模板默认参数生成',
+      secondaryAction: '结果不够稳时再微调 1 到 2 项',
+      focusItems,
+    })
+  }
+
+  if (replayContext && shiftedReplayItems.length > 2) {
+    return createStudioProDecisionCard({
+      state: 'branch',
+      title: '当前参数已经形成新派生基线',
+      summary: `来源快照上已经偏移 ${shiftedReplayItems.length} 项，参考图 ${referenceCount} 张也会一起影响新结果。`,
+      recommendation: '这时再追求“同版重跑”意义不大，保留当前参数直接派生更高效。',
+      primaryAction: '把当前参数当作新分支继续跑',
+      secondaryAction: '如果要复现来源版，先恢复来源参数',
+      focusItems,
+    })
+  }
+
+  if (shiftedReplayItems.length > 0 || shiftedTemplateItems.length > 0) {
+    return createStudioProDecisionCard({
+      state: 'calibrate',
+      title: '当前更适合做参数校准',
+      summary: `来源快照与模板默认值之间已经出现偏移，但还没有大到必须另起分支。`,
+      recommendation: '优先收紧尺寸、质量、参考图和批量策略这几项，再判断本轮是否继续派生。',
+      primaryAction: '优先校准偏移参数',
+      secondaryAction: replayContext ? '需要时恢复来源执行基线' : '需要时恢复模板默认参数',
+      focusItems,
+    })
+  }
+
+  return createStudioProDecisionCard({
+    state: replayContext || templateContext ? 'calibrate' : 'restore',
+    title: replayContext || templateContext ? '参数快照已经具备对照基础' : '先决定参数要跟哪条基线走',
+    summary:
+      replayContext || templateContext
+        ? '当前参数没有明显冲突，可以继续围绕画幅、质量和参考图做小步调整。'
+        : '还没有来源快照或模板默认值参与对照，当前更像自由试跑。',
+    recommendation:
+      replayContext || templateContext
+        ? '保持每次只改少数几项，更容易判断结果差异。'
+        : '如果后面要做高频复用，建议先接一条模板或来源版基线。',
+    primaryAction: replayContext || templateContext ? '继续小步校准参数' : '先接入模板或来源快照',
+    focusItems,
+  })
+}
+
+export function buildStudioProExecutionDecision(input: {
+  replayContext?: StudioProReplayContext | null
+  executionComparisonItems: StudioProComparisonItem[]
+  executionComparisonSummary: StudioProComparisonSummary
+  keepsSameExecutionBaseline: boolean
+}): StudioProDecisionCard {
+  const { replayContext, executionComparisonItems, executionComparisonSummary, keepsSameExecutionBaseline } = input
+  const shiftedItems = executionComparisonItems.filter((item) => item.status === 'shifted')
+  const focusItems = shiftedItems.map((item) => `${item.label}：${item.hint}`)
+
+  if (!replayContext) {
+    return createStudioProDecisionCard({
+      state: 'restore',
+      title: '先接入来源执行链再判断重跑或派生',
+      summary: '当前还没有来源版 Provider / 模型 / 路由基线。',
+      recommendation: '从作品或任务恢复一版后，再判断这一轮是不是要严格复现执行环境。',
+      primaryAction: '先恢复来源快照',
+    })
+  }
+
+  if (keepsSameExecutionBaseline) {
+    return createStudioProDecisionCard({
+      state: 'rerun',
+      title: '执行链仍与来源版一致',
+      summary: 'Provider、模型和执行路径都还贴着来源快照。',
+      recommendation: '如果当前目标是验证 Prompt 或参数微调，这一层不需要先改。',
+      primaryAction: '保持执行链不动直接重跑',
+      secondaryAction: '如需派生，再切模型或执行路径',
+      focusItems,
+    })
+  }
+
+  if (shiftedItems.length === 1) {
+    return createStudioProDecisionCard({
+      state: 'calibrate',
+      title: '执行基线有一处偏移',
+      summary: executionComparisonSummary.summary,
+      recommendation: '现在更像单点校准，适合先决定这一处偏移是不是刻意的。',
+      primaryAction: '确认是否保留当前执行偏移',
+      secondaryAction: '如需复现，恢复来源执行路径',
+      focusItems,
+    })
+  }
+
+  return createStudioProDecisionCard({
+    state: 'branch',
+    title: '执行链已经换到另一条派生路径',
+    summary: executionComparisonSummary.summary,
+    recommendation: 'Provider、模型或路由已改动多项，这一轮更适合明确当作新分支处理。',
+    primaryAction: '按当前执行链继续派生',
+    secondaryAction: '如需回到旧链，恢复来源执行路径',
+    focusItems,
+  })
 }
 
 export function buildStudioProPromptArtifacts({

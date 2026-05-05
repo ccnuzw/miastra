@@ -10,11 +10,13 @@ import {
   getConsumerGuidedFlowSelectionMap,
   type ConsumerGuidedFlowSnapshot,
 } from '@/features/studio-consumer/consumerGuidedFlow'
+import { buildConsumerGuidedFlowLoopState } from '@/features/studio-consumer/consumerGuidedFlow'
 import {
   getStudioFlowActionLabel,
   getStudioFlowScene,
   getStudioFlowSceneLabel,
 } from '@/features/prompt-templates/studioFlowSemantic'
+import { resolveGenerationContractSnapshot } from '@/features/generation/generation.contract'
 import { getWorkVersionSourceSummary } from '@/features/works/workReplay'
 import type { GalleryImage } from '@/features/works/works.types'
 import { dispatchStudioConsumerIntent } from './consumerFlow.events'
@@ -44,6 +46,8 @@ export type StudioConsumerResultActionDetail = {
   submit: boolean
   nextStep: string
   guidedFlowSummary?: string
+  loopRunLabel?: string
+  loopHint?: string
 }
 
 function appendFollowupText(basePrompt: string, promptAppendix: string) {
@@ -198,7 +202,16 @@ function getPrioritizedActions(guidedFlow?: ConsumerGuidedFlowSnapshot | null) {
 export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
   const [lastTriggeredActionId, setLastTriggeredActionId] = useState<string | null>(null)
   const versionSource = getWorkVersionSourceSummary(preview)
-  const runtimeGuidedFlow = preview.generationSnapshot?.guidedFlow ?? null
+  const generationContract = resolveGenerationContractSnapshot(preview.generationSnapshot, {
+    requestPrompt: preview.promptText ?? preview.promptSnippet ?? '',
+    workspacePrompt: preview.promptText ?? preview.promptSnippet ?? '',
+    mode: preview.mode,
+    size: preview.size,
+    quality: preview.quality,
+    model: preview.providerModel,
+    hasReferences: Boolean(preview.generationSnapshot?.contract?.references?.count ?? preview.generationSnapshot?.references?.count),
+  })
+  const runtimeGuidedFlow = generationContract.guidedFlow
   const prioritizedActions = getPrioritizedActions(runtimeGuidedFlow)
   const prioritizedActionSummary =
     runtimeGuidedFlow?.actionPriority?.length ? buildRuntimePrioritySummary(prioritizedActions) : null
@@ -206,12 +219,17 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
     runtimeGuidedFlow?.sourceType === 'template'
       ? `已承接模板「${runtimeGuidedFlow.templateTitle || runtimeGuidedFlow.guideTitle}」`
       : null
+  const runtimeEntrySummary = runtimeGuidedFlow?.runtimeDecision?.activeEntry.summary
+  const runtimeEntryReason = runtimeGuidedFlow?.runtimeDecision?.activeEntry.reason
+  const runtimeContractSummary = runtimeGuidedFlow?.runtimeDecision?.contract.summary
+  const loopRunLabel = runtimeGuidedFlow?.loopState?.runLabel
+  const loopHint = runtimeGuidedFlow?.loopState?.loopHint
 
   function handleAction(action: (typeof actionDefinitions)[number]) {
     if (!preview.src) return
     setLastTriggeredActionId(action.id)
 
-    const existingGuidedFlow = preview.generationSnapshot?.guidedFlow ?? null
+    const existingGuidedFlow = generationContract.guidedFlow
     const preferredGuide =
       (existingGuidedFlow ? findConsumerGuidedFlowById(existingGuidedFlow.guideId) : undefined) ??
       findConsumerGuidedFlowByResultActionId(action.id)
@@ -224,26 +242,60 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
             followUpMode: 'scene-guided' as const,
             promptAppendix: action.text,
             promptText: appendFollowupText(existingGuidedFlow.promptText, action.text),
+            loopState: buildConsumerGuidedFlowLoopState({
+              guideId: existingGuidedFlow.guideId,
+              guideTitle: existingGuidedFlow.guideTitle,
+              templateId: existingGuidedFlow.templateId,
+              templateTitle: existingGuidedFlow.templateTitle,
+              sourceType: 'result-action',
+              stage: 'result-action',
+              actionId: action.semanticActionId,
+              defaultActionId: existingGuidedFlow.defaultActionId,
+              actionPriority: existingGuidedFlow.actionPriority,
+              versionLabel: existingGuidedFlow.loopState?.versionLabel,
+            }),
           }
         : preferredGuide
-          ? buildConsumerGuidedFlowSnapshotFromContext(
-              preferredGuide,
-              {
-                resultActionId: action.id,
-                currentSelections:
-                  existingGuidedFlow?.guideId === preferredGuide.id
-                    ? getConsumerGuidedFlowSelectionMap(existingGuidedFlow)
-                    : resolveConsumerGuidedFlowSelections(preferredGuide, {
-                        resultActionId: action.id,
-                      }),
-              },
-              {
-                sourceType: 'result-action',
-                selectionSource: 'result-followup',
-                actionId: action.semanticActionId,
-                promptAppendix: action.text,
-              },
-            )
+          ? (() => {
+              const nextGuidedFlow = buildConsumerGuidedFlowSnapshotFromContext(
+                preferredGuide,
+                {
+                  resultActionId: action.id,
+                  currentSelections:
+                    existingGuidedFlow?.guideId === preferredGuide.id
+                      ? getConsumerGuidedFlowSelectionMap(existingGuidedFlow)
+                      : resolveConsumerGuidedFlowSelections(preferredGuide, {
+                          resultActionId: action.id,
+                        }),
+                },
+                {
+                  sourceType: 'result-action',
+                  selectionSource: 'result-followup',
+                  actionId: action.semanticActionId,
+                  promptAppendix: action.text,
+                },
+              )
+
+              return {
+                ...nextGuidedFlow,
+                templateId: existingGuidedFlow?.templateId,
+                templateTitle: existingGuidedFlow?.templateTitle,
+                entryMode: existingGuidedFlow?.entryMode ?? nextGuidedFlow.entryMode,
+                entryIntent: existingGuidedFlow?.entryIntent ?? nextGuidedFlow.entryIntent,
+                loopState: buildConsumerGuidedFlowLoopState({
+                  guideId: nextGuidedFlow.guideId,
+                  guideTitle: nextGuidedFlow.guideTitle,
+                  templateId: existingGuidedFlow?.templateId,
+                  templateTitle: existingGuidedFlow?.templateTitle,
+                  sourceType: 'result-action',
+                  stage: 'result-action',
+                  actionId: action.semanticActionId,
+                  defaultActionId: nextGuidedFlow.defaultActionId ?? existingGuidedFlow?.defaultActionId,
+                  actionPriority: nextGuidedFlow.actionPriority ?? existingGuidedFlow?.actionPriority,
+                  versionLabel: existingGuidedFlow?.loopState?.versionLabel,
+                }),
+              }
+            })()
           : null
 
     dispatchStudioConsumerIntent({
@@ -292,6 +344,8 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           submit: action.submit,
           nextStep,
           guidedFlowSummary: guidedFlow?.summary,
+          loopRunLabel: guidedFlow?.loopState?.runLabel,
+          loopHint: guidedFlow?.loopState?.loopHint,
         },
       }),
     )
@@ -334,7 +388,7 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
             {versionSource.sourceKindLabel}
           </span>
           <span className="rounded-full border border-signal-cyan/20 bg-signal-cyan/[0.1] px-3 py-1 text-sm font-semibold text-signal-cyan">
-            {versionSource.sceneLabel || getStudioFlowSceneLabel('image-edit')}
+            {versionSource.sceneLabel || generationContract.scene.label || getStudioFlowSceneLabel('image-edit')}
           </span>
           <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
             {versionSource.currentLabel}
@@ -345,18 +399,39 @@ export function ConsumerResultActions({ preview }: ConsumerResultActionsProps) {
           <span className="rounded-full border border-porcelain-50/10 bg-ink-950/40 px-3 py-1 text-sm text-porcelain-100/62">
             {previewMeta}
           </span>
+          {versionSource.quickDeltaLabels.map((label) => (
+            <span
+              key={`${preview.id}:${label}`}
+              className="rounded-full border border-signal-amber/20 bg-signal-amber/[0.1] px-3 py-1 text-sm font-semibold text-signal-amber"
+            >
+              {label}
+            </span>
+          ))}
         </div>
         <div className="mt-3 grid gap-2 text-sm leading-6 text-porcelain-100/58">
           {runtimeGuidedFlow?.followUpLabel ? <p>{runtimeGuidedFlow.followUpLabel}</p> : null}
+          {runtimeEntrySummary ? <p>入口路径：{runtimeEntrySummary}</p> : null}
+          {runtimeEntryReason ? <p>入口判断：{runtimeEntryReason}</p> : null}
+          {loopRunLabel ? <p>{loopRunLabel}</p> : null}
+          {loopHint ? <p>{loopHint}</p> : null}
           {prioritizedActionSummary ? <p>动作优先级：{prioritizedActionSummary}</p> : null}
-          <p>{versionSource.sourceDecisionLabel}</p>
-          <p>{versionSource.structureLabel}</p>
-          <p>{versionSource.nodePathLabel}</p>
-          <p>{versionSource.parentLabel}</p>
-          <p>{versionSource.ancestorLabel}</p>
-          <p>{versionSource.guidedFlowLabel}</p>
-          <p>{versionSource.parameterLabel}</p>
-          <p>{versionSource.referenceLabel}</p>
+          {runtimeContractSummary ? <p>{runtimeContractSummary}</p> : null}
+          <p className="font-semibold text-porcelain-50">{versionSource.deltaHeadline}</p>
+          <p>{versionSource.parentDeltaLabel}</p>
+          <p>{versionSource.sourceDeltaLabel}</p>
+        </div>
+        <div className="mt-3 grid gap-2 xl:grid-cols-2">
+          {versionSource.deltaItems.slice(0, 4).map((item) => (
+            <div
+              key={`${preview.id}:${item.id}`}
+              className="rounded-[1.1rem] border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2 text-sm text-porcelain-100/58"
+            >
+              <p className="font-semibold text-porcelain-50">
+                {item.label} · {item.toneLabel}
+              </p>
+              <p className="mt-1">{item.summary}</p>
+            </div>
+          ))}
         </div>
       </div>
 

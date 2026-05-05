@@ -1,9 +1,11 @@
 import type { GenerationTaskRecord } from '@/features/generation/generation.api'
 import {
   buildGenerationContractSnapshot,
+  buildGenerationSnapshotFromContract,
   resolveGenerationContractSnapshot,
 } from '@/features/generation/generation.contract'
 import type {
+  GenerationContractSnapshot,
   GenerationDrawSnapshot,
   GenerationMode,
   GenerationReferenceSnapshot,
@@ -13,6 +15,7 @@ import {
   getStudioFlowActionLabel,
   getStudioFlowScene,
 } from '@/features/prompt-templates/studioFlowSemantic'
+import { buildConsumerGuidedFlowLoopState } from '@/features/studio-consumer/consumerGuidedFlow'
 import type { ReferenceImage } from '@/features/references/reference.types'
 import type { GalleryImage } from './works.types'
 
@@ -44,12 +47,28 @@ export type WorkVersionSourceSummary = {
   parameterLabel: string
   referenceLabel: string
   promptLabel: string
+  deltaHeadline: string
+  parentDeltaLabel: string
+  sourceDeltaLabel: string
+  quickDeltaLabels: string[]
+  deltaItems: WorkVersionDeltaItem[]
   sourceKind: WorkVersionSourceKind
   sourceKindLabel: string
   sourceDecisionLabel: string
   sceneLabel: string
   structureLabel: string
   nodePathLabel: string
+}
+
+export type WorkVersionDeltaTone = 'carry' | 'change' | 'added' | 'retry'
+
+export type WorkVersionDeltaItem = {
+  id: string
+  label: string
+  tone: WorkVersionDeltaTone
+  toneLabel: string
+  summary: string
+  detail?: string
 }
 
 export type WorkVersionSourceKind =
@@ -88,6 +107,13 @@ export type WorkReplayPayload = {
 }
 
 type LegacyWorkReplayIntent = 'continue' | 'variant' | 'recover' | 'rerun'
+
+function toReplayIntent(actionId?: string): WorkReplayIntent | undefined {
+  if (actionId === 'continue-version' || actionId === 'retry-version' || actionId === 'branch-version') {
+    return actionId
+  }
+  return undefined
+}
 
 function serializeWork(work: GalleryImage): SerializableWork {
   return {
@@ -227,6 +253,61 @@ function countReferenceOrigins(
   return { workCount, uploadCount }
 }
 
+function getGenerationSnapshotReferenceCount(snapshot?: Partial<GenerationSnapshot> | null) {
+  return snapshot?.contract?.references?.count ?? snapshot?.references?.count ?? 0
+}
+
+function buildGuidedSummaryFromContract(contract: GenerationContractSnapshot) {
+  const guidedFlow = contract.guidedFlow
+  if (!guidedFlow) return '追问：当前没有挂接正式追问结果'
+  if (guidedFlow.summary && guidedFlow.summary !== '还没选细节') {
+    return `追问：${guidedFlow.summary}（已完成 ${guidedFlow.completedQuestionCount}/${guidedFlow.totalQuestionCount} 步）`
+  }
+  return `追问：已挂接 ${guidedFlow.guideTitle}，但还没有形成明确摘要`
+}
+
+function buildSceneLabelFromContract(contract: GenerationContractSnapshot) {
+  return contract.scene.label
+}
+
+function buildStructureLabelFromContract(
+  contract: GenerationContractSnapshot,
+  sourceKind: WorkVersionSourceKind,
+) {
+  const guideLabel = contract.guidedFlow?.guideTitle?.trim() || '未挂接追问'
+  const stageLabel = contract.guidedFlow?.loopState?.stageLabel
+  const versionLane =
+    sourceKind === 'task-retry'
+      ? '同版重试链'
+      : sourceKind === 'task-continue'
+        ? '继续链'
+        : '版本链'
+  return `结构：${contract.scene.label} · ${guideLabel}${stageLabel ? ` · ${stageLabel}` : ''} · ${versionLane}`
+}
+
+function resolveWorkGenerationContract(
+  work: Pick<
+    GalleryImage,
+    | 'mode'
+    | 'promptText'
+    | 'promptSnippet'
+    | 'size'
+    | 'quality'
+    | 'providerModel'
+    | 'generationSnapshot'
+  >,
+) {
+  return resolveGenerationContractSnapshot(work.generationSnapshot, {
+    requestPrompt: work.promptText ?? work.promptSnippet ?? '',
+    workspacePrompt: work.promptText ?? work.promptSnippet ?? '',
+    mode: work.mode,
+    size: work.size,
+    quality: work.quality,
+    model: work.providerModel,
+    hasReferences: Boolean(getGenerationSnapshotReferenceCount(work.generationSnapshot)),
+  })
+}
+
 function buildOriginLabel(params: {
   mode?: GenerationMode
   drawIndex?: number
@@ -333,11 +414,7 @@ function buildWorkDetailLabel(
     'variation' | 'drawIndex' | 'promptText' | 'promptSnippet' | 'mode' | 'generationSnapshot'
   >,
 ) {
-  const contract = resolveGenerationContractSnapshot(work.generationSnapshot, {
-    requestPrompt: work.promptText ?? work.promptSnippet ?? '',
-    workspacePrompt: work.promptText ?? work.promptSnippet ?? '',
-    mode: work.mode,
-  })
+  const contract = resolveWorkGenerationContract(work)
   const guidedSummary = contract.guidedFlow?.summary
   if (guidedSummary && guidedSummary !== '还没选细节') return `追问结果：${guidedSummary}`
   if (contract.draw?.variation || work.variation) return `这一版重点：${contract.draw?.variation ?? work.variation}`
@@ -359,11 +436,7 @@ function buildCurrentVersionLabel(
     'variation' | 'drawIndex' | 'promptText' | 'promptSnippet' | 'mode' | 'generationSnapshot'
   >,
 ) {
-  const contract = resolveGenerationContractSnapshot(work.generationSnapshot, {
-    requestPrompt: work.promptText ?? work.promptSnippet ?? '',
-    workspacePrompt: work.promptText ?? work.promptSnippet ?? '',
-    mode: work.mode,
-  })
+  const contract = resolveWorkGenerationContract(work)
   const guidedSummary = contract.guidedFlow?.summary
   if (guidedSummary && guidedSummary !== '还没选细节') return `当前版追问：${guidedSummary}`
   if (contract.draw?.variation || work.variation)
@@ -381,14 +454,13 @@ function buildCurrentVersionLabel(
 }
 
 function buildGuidedSummary(snapshot?: GenerationSnapshot | null, fallback?: { hasReferences?: boolean }) {
-  const guidedFlow = resolveGenerationContractSnapshot(snapshot, {
+  const contract = resolveGenerationContractSnapshot(snapshot, {
     hasReferences: fallback?.hasReferences,
-  }).guidedFlow
-  if (!guidedFlow) return '追问：当前没有挂接正式追问结果'
-  if (guidedFlow.summary && guidedFlow.summary !== '还没选细节') {
-    return `追问：${guidedFlow.summary}（已完成 ${guidedFlow.completedQuestionCount}/${guidedFlow.totalQuestionCount} 步）`
+  })
+  if (contract.guidedFlow?.loopState?.runLabel) {
+    return `追问：${contract.guidedFlow.loopState.runLabel}；${contract.guidedFlow.summary || '当前还没有形成明确摘要'}`
   }
-  return `追问：已挂接 ${guidedFlow.guideTitle}，但还没有形成明确摘要`
+  return buildGuidedSummaryFromContract(contract)
 }
 
 function buildParameterSummary(params: {
@@ -443,9 +515,298 @@ function buildReferenceContextLabel(params: {
   return '参考：当前版本没有参考图依赖'
 }
 
+function getDeltaToneLabel(tone: WorkVersionDeltaTone) {
+  switch (tone) {
+    case 'added':
+      return '新增'
+    case 'retry':
+      return '重试'
+    case 'carry':
+      return '沿用'
+    case 'change':
+    default:
+      return '变化'
+  }
+}
+
+function normalizeCompareText(value?: string) {
+  return value?.replace(/\s+/g, ' ').trim() ?? ''
+}
+
+function summarizePromptDelta(requestPrompt: string, workspacePrompt: string) {
+  const request = normalizeCompareText(requestPrompt)
+  const workspace = normalizeCompareText(workspacePrompt)
+  if (!request && !workspace) {
+    return {
+      tone: 'carry' as const,
+      summary: 'Prompt 未记录新增变化',
+      detail: '当前快照没有可对照的请求或工作区 Prompt 摘要。',
+    }
+  }
+  if (request && workspace && request !== workspace) {
+    return {
+      tone: 'change' as const,
+      summary: 'Prompt 已从工作区再整理后发出',
+      detail: `请求 ${request.length} 字，工作区 ${workspace.length} 字，说明这一版在执行前又做了一次整理。`,
+    }
+  }
+  const text = request || workspace
+  return {
+    tone: 'carry' as const,
+    summary: `Prompt 主干沿用当前描述（${text.length} 字）`,
+    detail: '请求 Prompt 与工作区主描述保持同一主干，适合继续围绕这一版微调。',
+  }
+}
+
+function summarizeGuidedDelta(snapshot?: GenerationSnapshot | null) {
+  const guidedFlow = resolveGenerationContractSnapshot(snapshot).guidedFlow
+  if (!guidedFlow) {
+    return {
+      tone: 'carry' as const,
+      summary: '本轮没有挂接正式追问链',
+      detail: '当前版本主要靠 Prompt 和参数推进，没有额外追问结构承接。',
+    }
+  }
+  const completed = guidedFlow.completedQuestionCount
+  const total = guidedFlow.totalQuestionCount
+  const sourceLabel =
+    guidedFlow.sourceType === 'template'
+      ? `模板「${guidedFlow.templateTitle || guidedFlow.guideTitle}」`
+      : guidedFlow.sourceType === 'result-action'
+        ? '结果动作追问'
+        : '追问链'
+  const stepSummary =
+    guidedFlow.steps.length > 0
+      ? guidedFlow.steps
+          .slice(0, 2)
+          .map((step) => `${step.questionTitle}=${step.optionLabel}`)
+          .join('；')
+      : guidedFlow.summary
+  return {
+    tone: completed > 0 ? ('change' as const) : ('added' as const),
+    summary: `${sourceLabel}承接 ${completed}/${total} 步`,
+    detail: stepSummary || '当前追问已挂接，但还没有形成更细的选项摘要。',
+  }
+}
+
+function summarizeParameterDelta(params: {
+  mode?: GenerationMode
+  size?: string
+  quality?: string
+  model?: string
+  draw?: GenerationDrawSnapshot
+}) {
+  const modeLabel = buildRequestKindLabel(params.mode)
+  const drawSummary = params.draw?.count
+    ? `${params.draw.count} 次抽卡 · ${params.draw.strategy}`
+    : '单次生成'
+  return {
+    tone: params.draw?.count ? ('change' as const) : ('carry' as const),
+    summary: `${modeLabel} · ${params.size || '未记录尺寸'} · 质量 ${buildQualityLabel(params.quality)}`,
+    detail: `${drawSummary}${params.model ? ` · 模型 ${params.model}` : ''}`,
+  }
+}
+
+function summarizeReferenceDelta(params: {
+  expectedReferenceCount: number
+  restorableReferenceCount: number
+  workReferenceCount: number
+  uploadReferenceCount: number
+}) {
+  if (params.expectedReferenceCount <= 0) {
+    return {
+      tone: 'carry' as const,
+      summary: '当前链路不依赖参考图',
+      detail: '这一版主要靠文字和参数继续推进。',
+    }
+  }
+  const sourceParts = [
+    params.workReferenceCount ? `作品 ${params.workReferenceCount} 张` : '',
+    params.uploadReferenceCount ? `上传 ${params.uploadReferenceCount} 张` : '',
+  ].filter(Boolean)
+  const missing = Math.max(0, params.expectedReferenceCount - params.restorableReferenceCount)
+  return {
+    tone: missing > 0 ? ('change' as const) : ('carry' as const),
+    summary: `参考图恢复 ${params.restorableReferenceCount}/${params.expectedReferenceCount}`,
+    detail: `${sourceParts.join(' + ') || '参考图来源未细分'}${missing > 0 ? `，仍缺 ${missing} 张` : '，可以直接沿用'}`,
+  }
+}
+
+function summarizeStructureDelta(params: {
+  sceneLabel: string
+  sourceKind: WorkVersionSourceKind
+  guideLabel: string
+}) {
+  const laneLabel =
+    params.sourceKind === 'task-retry'
+      ? '同版重试链'
+      : params.sourceKind === 'task-continue'
+        ? '继续链'
+        : params.sourceKind === 'mixed-chain'
+          ? '混合派生链'
+          : params.sourceKind === 'work-chain'
+            ? '作品主线'
+            : params.sourceKind === 'upload-chain'
+              ? '上传参考链'
+              : params.sourceKind === 'draw-batch'
+                ? '抽卡变体链'
+                : '文字首版链'
+  return {
+    tone:
+      params.sourceKind === 'task-retry'
+        ? ('retry' as const)
+        : params.guideLabel === '未挂接追问'
+          ? ('carry' as const)
+          : ('change' as const),
+    summary: `${params.sceneLabel} · ${params.guideLabel}`,
+    detail: `当前节点位于${laneLabel}。`,
+  }
+}
+
+function buildVersionDeltaItems(params: {
+  sourceKind: WorkVersionSourceKind
+  sceneLabel: string
+  snapshot?: GenerationSnapshot | null
+  requestPrompt?: string
+  workspacePrompt?: string
+  expectedReferenceCount: number
+  restorableReferenceCount: number
+  workReferenceCount: number
+  uploadReferenceCount: number
+  mode?: GenerationMode
+  size?: string
+  quality?: string
+  model?: string
+  draw?: GenerationDrawSnapshot
+  retryAttempt?: number
+}) {
+  const contract = resolveGenerationContractSnapshot(params.snapshot, {
+    requestPrompt: params.requestPrompt,
+    workspacePrompt: params.workspacePrompt,
+    mode: params.mode,
+    size: params.size,
+    quality: params.quality,
+    model: params.model,
+    hasReferences: params.expectedReferenceCount > 0,
+  })
+  const guideLabel = contract.guidedFlow?.guideTitle?.trim() || '未挂接追问'
+  const promptDelta = summarizePromptDelta(contract.prompt.request, contract.prompt.workspace)
+  const guidedDelta = summarizeGuidedDelta(params.snapshot)
+  const parameterDelta = summarizeParameterDelta({
+    mode: contract.parameters.mode,
+    size: contract.parameters.size,
+    quality: contract.parameters.quality,
+    model: contract.parameters.model,
+    draw: contract.draw,
+  })
+  const referenceDelta = summarizeReferenceDelta({
+    expectedReferenceCount: params.expectedReferenceCount,
+    restorableReferenceCount: params.restorableReferenceCount,
+    workReferenceCount: params.workReferenceCount,
+    uploadReferenceCount: params.uploadReferenceCount,
+  })
+  const structureDelta = summarizeStructureDelta({
+    sceneLabel: params.sceneLabel,
+    sourceKind: params.sourceKind,
+    guideLabel,
+  })
+
+  const items: WorkVersionDeltaItem[] = [
+    {
+      id: 'structure',
+      label: '结构',
+      tone: structureDelta.tone,
+      toneLabel: getDeltaToneLabel(structureDelta.tone),
+      summary: structureDelta.summary,
+      detail: structureDelta.detail,
+    },
+    {
+      id: 'guided',
+      label: '追问',
+      tone: guidedDelta.tone,
+      toneLabel: getDeltaToneLabel(guidedDelta.tone),
+      summary: guidedDelta.summary,
+      detail: guidedDelta.detail,
+    },
+    {
+      id: 'parameters',
+      label: '参数',
+      tone: parameterDelta.tone,
+      toneLabel: getDeltaToneLabel(parameterDelta.tone),
+      summary: parameterDelta.summary,
+      detail: parameterDelta.detail,
+    },
+    {
+      id: 'references',
+      label: '参考',
+      tone: referenceDelta.tone,
+      toneLabel: getDeltaToneLabel(referenceDelta.tone),
+      summary: referenceDelta.summary,
+      detail: referenceDelta.detail,
+    },
+    {
+      id: 'prompt',
+      label: 'Prompt',
+      tone: promptDelta.tone,
+      toneLabel: getDeltaToneLabel(promptDelta.tone),
+      summary: promptDelta.summary,
+      detail: promptDelta.detail,
+    },
+  ]
+
+  if ((params.retryAttempt ?? 0) > 0) {
+    items.unshift({
+      id: 'retry',
+      label: '重试链',
+      tone: 'retry',
+      toneLabel: getDeltaToneLabel('retry'),
+      summary: `当前是第 ${(params.retryAttempt ?? 0) + 1} 次同版尝试`,
+      detail: '会沿用同一来源语义，但执行稳定性和结果噪声可能与上一轮不同。',
+    })
+  }
+
+  return items
+}
+
+function buildDeltaHeadline(sourceKind: WorkVersionSourceKind, items: WorkVersionDeltaItem[]) {
+  const changedItems = items.filter((item) => item.tone !== 'carry')
+  if (sourceKind === 'task-retry') {
+    return changedItems[0]?.summary || '当前版主要体现为同版重试'
+  }
+  if (!changedItems.length) return '当前版主要沿用父节点结构，可直接继续细调'
+  return `这一版主要变化：${changedItems
+    .slice(0, 2)
+    .map((item) => `${item.label}${item.tone === 'added' ? '新增' : item.tone === 'retry' ? '重试' : '变化'}`)
+    .join(' + ')}`
+}
+
+function buildParentDeltaLabel(sourceKind: WorkVersionSourceKind, parentSummary: string, currentLabel: string) {
+  if (sourceKind === 'task-retry') {
+    return `和父节点比：保留同一版目标，但改成 ${currentLabel.replace(/^当前任务：/, '')}`
+  }
+  if (sourceKind === 'task-continue') {
+    return `和父节点比：沿上一轮结果继续推进，当前重点是 ${currentLabel.replace(/^当前(?:版|任务)(?:追问|重点|描述)：?/, '')}`
+  }
+  return `和父节点比：从「${parentSummary}」推进到「${currentLabel}」`
+}
+
+function buildSourceDeltaLabel(sourceKind: WorkVersionSourceKind, ancestorLabel: string) {
+  if (sourceKind === 'task-retry') return '和来源版比：当前仍在同一来源快照上做执行重试'
+  if (sourceKind === 'task-continue') return '和来源版比：当前已经在上一轮结果上继续延长版本链'
+  return `和来源版比：${ancestorLabel.replace(/^更早来源：/, '')}`
+}
+
+function buildQuickDeltaLabels(items: WorkVersionDeltaItem[]) {
+  return items
+    .filter((item) => item.tone !== 'carry')
+    .slice(0, 4)
+    .map((item) => `${item.label}${item.tone === 'retry' ? '重试' : item.tone === 'added' ? '新增' : '变化'}`)
+}
+
 function buildSceneLabel(snapshot?: GenerationSnapshot | null, hasReferences = false) {
-  const scene = resolveGenerationContractSnapshot(snapshot, { hasReferences }).scene
-  return scene.label
+  return buildSceneLabelFromContract(
+    resolveGenerationContractSnapshot(snapshot, { hasReferences }),
+  )
 }
 
 function buildStructureLabel(params: {
@@ -453,14 +814,12 @@ function buildStructureLabel(params: {
   hasReferences: boolean
   sourceKind: WorkVersionSourceKind
 }) {
-  const contract = resolveGenerationContractSnapshot(params.snapshot, {
-    hasReferences: params.hasReferences,
-  })
-  const sceneLabel = contract.scene.label
-  const guidedFlow = contract.guidedFlow
-  const guideLabel = guidedFlow?.guideTitle?.trim() || '未挂接追问'
-  const versionLane = params.sourceKind === 'task-retry' ? '同版重试链' : params.sourceKind === 'task-continue' ? '继续链' : '版本链'
-  return `结构：${sceneLabel} · ${guideLabel} · ${versionLane}`
+  return buildStructureLabelFromContract(
+    resolveGenerationContractSnapshot(params.snapshot, {
+      hasReferences: params.hasReferences,
+    }),
+    params.sourceKind,
+  )
 }
 
 function buildAncestorSummary(params: {
@@ -519,6 +878,31 @@ function readParentSummaryFromReferenceNote(note?: string) {
   return endIndex >= 0 ? remainder.slice(0, endIndex).trim() : remainder
 }
 
+function decorateReplayGuidedFlow(params: {
+  guidedFlow?: GenerationSnapshot['guidedFlow'] | null
+  sourceType: 'work-replay' | 'task-replay'
+  actionId?: WorkReplayIntent
+}) {
+  const { guidedFlow } = params
+  if (!guidedFlow) return null
+  return {
+    ...guidedFlow,
+    sourceType: params.sourceType,
+    loopState: buildConsumerGuidedFlowLoopState({
+      guideId: guidedFlow.guideId,
+      guideTitle: guidedFlow.guideTitle,
+      templateId: guidedFlow.templateId,
+      templateTitle: guidedFlow.templateTitle,
+      sourceType: params.sourceType,
+      stage: 'version-replay',
+      actionId: params.actionId,
+      defaultActionId: guidedFlow.defaultActionId,
+      actionPriority: guidedFlow.actionPriority,
+      versionLabel: guidedFlow.loopState?.versionLabel,
+    }),
+  }
+}
+
 function buildWorkContext(
   work: Pick<
     GalleryImage,
@@ -533,15 +917,7 @@ function buildWorkContext(
     | 'generationSnapshot'
   >,
 ) {
-  const contract = resolveGenerationContractSnapshot(work.generationSnapshot, {
-    requestPrompt: work.promptText ?? work.promptSnippet ?? '',
-    workspacePrompt: work.promptText ?? work.promptSnippet ?? '',
-    mode: work.mode,
-    size: work.size,
-    quality: work.quality,
-    model: work.providerModel,
-    hasReferences: Boolean(work.generationSnapshot?.references?.count),
-  })
+  const contract = resolveWorkGenerationContract(work)
   const expectedReferenceCount = contract.references?.count ?? 0
   const restorableReferenceCount = (contract.references?.sources ?? []).filter(
     (item) => Boolean(item.src),
@@ -575,8 +951,26 @@ function buildWorkContext(
     mode: contract.parameters.mode,
     generationSnapshot: work.generationSnapshot,
   })
+  const sceneLabel = buildSceneLabel(work.generationSnapshot, expectedReferenceCount > 0)
+  const deltaItems = buildVersionDeltaItems({
+    sourceKind,
+    sceneLabel,
+    snapshot: work.generationSnapshot,
+    requestPrompt: contract.prompt.request,
+    workspacePrompt: contract.prompt.workspace || work.promptText,
+    expectedReferenceCount,
+    restorableReferenceCount,
+    workReferenceCount: originCounts.workCount,
+    uploadReferenceCount: originCounts.uploadCount,
+    mode: contract.parameters.mode,
+    size: contract.parameters.size || work.size,
+    quality: contract.parameters.quality || work.quality,
+    model: contract.parameters.model || work.providerModel,
+    draw: contract.draw,
+  })
 
   return {
+    contract,
     expectedReferenceCount,
     restorableReferenceCount,
     originCounts,
@@ -607,7 +1001,7 @@ function buildWorkContext(
       workspacePrompt: contract.prompt.workspace || work.promptText,
       fallback: work.promptSnippet,
     }),
-    sceneLabel: buildSceneLabel(work.generationSnapshot, expectedReferenceCount > 0),
+    sceneLabel,
     structureLabel: buildStructureLabel({
       snapshot: work.generationSnapshot,
       hasReferences: expectedReferenceCount > 0,
@@ -619,6 +1013,11 @@ function buildWorkContext(
       currentLabel,
       ancestorLabel: ancestorSummary,
     }),
+    deltaItems,
+    deltaHeadline: buildDeltaHeadline(sourceKind, deltaItems),
+    parentDeltaLabel: buildParentDeltaLabel(sourceKind, parentSummary, currentLabel),
+    sourceDeltaLabel: buildSourceDeltaLabel(sourceKind, ancestorSummary),
+    quickDeltaLabels: buildQuickDeltaLabels(deltaItems),
   }
 }
 
@@ -681,6 +1080,7 @@ export function buildTaskReplayWork(
   resultWork?: GalleryImage,
 ): GalleryImage {
   const existingSnapshot = readTaskGenerationSnapshot(task, resultWork)
+  const hasReferences = Boolean(task.payload.referenceImages?.length)
   const requestPrompt =
     task.payload.requestPrompt ||
     task.payload.promptText ||
@@ -691,7 +1091,7 @@ export function buildTaskReplayWork(
   const fallbackContract = buildGenerationContractSnapshot({
     scene: resolveReplayScene(
       resultWork?.generationSnapshot,
-      Boolean(task.payload.referenceImages?.length),
+      hasReferences,
     ),
     requestPrompt,
     workspacePrompt,
@@ -703,31 +1103,11 @@ export function buildTaskReplayWork(
     stream: task.payload.stream,
     references: buildTaskReferenceSnapshot(task),
     draw: task.payload.draw as GenerationDrawSnapshot | undefined,
+    guidedFlow: existingSnapshot?.contract?.guidedFlow ?? existingSnapshot?.guidedFlow ?? null,
   })
-  const fallbackSnapshot: GenerationSnapshot = {
-    id:
-      task.result?.snapshotId ??
-      resultWork?.snapshotId ??
-      task.payload.snapshotId ??
-      crypto.randomUUID(),
-    createdAt: toTimestamp(task.updatedAt || task.createdAt),
-    scene: fallbackContract.scene,
-    mode: fallbackContract.parameters.mode,
-    prompt: fallbackContract.prompt.request,
-    requestPrompt: fallbackContract.prompt.request,
-    workspacePrompt: fallbackContract.prompt.workspace,
-    size: fallbackContract.parameters.size,
-    quality: fallbackContract.parameters.quality,
-    model: fallbackContract.parameters.model,
-    providerId: fallbackContract.parameters.providerId,
-    apiUrl: '',
-    requestUrl: '',
-    stream: fallbackContract.parameters.stream,
-    references: fallbackContract.references,
-    draw: fallbackContract.draw,
-    guidedFlow: fallbackContract.guidedFlow,
-    contract: fallbackContract,
-  }
+  const fallbackSnapshotId =
+    task.result?.snapshotId ?? resultWork?.snapshotId ?? task.payload.snapshotId ?? crypto.randomUUID()
+  const fallbackCreatedAt = toTimestamp(task.updatedAt || task.createdAt)
 
   const generationContract = resolveGenerationContractSnapshot(existingSnapshot, {
     scene: fallbackContract.scene,
@@ -742,29 +1122,29 @@ export function buildTaskReplayWork(
     references: fallbackContract.references,
     draw: fallbackContract.draw,
     guidedFlow: fallbackContract.guidedFlow,
-    hasReferences: Boolean(task.payload.referenceImages?.length),
+    hasReferences,
+  })
+
+  const replayGuidedFlow = decorateReplayGuidedFlow({
+    guidedFlow: generationContract.guidedFlow,
+    sourceType: task.parentTaskId ? 'task-replay' : 'work-replay',
+    actionId: toReplayIntent(generationContract.guidedFlow?.actionId),
   })
 
   const generationSnapshot: GenerationSnapshot = {
-    ...(existingSnapshot ?? fallbackSnapshot),
-    id: existingSnapshot?.id || fallbackSnapshot.id,
-    createdAt: existingSnapshot?.createdAt || fallbackSnapshot.createdAt,
-    scene: generationContract.scene,
-    mode: generationContract.parameters.mode as GenerationMode,
-    prompt: generationContract.prompt.request,
-    requestPrompt: generationContract.prompt.request,
-    workspacePrompt: generationContract.prompt.workspace,
-    size: generationContract.parameters.size,
-    quality: generationContract.parameters.quality,
-    model: generationContract.parameters.model,
-    providerId: generationContract.parameters.providerId,
-    apiUrl: existingSnapshot?.apiUrl || fallbackSnapshot.apiUrl,
-    requestUrl: existingSnapshot?.requestUrl || fallbackSnapshot.requestUrl,
-    stream: generationContract.parameters.stream,
-    references: generationContract.references,
-    draw: generationContract.draw,
-    guidedFlow: generationContract.guidedFlow,
-    contract: generationContract,
+    ...(existingSnapshot ?? {}),
+    ...buildGenerationSnapshotFromContract(
+      {
+        ...generationContract,
+        guidedFlow: replayGuidedFlow,
+      },
+      {
+        id: existingSnapshot?.id || fallbackSnapshotId,
+        createdAt: existingSnapshot?.createdAt || fallbackCreatedAt,
+        apiUrl: existingSnapshot?.apiUrl || '',
+        requestUrl: existingSnapshot?.requestUrl || '',
+      },
+    ),
   }
 
   return {
@@ -789,10 +1169,18 @@ export function buildTaskReplayWork(
       task.drawIndex ??
       task.payload.draw?.drawIndex,
     createdAt: resultWork?.createdAt ?? toTimestamp(task.createdAt),
-    mode: resultWork?.mode ?? task.result?.mode ?? task.payload.mode,
-    providerModel: resultWork?.providerModel ?? task.result?.providerModel ?? task.payload.model,
-    size: resultWork?.size ?? task.result?.size ?? task.payload.size,
-    quality: resultWork?.quality ?? task.result?.quality ?? task.payload.quality,
+    mode: generationSnapshot.mode ?? resultWork?.mode ?? task.result?.mode ?? task.payload.mode,
+    providerModel:
+      generationSnapshot.model ??
+      resultWork?.providerModel ??
+      task.result?.providerModel ??
+      task.payload.model,
+    size: generationSnapshot.size ?? resultWork?.size ?? task.result?.size ?? task.payload.size,
+    quality:
+      generationSnapshot.quality ??
+      resultWork?.quality ??
+      task.result?.quality ??
+      task.payload.quality,
     snapshotId:
       resultWork?.snapshotId ??
       task.result?.snapshotId ??
@@ -800,11 +1188,12 @@ export function buildTaskReplayWork(
       generationSnapshot.id,
     generationTaskId: task.id,
     generationSnapshot,
-    promptText: resultWork?.promptText ?? task.result?.promptText ?? requestPrompt,
+    promptText:
+      resultWork?.promptText ?? task.result?.promptText ?? generationSnapshot.requestPrompt,
     promptSnippet:
       resultWork?.promptSnippet ??
       task.result?.promptSnippet ??
-      buildPromptSnippet(requestPrompt, task.payload.title),
+      buildPromptSnippet(generationSnapshot.requestPrompt, task.payload.title),
     error: task.errorMessage,
     retryable: task.retryable,
   }
@@ -827,8 +1216,8 @@ export function getWorkVersionSourceSummary(
   const context = buildWorkContext(work)
   return {
     originLabel: buildOriginLabel({
-      mode: work.mode ?? work.generationSnapshot?.mode,
-      drawIndex: work.generationSnapshot?.draw?.drawIndex ?? work.drawIndex,
+      mode: context.contract.parameters.mode ?? work.mode ?? work.generationSnapshot?.mode,
+      drawIndex: context.contract.draw?.drawIndex ?? work.drawIndex,
       workReferenceCount: context.originCounts.workCount,
       uploadReferenceCount: context.originCounts.uploadCount,
     }),
@@ -845,6 +1234,11 @@ export function getWorkVersionSourceSummary(
       uploadReferenceCount: context.originCounts.uploadCount,
     }),
     promptLabel: context.promptLabel,
+    deltaHeadline: context.deltaHeadline,
+    parentDeltaLabel: context.parentDeltaLabel,
+    sourceDeltaLabel: context.sourceDeltaLabel,
+    quickDeltaLabels: context.quickDeltaLabels,
+    deltaItems: context.deltaItems,
     sourceKind: context.sourceKind,
     sourceKindLabel: getSourceKindLabel(context.sourceKind),
     sourceDecisionLabel: buildSourceDecisionLabel(context.sourceKind),
@@ -873,21 +1267,57 @@ export function getTaskVersionSourceSummary(
   >,
 ): WorkVersionSourceSummary {
   const originCounts = countReferenceOrigins(task.payload.referenceImages)
-  const replayContract = resolveGenerationContractSnapshot(replayWork?.generationSnapshot, {
-    requestPrompt: task.payload.requestPrompt,
-    workspacePrompt: replayWork?.promptText ?? task.payload.workspacePrompt,
-    mode: replayWork?.mode ?? task.payload.mode,
-    size: replayWork?.size ?? task.payload.size,
-    quality: replayWork?.quality ?? task.payload.quality,
-    model: replayWork?.providerModel ?? task.payload.model,
-    providerId: task.payload.providerId,
-    stream: task.payload.stream,
-    references: replayWork?.generationSnapshot?.references,
-    draw:
-      replayWork?.generationSnapshot?.draw ??
-      (task.payload.draw as GenerationDrawSnapshot | undefined),
-    hasReferences: Boolean(task.payload.referenceImages?.length),
+  const replayWorkContract = replayWork ? resolveWorkGenerationContract(replayWork) : null
+  const replayGuidedFlow = decorateReplayGuidedFlow({
+    guidedFlow: replayWorkContract?.guidedFlow,
+    sourceType: task.parentTaskId ? 'task-replay' : 'work-replay',
+    actionId: task.retryAttempt > 0 ? 'retry-version' : 'continue-version',
   })
+  const replaySnapshot =
+    replayWork?.generationSnapshot && replayGuidedFlow
+      ? {
+          ...replayWork.generationSnapshot,
+          draw:
+            replayWork.generationSnapshot.draw ??
+            (task.payload.draw as GenerationDrawSnapshot | undefined),
+          guidedFlow: replayGuidedFlow,
+          contract: replayWork.generationSnapshot.contract
+            ? {
+                ...replayWork.generationSnapshot.contract,
+                draw:
+                  replayWork.generationSnapshot.contract.draw ??
+                  (task.payload.draw as GenerationDrawSnapshot | undefined),
+                guidedFlow: replayGuidedFlow,
+              }
+            : replayWork.generationSnapshot.contract,
+        }
+      : replayWork?.generationSnapshot
+  const replayContract = replaySnapshot
+    ? resolveGenerationContractSnapshot(replaySnapshot, {
+        requestPrompt: task.payload.requestPrompt,
+        workspacePrompt: replayWork?.promptText ?? task.payload.workspacePrompt,
+        mode: replayWork?.mode ?? task.payload.mode,
+        size: replayWork?.size ?? task.payload.size,
+        quality: replayWork?.quality ?? task.payload.quality,
+        model: replayWork?.providerModel ?? task.payload.model,
+        providerId: task.payload.providerId,
+        stream: task.payload.stream,
+        draw: task.payload.draw as GenerationDrawSnapshot | undefined,
+        hasReferences: Boolean(task.payload.referenceImages?.length),
+      })
+    : resolveGenerationContractSnapshot(undefined, {
+        requestPrompt: task.payload.requestPrompt || task.payload.promptText,
+        workspacePrompt: task.payload.workspacePrompt || task.payload.requestPrompt,
+        mode: task.payload.mode,
+        size: task.payload.size,
+        quality: task.payload.quality,
+        model: task.payload.model,
+        providerId: task.payload.providerId,
+        stream: task.payload.stream,
+        references: buildTaskReferenceSnapshot(task as GenerationTaskRecord),
+        draw: task.payload.draw as GenerationDrawSnapshot | undefined,
+        hasReferences: Boolean(task.payload.referenceImages?.length),
+      })
   const sourceKind = resolveSourceKind({
     mode: replayContract.parameters.mode,
     workReferenceCount: originCounts.workCount,
@@ -952,8 +1382,33 @@ export function getTaskVersionSourceSummary(
         uploadReferenceCount: originCounts.uploadCount,
       })
 
-  const sceneSnapshot = replayWork?.generationSnapshot
+  const sceneSnapshot = replaySnapshot
   const hasReferences = (replayContract.references?.count ?? task.payload.referenceImages?.length ?? 0) > 0
+  const expectedReferenceCount = replayContract.references?.count ?? task.payload.referenceImages?.length ?? 0
+  const restorableReferenceCount =
+    replayContract.references?.sources?.filter((item) => Boolean(item.src)).length ??
+    task.payload.referenceImages?.filter((item) => Boolean(item.src)).length ??
+    0
+  const sceneLabel = sceneSnapshot
+    ? buildSceneLabel(sceneSnapshot, hasReferences)
+    : buildSceneLabelFromContract(replayContract)
+  const deltaItems = buildVersionDeltaItems({
+    sourceKind,
+    sceneLabel,
+    snapshot: sceneSnapshot,
+    requestPrompt: replayContract.prompt.request,
+    workspacePrompt: replayContract.prompt.workspace,
+    expectedReferenceCount,
+    restorableReferenceCount,
+    workReferenceCount: originCounts.workCount,
+    uploadReferenceCount: originCounts.uploadCount,
+    mode: replayContract.parameters.mode,
+    size: replayContract.parameters.size,
+    quality: replayContract.parameters.quality,
+    model: replayContract.parameters.model,
+    draw: replayContract.draw,
+    retryAttempt: task.retryAttempt,
+  })
 
   return {
     originLabel,
@@ -962,7 +1417,7 @@ export function getTaskVersionSourceSummary(
     currentLabel,
     ancestorLabel,
     guidedFlowLabel: replayWork
-      ? buildGuidedSummary(replayWork.generationSnapshot, { hasReferences })
+      ? buildGuidedSummary(replaySnapshot, { hasReferences })
       : '追问：当前任务快照里没有正式追问结果',
     parameterLabel: buildParameterSummary({
       mode: replayContract.parameters.mode,
@@ -972,11 +1427,8 @@ export function getTaskVersionSourceSummary(
       draw: replayContract.draw,
     }),
     referenceLabel: buildReferenceContextLabel({
-      expectedReferenceCount: replayContract.references?.count ?? task.payload.referenceImages?.length ?? 0,
-      restorableReferenceCount:
-        replayContract.references?.sources?.filter((item) => Boolean(item.src)).length ??
-        task.payload.referenceImages?.filter((item) => Boolean(item.src)).length ??
-        0,
+      expectedReferenceCount,
+      restorableReferenceCount,
       workReferenceCount: originCounts.workCount,
       uploadReferenceCount: originCounts.uploadCount,
     }),
@@ -985,15 +1437,22 @@ export function getTaskVersionSourceSummary(
       workspacePrompt: replayContract.prompt.workspace,
       fallback: task.payload.title,
     }),
+    deltaHeadline: buildDeltaHeadline(sourceKind, deltaItems),
+    parentDeltaLabel: buildParentDeltaLabel(sourceKind, parentSummary, currentLabel),
+    sourceDeltaLabel: buildSourceDeltaLabel(sourceKind, ancestorLabel),
+    quickDeltaLabels: buildQuickDeltaLabels(deltaItems),
+    deltaItems,
     sourceKind,
     sourceKindLabel: getSourceKindLabel(sourceKind),
     sourceDecisionLabel: buildSourceDecisionLabel(sourceKind),
-    sceneLabel: buildSceneLabel(sceneSnapshot, hasReferences),
-    structureLabel: buildStructureLabel({
-      snapshot: sceneSnapshot,
-      hasReferences,
-      sourceKind,
-    }),
+    sceneLabel,
+    structureLabel: sceneSnapshot
+      ? buildStructureLabel({
+          snapshot: sceneSnapshot,
+          hasReferences,
+          sourceKind,
+        })
+      : buildStructureLabelFromContract(replayContract, sourceKind),
     nodePathLabel: buildNodePathLabel({
       sourceKind,
       parentSummary,

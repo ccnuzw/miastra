@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildPromptTemplateGuidedFlowSnapshot } from './promptTemplate.runtime'
+import {
+  buildPromptTemplateGuidedFlowSnapshot,
+  resolvePromptTemplateRuntimeMode,
+} from './promptTemplate.runtime'
 
 describe('promptTemplate runtime', () => {
   it('builds template guided flow snapshot with default action priority', () => {
@@ -21,6 +24,13 @@ describe('promptTemplate runtime', () => {
     expect(snapshot?.actionPriority).toEqual(['continue-edit', 'guided-refine', 'retry-version'])
     expect(snapshot?.promptText).toContain('优先满足电商主图使用')
     expect(snapshot?.summary).toContain('已按模板默认追问路径带入')
+    expect(snapshot?.loopState?.stage).toBe('template-entry')
+    expect(snapshot?.loopState?.nextActionId).toBe('continue-edit')
+    expect(snapshot?.loopState?.runLabel).toContain('已进入运行态')
+    expect(snapshot?.runtimeDecision?.activeEntry.mode).toBe('consumer')
+    expect(snapshot?.runtimeDecision?.recommendedEntry.mode).toBe('consumer')
+    expect(snapshot?.runtimeDecision?.contract.summary).toContain('运行时 contract')
+    expect(snapshot?.runtimeDecision?.result.summary).toContain('默认先走')
   })
 
   it('returns null when template does not expose guided fields', () => {
@@ -67,5 +77,63 @@ describe('promptTemplate runtime', () => {
     })
 
     expect(snapshot).toBeNull()
+  })
+
+  it('falls back to template-allowed entry mode when preferred mode is unavailable', () => {
+    const template = {
+      id: 'template-generic',
+      title: '长文模板',
+      content: '生成一张未来旅人的概念插画，强调世界观、服装层次、远景建筑、叙事感和电影级光影。',
+      createdAt: 1,
+      structure: {
+        status: 'structured' as const,
+        familyId: 'generic' as const,
+        scenarioId: 'generic-starter' as const,
+        scenarioLabel: '通用起稿',
+        sceneDescription: '适合先起稿，再逐步补主体、风格和用途。',
+        scene: {
+          id: 'generic-create' as const,
+          label: '通用创作',
+          description: '适合先起稿，再逐步补主体、风格和用途。',
+          recommendedMode: 'consumer' as const,
+          recommendedIntent: 'task' as const,
+        },
+        recommendedMode: 'consumer' as const,
+        recommendedIntent: 'task' as const,
+        entryModes: ['pro' as const],
+        defaults: {
+          aspectLabel: '3:4',
+          resolutionTier: '1k' as const,
+          quality: 'medium' as const,
+        },
+        fields: [
+          {
+            id: 'generic-subject',
+            label: '主体方向',
+            description: '说明主体是什么。',
+            group: 'subject' as const,
+            input: 'textarea' as const,
+            guided: {
+              questionTitle: '主体更偏什么？',
+              options: [
+                {
+                  id: 'traveler',
+                  label: '旅行者',
+                  prompt: '主体以未来旅行者为主，轮廓明确。',
+                },
+              ],
+            },
+          },
+        ],
+        summary: [],
+      },
+    }
+
+    expect(resolvePromptTemplateRuntimeMode(template, 'consumer')).toBe('pro')
+    const snapshot = buildPromptTemplateGuidedFlowSnapshot(template, 'consumer')
+    expect(snapshot?.entryMode).toBe('pro')
+    expect(snapshot?.entryIntent).toBe('panel')
+    expect(snapshot?.runtimeDecision?.activeEntry.mode).toBe('pro')
+    expect(snapshot?.runtimeDecision?.entries.consumer.available).toBe(false)
   })
 })

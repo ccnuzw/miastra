@@ -79,6 +79,7 @@ export type GenerationError = {
 export type GenerationRequestOptions = {
   promptText: string
   workspacePrompt?: string
+  contract?: GenerationContractSnapshot
   scene?: StudioFlowScene
   title: string
   meta: string

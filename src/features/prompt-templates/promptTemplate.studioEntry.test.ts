@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildPromptTemplateStudioLaunch,
   buildPromptTemplateStudioPath,
   clearPromptTemplateStudioLaunch,
   readPromptTemplateStudioLaunch,
@@ -84,6 +85,25 @@ describe('promptTemplate.studioEntry', () => {
       sceneId: undefined,
       sourceType: 'template',
       nextAction: undefined,
+    })
+  })
+
+  it('builds a normalized launch object before serializing path', () => {
+    const launch = buildPromptTemplateStudioLaunch({
+      templateId: 'template-6',
+      mode: 'consumer',
+      intent: 'task',
+      sceneId: 'poster-campaign',
+      nextAction: 'continue-edit',
+    })
+
+    expect(launch).toEqual({
+      templateId: 'template-6',
+      mode: 'consumer',
+      intent: 'task',
+      sceneId: 'poster-campaign',
+      sourceType: 'template',
+      nextAction: 'continue-edit',
     })
   })
 })

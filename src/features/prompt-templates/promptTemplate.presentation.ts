@@ -67,6 +67,8 @@ export type PromptTemplatePresentation = {
     label: string
     description: string
     recommended: boolean
+    available: boolean
+    reason: string
     bestFor: string
     nextStep: string
   }>
@@ -95,6 +97,8 @@ export type PromptTemplatePresentation = {
     followUpSummary: string
     guidedFieldLabels: string[]
     guidedQuestionCount: number
+    availableEntryModes: PromptTemplateWorkbenchEntryMode[]
+    recommendedEntryMode: PromptTemplateWorkbenchEntryMode
     consumerEntrySummary: string
     proEntrySummary: string
     resultActionPrioritySummary: string
@@ -405,6 +409,9 @@ export function buildPromptTemplatePresentation(
     })
     .filter(Boolean) as string[]
   const defaultAction = resultActions[0] ?? null
+  const availableEntryModes: PromptTemplateWorkbenchEntryMode[] = structure.entryModes.length
+    ? structure.entryModes
+    : ['consumer', 'pro']
   const resultActionPrioritySummary = resultActions.length
     ? `默认先走「${resultActions[0].label}」，随后按 ${resultActions
         .slice(1)
@@ -440,6 +447,13 @@ export function buildPromptTemplatePresentation(
         label: '进入普通版起稿',
         description: family.consumerEntryDescription,
         recommended: recommendedMode === 'consumer',
+        available: availableEntryModes.includes('consumer'),
+        reason:
+          recommendedMode === 'consumer'
+            ? recommendedEntry.reason
+            : availableEntryModes.includes('consumer')
+              ? '当前模板允许从普通版起手。'
+              : '当前模板没有把普通版作为主要起手路径。',
         bestFor: family.consumerEntryBestFor,
         nextStep: family.consumerEntryNextStep,
       },
@@ -449,6 +463,13 @@ export function buildPromptTemplatePresentation(
         label: '进入专业版精修',
         description: family.proEntryDescription,
         recommended: recommendedMode === 'pro',
+        available: availableEntryModes.includes('pro'),
+        reason:
+          recommendedMode === 'pro'
+            ? recommendedEntry.reason
+            : availableEntryModes.includes('pro')
+              ? '当前模板允许从专业版起手。'
+              : '当前模板没有把专业版作为主要起手路径。',
         bestFor: family.proEntryBestFor,
         nextStep: family.proEntryNextStep,
       },
@@ -477,6 +498,8 @@ export function buildPromptTemplatePresentation(
       followUpSummary,
       guidedFieldLabels: guidedFields.map((field) => field.label),
       guidedQuestionCount: guidedFields.length,
+      availableEntryModes,
+      recommendedEntryMode: recommendedMode,
       consumerEntrySummary,
       proEntrySummary,
       resultActionPrioritySummary,

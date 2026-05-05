@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getStudioFlowScene } from '@/features/prompt-templates/studioFlowSemantic'
 import {
   buildGenerationContractSnapshot,
+  buildGenerationSnapshotFromContract,
   resolveGenerationContractSnapshot,
 } from './generation.contract'
 
@@ -74,5 +75,48 @@ describe('generation.contract', () => {
     expect(contract.prompt.workspace).toBe('旧工作区 Prompt')
     expect(contract.parameters.providerId).toBe('openai')
     expect(contract.guidedFlow?.summary).toBe('主题更清楚')
+  })
+
+  it('projects contract fields back into generation snapshot consistently', () => {
+    const contract = buildGenerationContractSnapshot({
+      scene: getStudioFlowScene('image-edit'),
+      requestPrompt: '保留主体，背景更克制',
+      workspacePrompt: '保留主体',
+      mode: 'draw-image2image',
+      size: '1536x1024',
+      quality: 'low',
+      model: 'gpt-image-1',
+      providerId: 'openai',
+      stream: true,
+      draw: {
+        count: 4,
+        strategy: 'smart',
+        concurrency: 2,
+        delayMs: 0,
+        retries: 1,
+        timeoutSec: 90,
+        safeMode: true,
+        variationStrength: 'medium',
+        dimensions: ['style'],
+        batchId: 'batch-1',
+        drawIndex: 1,
+        variation: '保留主体',
+      },
+    })
+
+    const snapshot = buildGenerationSnapshotFromContract(contract, {
+      id: 'snapshot-2',
+      createdAt: 2,
+      apiUrl: '/api',
+      requestUrl: '/v1/images/edits',
+    })
+
+    expect(snapshot.id).toBe('snapshot-2')
+    expect(snapshot.mode).toBe('draw-image2image')
+    expect(snapshot.requestPrompt).toBe('保留主体，背景更克制')
+    expect(snapshot.workspacePrompt).toBe('保留主体')
+    expect(snapshot.quality).toBe('low')
+    expect(snapshot.stream).toBe(true)
+    expect(snapshot.contract?.draw?.variation).toBe('保留主体')
   })
 })

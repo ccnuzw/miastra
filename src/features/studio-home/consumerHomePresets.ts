@@ -16,6 +16,7 @@ import type {
   ConsumerGuidedFlowStepSnapshot,
   ConsumerGuidedFlowSelectionSource,
 } from '@/features/studio-consumer/consumerGuidedFlow'
+import { buildConsumerGuidedFlowLoopState } from '@/features/studio-consumer/consumerGuidedFlow'
 import type {
   StudioFlowActionId,
   StudioFlowFieldId,
@@ -483,6 +484,81 @@ export function buildConsumerGuidedFlowSnapshot(
     actionPriority: guide.resultActionBindings
       ?.map((binding) => binding.semanticActionId)
       .filter((item): item is StudioFlowActionId => Boolean(item)),
+    runtimeDecision: {
+      entries: {
+        consumer: {
+          mode: 'consumer',
+          intent: 'task',
+          available: true,
+          recommended: true,
+          locked: false,
+          reason: '当前引导流默认从普通版起手。',
+          summary: '会先按当前场景追问补全输入，再直接进入普通版生成。',
+        },
+        pro: {
+          mode: 'pro',
+          intent: 'panel',
+          available: false,
+          recommended: false,
+          locked: false,
+          reason: '当前引导流不直接主推专业版起手。',
+          summary: '如果后续要深调参数，可在出首版后再切到专业版。',
+        },
+      },
+      availableEntryModes: ['consumer'],
+      recommendedEntry: {
+        mode: 'consumer',
+        intent: 'task',
+        available: true,
+        recommended: true,
+        locked: false,
+        reason: '当前引导流默认从普通版起手。',
+        summary: '会先按当前场景追问补全输入，再直接进入普通版生成。',
+      },
+      activeEntry: {
+        mode: 'consumer',
+        intent: 'task',
+        available: true,
+        recommended: true,
+        locked: false,
+        reason: '当前引导流默认从普通版起手。',
+        summary: '会先按当前场景追问补全输入，再直接进入普通版生成。',
+      },
+      followUp: {
+        mode:
+          resolvedOptions.sourceType === 'result-action' ||
+          resolvedOptions.sourceType === 'scene-preset' ||
+          resolvedOptions.sourceType === 'task-preset'
+            ? 'scene-guided'
+            : 'template-guided',
+        summary: buildGuidedSelectionSummary(guide, selections),
+        guidedQuestionCount: steps.length,
+        guidedFieldLabels: guide.questions.map((question) => question.title),
+        defaultSelectionSummary: steps.length
+          ? steps.map((step) => `${step.questionTitle}：${step.optionLabel}`).join(' / ')
+          : undefined,
+      },
+      result: {
+        defaultActionId:
+          guide.resultActionBindings?.find((binding) => binding.id === guide.resultActionIds?.[0])
+            ?.semanticActionId,
+        actionPriority:
+          guide.resultActionBindings
+            ?.map((binding) => binding.semanticActionId)
+            .filter((item): item is StudioFlowActionId => Boolean(item)) ?? [],
+        summary:
+          steps.length > 0
+            ? '当前追问结果会直接带入执行，并优先按场景默认结果动作继续。'
+            : '当前场景会先起一版，再按场景默认结果动作继续。',
+      },
+      contract: {
+        sourceType: resolvedOptions.sourceType ?? 'manual',
+        summary: `当前 contract 会记录${guide.title}的场景追问、结果动作优先级和来源入口。`,
+      },
+      version: {
+        summary: '后续回流会继续沿当前场景追问与动作优先级恢复上下文。',
+      },
+    },
     followUpMode:
       resolvedOptions.sourceType === 'result-action' ||
       resolvedOptions.sourceType === 'scene-preset' ||
@@ -491,6 +567,26 @@ export function buildConsumerGuidedFlowSnapshot(
         : 'template-guided',
     followUpLabel: guide.title,
     promptAppendix: resolvedOptions.promptAppendix?.trim() || undefined,
+    loopState: buildConsumerGuidedFlowLoopState({
+      guideId: guide.id,
+      guideTitle: guide.title,
+      sourceType: resolvedOptions.sourceType,
+      stage:
+        resolvedOptions.sourceType === 'result-action'
+          ? 'result-action'
+          : resolvedOptions.sourceType === 'task-preset' ||
+              resolvedOptions.sourceType === 'scene-preset' ||
+              resolvedOptions.sourceType === 'guided-flow'
+            ? 'guided-followup'
+            : 'template-entry',
+      actionId: resolvedOptions.actionId,
+      defaultActionId:
+        guide.resultActionBindings?.find((binding) => binding.id === guide.resultActionIds?.[0])
+          ?.semanticActionId,
+      actionPriority: guide.resultActionBindings
+        ?.map((binding) => binding.semanticActionId)
+        .filter((item): item is StudioFlowActionId => Boolean(item)),
+    }),
     updatedAt: resolvedOptions.updatedAt,
   }
 }

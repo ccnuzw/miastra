@@ -66,16 +66,36 @@ export function WorksPage() {
           <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
             {versionSource.currentLabel}
           </span>
+          {versionSource.quickDeltaLabels.map((label) => (
+            <span
+              key={`${work.id}:${label}`}
+              className="rounded-full border border-signal-amber/20 bg-signal-amber/[0.08] px-3 py-1 text-[11px] font-semibold text-signal-amber"
+            >
+              {label}
+            </span>
+          ))}
         </div>
         <div className="mt-3 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.32] p-3 text-xs text-porcelain-100/58">
-          <p>{versionSource.sourceDecisionLabel}</p>
-          <p className="mt-1">{versionSource.structureLabel}</p>
+          <p className="font-semibold text-porcelain-50">{versionSource.deltaHeadline}</p>
+          <p className="mt-1">{versionSource.parentDeltaLabel}</p>
+          <p>{versionSource.sourceDeltaLabel}</p>
+          <div className="mt-3 grid gap-2">
+            {versionSource.deltaItems.map((item) => (
+              <div
+                key={`${work.id}:${item.id}`}
+                className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.03] px-3 py-2"
+              >
+                <p className="text-[11px] font-semibold text-porcelain-50">
+                  {item.label} · {item.toneLabel}
+                </p>
+                <p className="mt-1">{item.summary}</p>
+                {item.detail ? <p className="mt-1 text-porcelain-100/45">{item.detail}</p> : null}
+              </div>
+            ))}
+          </div>
+          <p className="mt-3">{versionSource.sourceDecisionLabel}</p>
           <p className="mt-1">{versionSource.nodePathLabel}</p>
-          <p className="mt-1">{versionSource.parentLabel}</p>
-          <p>{versionSource.ancestorLabel}</p>
-          <p className="mt-1">{versionSource.guidedFlowLabel}</p>
-          <p className="mt-1">{versionSource.parameterLabel}</p>
-          <p className="mt-1">{versionSource.referenceLabel}</p>
+          <p className="mt-1">{versionSource.promptLabel}</p>
         </div>
         <p
           className={`mt-2 text-xs ${replaySummary.missingReferenceCount > 0 ? 'text-signal-coral' : 'text-signal-cyan'}`}

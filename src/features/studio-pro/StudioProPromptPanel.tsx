@@ -7,6 +7,7 @@ import type {
   StudioProTemplateContext,
 } from './studioPro.utils'
 import {
+  buildStudioProPromptDecision,
   buildStudioProPromptFieldAlignment,
   buildStudioProTextComparison,
   truncateStudioProText,
@@ -53,6 +54,27 @@ export function StudioProPromptPanel({
     replayContext?.sourceWorkspacePrompt ?? replayContext?.requestPrompt ?? '',
   )
   const finalPromptBaseline = buildStudioProTextComparison(finalPrompt, replayContext?.requestPrompt ?? '')
+  const promptDecision = buildStudioProPromptDecision({
+    templateContext,
+    replayContext,
+    fieldAlignment,
+    workspaceBaseline,
+    finalPromptBaseline,
+    workspacePromptLength,
+  })
+
+  function getDecisionPillClass(state: typeof promptDecision.state) {
+    switch (state) {
+      case 'rerun':
+        return 'border-signal-cyan/30 bg-signal-cyan/[0.12] text-signal-cyan'
+      case 'calibrate':
+        return 'border-amber-300/25 bg-amber-300/[0.12] text-amber-200'
+      case 'branch':
+        return 'border-rose-300/25 bg-rose-300/[0.12] text-rose-200'
+      default:
+        return 'border-porcelain-50/10 bg-porcelain-50/[0.06] text-porcelain-100/[0.55]'
+    }
+  }
 
   async function handleCopy(target: string, text: string) {
     if (!text.trim()) return
@@ -107,6 +129,48 @@ export function StudioProPromptPanel({
         最终请求是如何组装出来的。
       </p>
 
+      <article
+        className={`mt-4 rounded-[1.35rem] border p-4 ${
+          promptDecision.state === 'rerun'
+            ? 'border-signal-cyan/25 bg-signal-cyan/[0.08]'
+            : promptDecision.state === 'calibrate'
+              ? 'border-amber-300/20 bg-amber-300/[0.08]'
+              : promptDecision.state === 'branch'
+                ? 'border-rose-300/20 bg-rose-300/[0.08]'
+                : 'border-porcelain-50/10 bg-ink-950/[0.48]'
+        }`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <span className="studio-pro-metric-label">当前 Prompt 决策</span>
+            <strong className="studio-pro-metric-value">{promptDecision.title}</strong>
+          </div>
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${getDecisionPillClass(promptDecision.state)}`}>
+            {promptDecision.stateLabel}
+          </span>
+        </div>
+        <p className="studio-pro-metric-copy">{promptDecision.summary}</p>
+        <p className="studio-pro-metric-copy">{promptDecision.recommendation}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="status-pill">主动作：{promptDecision.primaryAction}</span>
+          {promptDecision.secondaryAction ? (
+            <span className="status-pill">{promptDecision.secondaryAction}</span>
+          ) : null}
+        </div>
+        {promptDecision.focusItems.length ? (
+          <div className="mt-4 grid gap-2 xl:grid-cols-3">
+            {promptDecision.focusItems.map((item) => (
+              <div
+                key={item}
+                className="rounded-[1rem] border border-porcelain-50/[0.08] bg-ink-950/[0.52] px-3 py-3 text-sm leading-6 text-porcelain-100/[0.68]"
+              >
+                {item}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </article>
+
       <div className="studio-pro-console-strip">
         <article className={`studio-pro-console-card ${hasTemplateContext ? 'studio-pro-emphasis-card' : ''}`}>
           <span className="studio-pro-metric-label">模板基线</span>
@@ -139,11 +203,11 @@ export function StudioProPromptPanel({
               ? '当前结果返回控制区后，可以直接把来源请求重新带回工作区，作为重跑或派生起点。'
               : '从作品或任务回流后，这里会提供“回到来源 Prompt”入口，避免手动摘录上一版描述。'}
           </p>
-          {replayContext?.sourceDecisionLabel ? (
-            <p className="studio-pro-metric-copy">{replayContext.sourceDecisionLabel}</p>
+          {replayContext?.deltaHeadline ? (
+            <p className="studio-pro-metric-copy">{replayContext.deltaHeadline}</p>
           ) : null}
-          {replayContext?.structureLabel ? (
-            <p className="studio-pro-metric-copy">{replayContext.structureLabel}</p>
+          {replayContext?.parentDeltaLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.parentDeltaLabel}</p>
           ) : null}
           <div className="studio-pro-action-cluster">
             <button
@@ -212,6 +276,17 @@ export function StudioProPromptPanel({
             <p className="studio-pro-metric-copy">
               来源链路：{replayContext.sourceKindLabel} · {replayContext.sceneLabel ?? replayContext.scene?.label ?? '未记录场景'}
             </p>
+            <p className="studio-pro-metric-copy">{replayContext.deltaHeadline}</p>
+            <p className="studio-pro-metric-copy">{replayContext.sourceDeltaLabel}</p>
+            {replayContext.quickDeltaLabels.length ? (
+              <div className="studio-pro-tag-wrap">
+                {replayContext.quickDeltaLabels.map((label) => (
+                  <span key={label} className="studio-pro-tag">
+                    {label}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <p className="studio-pro-metric-copy">{replayContext.nodePathLabel}</p>
           </>
         ) : null}
@@ -259,6 +334,7 @@ export function StudioProPromptPanel({
                   {item.groupLabel} · {item.value}
                 </p>
                 <p className="studio-pro-metric-copy">{item.hint}</p>
+                <p className="studio-pro-metric-copy">下一步：{item.recommendedAction}</p>
               </article>
             ))}
           </div>
@@ -287,6 +363,25 @@ export function StudioProPromptPanel({
           <p className="studio-pro-metric-copy">
             {workspaceBaseline.deltaLabel}。{workspaceBaseline.suggestion}
           </p>
+          <p className="studio-pro-metric-copy">建议动作：{promptDecision.primaryAction}</p>
+          {replayContext?.deltaItems.length ? (
+            <div className="studio-pro-compare-grid">
+              {replayContext.deltaItems
+                .filter((item) => item.id === 'prompt' || item.id === 'guided' || item.id === 'structure')
+                .map((item) => (
+                  <article key={item.id} className="studio-pro-compare-card">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="studio-pro-metric-label">{item.label}</span>
+                      <span className="studio-pro-compare-pill studio-pro-compare-pill-shifted">
+                        {item.toneLabel}
+                      </span>
+                    </div>
+                    <p className="studio-pro-metric-copy">{item.summary}</p>
+                    {item.detail ? <p className="studio-pro-metric-copy">{item.detail}</p> : null}
+                  </article>
+                ))}
+            </div>
+          ) : null}
           <div className="studio-pro-compare-grid">
             <article className="studio-pro-compare-card">
               <span className="studio-pro-metric-label">
@@ -334,6 +429,9 @@ export function StudioProPromptPanel({
           </div>
           <p className="studio-pro-metric-copy">
             {finalPromptBaseline.deltaLabel}。{finalPromptBaseline.suggestion}
+          </p>
+          <p className="studio-pro-metric-copy">
+            判断基准：如果这里已经明显偏离来源请求，这一轮通常更适合直接派生，而不是继续当作同版重跑。
           </p>
           <p className="studio-pro-metric-copy">
             {hasReplayContext

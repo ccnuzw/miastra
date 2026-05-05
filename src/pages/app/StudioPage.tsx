@@ -18,7 +18,10 @@ import {
   getPromptTemplateStudioLaunchKey,
   readPromptTemplateStudioLaunch,
 } from '@/features/prompt-templates/promptTemplate.studioEntry'
-import { buildPromptTemplateGuidedFlowSnapshot } from '@/features/prompt-templates/promptTemplate.runtime'
+import {
+  buildPromptTemplateGuidedFlowSnapshot,
+  resolvePromptTemplateRuntimeMode,
+} from '@/features/prompt-templates/promptTemplate.runtime'
 import { usePromptTemplateActions } from '@/features/prompt-templates/usePromptTemplateActions'
 import { usePromptTemplates } from '@/features/prompt-templates/usePromptTemplates'
 import { useProviderConfig } from '@/features/provider/useProviderConfig'
@@ -28,6 +31,7 @@ import {
   type StudioConsumerResultActionDetail,
 } from '@/features/studio-consumer/ConsumerResultActions'
 import type { ConsumerGuidedFlowSnapshot } from '@/features/studio-consumer/consumerGuidedFlow'
+import { buildConsumerGuidedFlowLoopState } from '@/features/studio-consumer/consumerGuidedFlow'
 import { useStudioSettings } from '@/features/studio/useStudioSettings'
 import { resolutionOptions, resolveSizePreset } from '@/features/studio/studio.constants'
 import {
@@ -272,6 +276,22 @@ export function StudioPage() {
       consumerGuidedFlow?.sourceType === 'template' ? consumerGuidedFlow.summary : null
     const templateGuidedLabel =
       consumerGuidedFlow?.sourceType === 'template' ? consumerGuidedFlow.followUpLabel : null
+    const templateLoopRunLabel =
+      consumerGuidedFlow?.templateId === activeTemplateContext.id ? consumerGuidedFlow.loopState?.runLabel : null
+    const templateLoopHint =
+      consumerGuidedFlow?.templateId === activeTemplateContext.id ? consumerGuidedFlow.loopState?.loopHint : null
+    const runtimeEntryDecision =
+      consumerGuidedFlow?.templateId === activeTemplateContext.id
+        ? consumerGuidedFlow.runtimeDecision?.activeEntry
+        : null
+    const runtimeResultSummary =
+      consumerGuidedFlow?.templateId === activeTemplateContext.id
+        ? consumerGuidedFlow.runtimeDecision?.result.summary
+        : null
+    const runtimeContractSummary =
+      consumerGuidedFlow?.templateId === activeTemplateContext.id
+        ? consumerGuidedFlow.runtimeDecision?.contract.summary
+        : null
 
     return (
       <StudioShellCallout
@@ -300,11 +320,21 @@ export function StudioPage() {
           ))}
         </div>
         <div className="mt-3 rounded-[1.05rem] border border-porcelain-50/10 bg-ink-950/[0.22] px-4 py-3 text-xs leading-5 text-porcelain-100/55">
+          {templateLoopRunLabel ? <p>{templateLoopRunLabel}</p> : null}
+          {templateLoopHint ? <p className="mt-1">{templateLoopHint}</p> : null}
           {templateGuidedLabel && templateGuidedSummary ? (
             <p>
               {templateGuidedLabel}：{templateGuidedSummary}
             </p>
           ) : null}
+          {runtimeEntryDecision ? (
+            <p className="mt-1">
+              当前入口：{runtimeEntryDecision.mode === 'consumer' ? '普通版任务入口' : '专业版控制面板'}，
+              {runtimeEntryDecision.reason}
+            </p>
+          ) : null}
+          {runtimeResultSummary ? <p className="mt-1">动作分支：{runtimeResultSummary}</p> : null}
+          {runtimeContractSummary ? <p className="mt-1">Contract 联动：{runtimeContractSummary}</p> : null}
           <p>追问链：{activeTemplateContext.followUpSummary}</p>
           <p className="mt-1">版本链：{activeTemplateContext.versionSummary}</p>
         </div>
@@ -335,7 +365,7 @@ export function StudioPage() {
         ]
           .filter(Boolean)
           .join(' / ') || '未记录默认参数'
-      }`,
+      }。当前更适合先按模板起跑；如果继续改尺寸、质量或参考图，本轮会自然转成派生。`,
     )
   }, [activeTemplateContext, applyTemplateStructureDefaults, runtime, templates.templates])
 
@@ -345,14 +375,18 @@ export function StudioPage() {
     if (!template) return
     studio.setPrompt(template.content)
     runtime.setStatus('success')
-    runtime.setStatusText(`已按模板「${activeTemplateContext.title}」恢复结构化 Prompt 基线`)
+    runtime.setStatusText(
+      `已按模板「${activeTemplateContext.title}」恢复结构化 Prompt 基线。现在更适合先按字段校准，再决定是否派生。`,
+    )
   }, [activeTemplateContext, runtime, studio, templates.templates])
 
   const applyReplayPromptToWorkspace = useCallback(() => {
     if (!proReplayContext?.requestPrompt.trim()) return
     studio.setPrompt(proReplayContext.requestPrompt)
     runtime.setStatus('success')
-    runtime.setStatusText(`已将来源快照 ${proReplayContext.snapshotId} 的请求 Prompt 带回工作区`)
+    runtime.setStatusText(
+      `已将来源快照 ${proReplayContext.snapshotId} 的请求 Prompt 带回工作区。现在更适合同基线重跑；继续改字段则会形成派生。`,
+    )
   }, [proReplayContext, runtime, studio])
 
   const restoreReplayParameters = useCallback(() => {
@@ -379,7 +413,9 @@ export function StudioPage() {
     }
 
     runtime.setStatus('success')
-    runtime.setStatusText(`已恢复来源快照 ${proReplayContext.snapshotId} 的参数控制基线`)
+    runtime.setStatusText(
+      `已恢复来源快照 ${proReplayContext.snapshotId} 的参数控制基线。当前更适合同配置重跑；改尺寸、质量、参考图或抽卡策略会形成派生。`,
+    )
   }, [draw, proReplayContext, runtime, studio])
 
   const restoreReplayExecutionBaseline = useCallback(() => {
@@ -387,7 +423,7 @@ export function StudioPage() {
     restoreReplayParameters()
     runtime.setStatus('success')
     runtime.setStatusText(
-      `已恢复来源快照 ${proReplayContext.snapshotId} 的参数与执行基线；Provider / 模型请按来源信息确认`,
+      `已恢复来源快照 ${proReplayContext.snapshotId} 的参数与执行基线。若 Provider / 模型也保持来源链，这一轮最接近同版重跑。`,
     )
   }, [proReplayContext, restoreReplayParameters, runtime])
 
@@ -396,7 +432,7 @@ export function StudioPage() {
     const snapshotId = proReplayContext.snapshotId
     setProReplayContext(null)
     runtime.setStatus('success')
-    runtime.setStatusText(`已解除来源快照 ${snapshotId} 绑定，后续将按当前控制区直接形成新版本`)
+    runtime.setStatusText(`已解除来源快照 ${snapshotId} 绑定，后续会按当前控制区直接作为新分支基线。`)
   }, [proReplayContext, runtime])
 
   const editorTopSlot = useMemo(() => {
@@ -551,9 +587,28 @@ export function StudioPage() {
       const expectedReferenceCount = snapshot?.references?.count ?? 0
       const canRestoreAllReferences =
         expectedReferenceCount === 0 || referenceImages.length === expectedReferenceCount
+      const replayGuidedFlow =
+        snapshot?.guidedFlow
+          ? {
+              ...snapshot.guidedFlow,
+              sourceType: origin === 'task' ? ('task-replay' as const) : ('work-replay' as const),
+              loopState: buildConsumerGuidedFlowLoopState({
+                guideId: snapshot.guidedFlow.guideId,
+                guideTitle: snapshot.guidedFlow.guideTitle,
+                templateId: snapshot.guidedFlow.templateId,
+                templateTitle: snapshot.guidedFlow.templateTitle,
+                sourceType: origin === 'task' ? 'task-replay' : 'work-replay',
+                stage: 'version-replay',
+                actionId: intent,
+                defaultActionId: snapshot.guidedFlow.defaultActionId,
+                actionPriority: snapshot.guidedFlow.actionPriority,
+                versionLabel: snapshot.guidedFlow.loopState?.versionLabel,
+              }),
+            }
+          : null
 
       studio.setPrompt(workspacePrompt)
-      setConsumerGuidedFlow(snapshot?.guidedFlow ?? null)
+      setConsumerGuidedFlow(replayGuidedFlow)
       applyResolvedSizePreset(snapshot?.size ?? item.size, {
         setSize: studio.setSize,
         setAspectLabel: studio.setAspectLabel,
@@ -589,6 +644,12 @@ export function StudioPage() {
       const sourceSizePreset = resolveSizePreset(sourceSize)
       const sourceQuality = snapshot?.quality ?? item.quality ?? ''
       setActiveTemplateContext(null)
+      if (replayGuidedFlow?.templateId) {
+        const replayTemplate = templates.templates.find((template) => template.id === replayGuidedFlow.templateId)
+        if (replayTemplate) {
+          setActiveTemplateContext(buildStudioProTemplateContext(replayTemplate, '从版本回流继续 Skill'))
+        }
+      }
       setProReplayContext({
         sourceLabel: subject,
         actionLabel: replayActionLabel,
@@ -602,11 +663,19 @@ export function StudioPage() {
         sourceDecisionLabel: versionSourceSummary.sourceDecisionLabel,
         structureLabel: versionSourceSummary.structureLabel,
         nodePathLabel: versionSourceSummary.nodePathLabel,
+        deltaHeadline: versionSourceSummary.deltaHeadline,
+        parentDeltaLabel: versionSourceSummary.parentDeltaLabel,
+        sourceDeltaLabel: versionSourceSummary.sourceDeltaLabel,
+        quickDeltaLabels: versionSourceSummary.quickDeltaLabels,
+        deltaItems: versionSourceSummary.deltaItems,
         detailLabel: versionSourceSummary.detailLabel,
         currentLabel: versionSourceSummary.currentLabel,
         parentLabel: versionSourceSummary.parentLabel,
         ancestorLabel: versionSourceSummary.ancestorLabel,
-        guidedFlowLabel: versionSourceSummary.guidedFlowLabel,
+        guidedFlowLabel:
+          replayGuidedFlow?.loopState?.runLabel && replayGuidedFlow?.loopState?.loopHint
+            ? `${replayGuidedFlow.loopState.runLabel}；${replayGuidedFlow.loopState.loopHint}`
+            : versionSourceSummary.guidedFlowLabel,
         parameterLabel: versionSourceSummary.parameterLabel,
         promptLabel: versionSourceSummary.promptLabel,
         snapshotId: snapshot?.id || item.snapshotId || '未记录快照',
@@ -644,7 +713,7 @@ export function StudioPage() {
           ? `已恢复${subject}参数，正在复跑：${requestPrompt}`
           : expectedReferenceCount > referenceImages.length
             ? `已恢复${subject}参数，但参考图未完整保存，请先补齐参考图后再复跑`
-            : `已恢复${subject}参数，可以直接再次生成`,
+            : `已恢复${subject}参数。现在更适合同基线重跑；如果先改 Prompt、参数或执行链，这一轮会形成派生。`,
       )
       window.setTimeout(() => {
         document.getElementById('studio-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -652,7 +721,7 @@ export function StudioPage() {
 
       return autoGenerate && canRestoreAllReferences
     },
-    [draw, reference, runtime, studio],
+    [draw, reference, runtime, studio, templates.templates],
   )
 
   useEffect(() => {
@@ -700,30 +769,38 @@ export function StudioPage() {
       return
     }
 
-    workbench.setMode(launch.mode)
+    const resolvedLaunchMode = resolvePromptTemplateRuntimeMode(matchedTemplate, launch.mode)
+    workbench.setMode(resolvedLaunchMode)
     const structure = applyTemplateStructureDefaults(matchedTemplate)
     const resolvedScene = launch.sceneId
       ? getStudioFlowScene(launch.sceneId)
       : resolvePromptTemplateScene(structure.scenarioId)
     const templateGuidedFlow =
-      launch.mode === 'consumer' ? buildPromptTemplateGuidedFlowSnapshot(matchedTemplate) : null
+      resolvedLaunchMode === 'consumer'
+        ? buildPromptTemplateGuidedFlowSnapshot(matchedTemplate, resolvedLaunchMode)
+        : null
     studio.setPrompt(templateGuidedFlow?.promptText?.trim() || matchedTemplate.content)
     setConsumerGuidedFlow(templateGuidedFlow)
     const sourceLabel = getStudioFlowSourceLabel(launch.sourceType)
     const templateContext = buildStudioProTemplateContext(
       matchedTemplate,
-      launch.mode === 'consumer' ? `从${sourceLabel}进入普通版` : `从${sourceLabel}进入专业版`,
+      resolvedLaunchMode === 'consumer' ? `从${sourceLabel}进入普通版` : `从${sourceLabel}进入专业版`,
     )
-    const nextActionLabel = launch.nextAction ? getStudioFlowActionLabel(launch.nextAction) : templateContext.primaryNextActionLabel
+    const nextActionLabel =
+      launch.nextAction ? getStudioFlowActionLabel(launch.nextAction) : templateContext.primaryNextActionLabel
+    const launchAdjusted = resolvedLaunchMode !== launch.mode
+    const adjustedMessage = launchAdjusted
+      ? `模板当前更适合从${resolvedLaunchMode === 'consumer' ? '普通版' : '专业版'}进入，已自动按模板 runtime 调整入口。`
+      : ''
     runtime.setStatus('success')
     runtime.setStatusText(
-      launch.mode === 'consumer'
+      resolvedLaunchMode === 'consumer'
         ? `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入普通版任务入口，并同步「${resolvedScene.label}」场景字段${
             templateGuidedFlow
               ? `，已按模板默认追问路径补齐 ${templateGuidedFlow.completedQuestionCount} 步`
               : ''
-          }。建议先出第一版，再接“${nextActionLabel}”。`
-        : `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入专业版控制面板，并同步「${resolvedScene.label}」场景字段。建议先按模板控制项起手，再接“${nextActionLabel}”。`,
+          }。${adjustedMessage}建议先出第一版，再接“${nextActionLabel}”。`
+        : `已从${sourceLabel}将模板「${getPromptTemplateTitle(matchedTemplate)}」带入专业版控制面板，并同步「${resolvedScene.label}」场景字段。${adjustedMessage}建议先按模板控制项起手，再接“${nextActionLabel}”。`,
     )
     setActiveTemplateContext(templateContext)
     setProReplayContext(null)
@@ -766,6 +843,8 @@ export function StudioPage() {
           `统一场景：${sceneLabel}`,
           `动作语义：${getStudioFlowActionLabel(event.detail.semanticActionId)}`,
           `来源类型：${getStudioFlowSourceLabel(event.detail.sourceType)}`,
+          event.detail.loopRunLabel ? `闭环状态：${event.detail.loopRunLabel}` : '',
+          event.detail.loopHint ? `闭环提示：${event.detail.loopHint}` : '',
           event.detail.guidedFlowSummary ? `追问回写：${event.detail.guidedFlowSummary}` : '',
           `当前结果：${previewTitle}`,
           `动作说明：${event.detail.actionDescription}`,
@@ -799,7 +878,7 @@ export function StudioPage() {
     setProReplayContext(null)
     templateActions.handleApplyPromptTemplate(template)
     const templateGuidedFlow =
-      workbench.isConsumerMode ? buildPromptTemplateGuidedFlowSnapshot(template) : null
+      workbench.isConsumerMode ? buildPromptTemplateGuidedFlowSnapshot(template, 'consumer') : null
     if (templateGuidedFlow?.promptText?.trim()) {
       studio.setPrompt(templateGuidedFlow.promptText)
     }

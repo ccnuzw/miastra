@@ -1,6 +1,7 @@
 import type { StudioProReplayContext, StudioProTemplateContext } from './studioPro.utils'
 import {
   buildStudioProComparisonItem,
+  buildStudioProParameterDecision,
   summarizeStudioProComparisons,
 } from './studioPro.utils'
 
@@ -182,6 +183,29 @@ export function StudioProParameterPanel({
       ]
     : []
   const templateComparisonSummary = summarizeStudioProComparisons(templateComparisonItems)
+  const parameterDecision = buildStudioProParameterDecision({
+    templateContext,
+    replayContext,
+    replayComparisonItems,
+    replayComparisonSummary,
+    templateComparisonItems,
+    templateComparisonSummary,
+    studioMode,
+    referenceCount,
+  })
+
+  function getDecisionPillClass(state: typeof parameterDecision.state) {
+    switch (state) {
+      case 'rerun':
+        return 'border-signal-cyan/30 bg-signal-cyan/[0.12] text-signal-cyan'
+      case 'calibrate':
+        return 'border-amber-300/25 bg-amber-300/[0.12] text-amber-200'
+      case 'branch':
+        return 'border-rose-300/25 bg-rose-300/[0.12] text-rose-200'
+      default:
+        return 'border-porcelain-50/10 bg-porcelain-50/[0.06] text-porcelain-100/[0.55]'
+    }
+  }
 
   return (
     <section className="studio-pro-panel">
@@ -200,6 +224,48 @@ export function StudioProParameterPanel({
       <p className="studio-pro-panel-copy">
         当前工作台会把核心参数和执行上下文整理成一组快照，便于继续重跑和回看。
       </p>
+
+      <article
+        className={`mt-4 rounded-[1.35rem] border p-4 ${
+          parameterDecision.state === 'rerun'
+            ? 'border-signal-cyan/25 bg-signal-cyan/[0.08]'
+            : parameterDecision.state === 'calibrate'
+              ? 'border-amber-300/20 bg-amber-300/[0.08]'
+              : parameterDecision.state === 'branch'
+                ? 'border-rose-300/20 bg-rose-300/[0.08]'
+                : 'border-porcelain-50/10 bg-ink-950/[0.48]'
+        }`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <span className="studio-pro-metric-label">参数决策台</span>
+            <strong className="studio-pro-metric-value">{parameterDecision.title}</strong>
+          </div>
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${getDecisionPillClass(parameterDecision.state)}`}>
+            {parameterDecision.stateLabel}
+          </span>
+        </div>
+        <p className="studio-pro-metric-copy">{parameterDecision.summary}</p>
+        <p className="studio-pro-metric-copy">{parameterDecision.recommendation}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="status-pill">主动作：{parameterDecision.primaryAction}</span>
+          {parameterDecision.secondaryAction ? (
+            <span className="status-pill">{parameterDecision.secondaryAction}</span>
+          ) : null}
+        </div>
+        {parameterDecision.focusItems.length ? (
+          <div className="mt-4 grid gap-2 xl:grid-cols-3">
+            {parameterDecision.focusItems.map((item) => (
+              <div
+                key={item}
+                className="rounded-[1rem] border border-porcelain-50/[0.08] bg-ink-950/[0.52] px-3 py-3 text-sm leading-6 text-porcelain-100/[0.68]"
+              >
+                {item}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </article>
 
       <div className="studio-pro-console-strip">
         <article className={`studio-pro-console-card ${hasTemplateContext ? 'studio-pro-emphasis-card' : ''}`}>
@@ -235,11 +301,11 @@ export function StudioProParameterPanel({
               ? '当你把结果带回控制区时，可以先恢复上一版参数快照，再决定是同基线重跑，还是改动参数形成派生。'
               : '从结果回流后，这里会提供参数快照恢复入口，帮助你直接接着上一版继续控制。'}
           </p>
-          {replayContext?.sourceDecisionLabel ? (
-            <p className="studio-pro-metric-copy">{replayContext.sourceDecisionLabel}</p>
+          {replayContext?.deltaHeadline ? (
+            <p className="studio-pro-metric-copy">{replayContext.deltaHeadline}</p>
           ) : null}
-          {replayContext?.structureLabel ? (
-            <p className="studio-pro-metric-copy">{replayContext.structureLabel}</p>
+          {replayContext?.parentDeltaLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.parentDeltaLabel}</p>
           ) : null}
           <div className="studio-pro-action-cluster">
             <button
@@ -352,6 +418,21 @@ export function StudioProParameterPanel({
               来源链路：{replayContext.sourceKindLabel} · {replayContext.sceneLabel ?? replayContext.scene?.label ?? '未记录场景'}
             </p>
           ) : null}
+          {replayContext?.deltaHeadline ? (
+            <p className="studio-pro-metric-copy">{replayContext.deltaHeadline}</p>
+          ) : null}
+          {replayContext?.sourceDeltaLabel ? (
+            <p className="studio-pro-metric-copy">{replayContext.sourceDeltaLabel}</p>
+          ) : null}
+          {replayContext?.quickDeltaLabels.length ? (
+            <div className="studio-pro-tag-wrap">
+              {replayContext.quickDeltaLabels.map((label) => (
+                <span key={label} className="studio-pro-tag">
+                  {label}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {replayContext?.nodePathLabel ? (
             <p className="studio-pro-metric-copy">{replayContext.nodePathLabel}</p>
           ) : null}
@@ -387,6 +468,24 @@ export function StudioProParameterPanel({
           {replayContext?.referenceSummaryLabel ? (
             <p className="studio-pro-metric-copy">{replayContext.referenceSummaryLabel}</p>
           ) : null}
+          {replayContext?.deltaItems.length ? (
+            <div className="studio-pro-compare-grid">
+              {replayContext.deltaItems
+                .filter((item) => item.id === 'parameters' || item.id === 'references' || item.id === 'retry')
+                .map((item) => (
+                  <article key={item.id} className="studio-pro-compare-card">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="studio-pro-metric-label">{item.label}</span>
+                      <span className="studio-pro-compare-pill studio-pro-compare-pill-shifted">
+                        {item.toneLabel}
+                      </span>
+                    </div>
+                    <p className="studio-pro-metric-copy">{item.summary}</p>
+                    {item.detail ? <p className="studio-pro-metric-copy">{item.detail}</p> : null}
+                  </article>
+                ))}
+            </div>
+          ) : null}
           <p className="studio-pro-metric-copy">
             {templateContext
               ? `当前结构模板默认参数：${templateContext.defaultSettingsLabel}。关注字段：${templateContext.structureFields.join(' / ')}。复用参数时可以优先确认这些字段是否仍然成立。`
@@ -413,6 +512,7 @@ export function StudioProParameterPanel({
             </span>
           </div>
           <p className="studio-pro-metric-copy">{replayComparisonSummary.suggestion}</p>
+          <p className="studio-pro-metric-copy">建议动作：{parameterDecision.primaryAction}</p>
           <div className="studio-pro-compare-grid">
             {replayComparisonItems.length ? (
               replayComparisonItems.map((item) => (
@@ -434,6 +534,9 @@ export function StudioProParameterPanel({
                   <p className="studio-pro-metric-copy">来源：{item.baselineValue}</p>
                   <p className="studio-pro-metric-copy">当前：{item.currentValue}</p>
                   <p className="studio-pro-metric-copy">{item.hint}</p>
+                  <p className="studio-pro-metric-copy">
+                    {item.status === 'shifted' ? '下一步：先确认这是不是刻意派生。' : '下一步：这一项可以先保持不动。'}
+                  </p>
                 </article>
               ))
             ) : (
@@ -496,6 +599,9 @@ export function StudioProParameterPanel({
                   <p className="studio-pro-metric-copy">模板：{item.baselineValue}</p>
                   <p className="studio-pro-metric-copy">当前：{item.currentValue}</p>
                   <p className="studio-pro-metric-copy">{item.hint}</p>
+                  <p className="studio-pro-metric-copy">
+                    {item.status === 'shifted' ? '下一步：如需回模板起跑线，可优先恢复这一项。' : '下一步：这一项可以继续沿用当前值。'}
+                  </p>
                 </article>
               ))}
             </div>

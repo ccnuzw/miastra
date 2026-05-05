@@ -755,16 +755,21 @@ export function TasksPage() {
                                   <span className="rounded-full border border-porcelain-50/10 bg-porcelain-50/[0.04] px-3 py-1 text-[11px] text-porcelain-100/58">
                                     {versionSource.currentLabel}
                                   </span>
+                                  {versionSource.quickDeltaLabels.map((label) => (
+                                    <span
+                                      key={`${slot.slotId}:${label}`}
+                                      className="rounded-full border border-signal-amber/20 bg-signal-amber/[0.08] px-3 py-1 text-[11px] font-semibold text-signal-amber"
+                                    >
+                                      {label}
+                                    </span>
+                                  ))}
                                 </div>
                                 <div className="mt-3 rounded-[1.1rem] border border-porcelain-50/10 bg-ink-950/[0.32] p-3 text-xs text-porcelain-100/58">
-                                  <p>{versionSource.sourceDecisionLabel}</p>
-                                  <p className="mt-1">{versionSource.structureLabel}</p>
-                                  <p className="mt-1">{versionSource.nodePathLabel}</p>
-                                  <p className="mt-1">{versionSource.parentLabel}</p>
-                                  <p>{versionSource.ancestorLabel}</p>
-                                  <p className="mt-1">{versionSource.guidedFlowLabel}</p>
-                                  <p className="mt-1">{versionSource.parameterLabel}</p>
-                                  <p className="mt-1">{versionSource.referenceLabel}</p>
+                                  <p className="font-semibold text-porcelain-50">
+                                    {versionSource.deltaHeadline}
+                                  </p>
+                                  <p className="mt-1">{versionSource.parentDeltaLabel}</p>
+                                  <p>{versionSource.sourceDeltaLabel}</p>
                                 </div>
                                 <p
                                   className={`mt-2 text-xs ${replaySummary.missingReferenceCount > 0 ? 'text-signal-coral' : 'text-signal-cyan'}`}
@@ -842,15 +847,17 @@ export function TasksPage() {
                                         <p>当前来源：{versionSource.originLabel}</p>
                                         <p>来源类型：{versionSource.sourceKindLabel}</p>
                                         <p>统一场景：{versionSource.sceneLabel}</p>
+                                        <p className="font-semibold text-porcelain-50">
+                                          {versionSource.deltaHeadline}
+                                        </p>
+                                        <p>{versionSource.parentDeltaLabel}</p>
+                                        <p>{versionSource.sourceDeltaLabel}</p>
                                         <p>{versionSource.sourceDecisionLabel}</p>
                                         <p>{versionSource.structureLabel}</p>
                                         <p>{versionSource.nodePathLabel}</p>
                                         <p>当前节点：{versionSource.currentLabel}</p>
                                         <p>{versionSource.parentLabel}</p>
                                         <p>{versionSource.ancestorLabel}</p>
-                                        <p>{versionSource.guidedFlowLabel}</p>
-                                        <p>{versionSource.parameterLabel}</p>
-                                        <p>{versionSource.referenceLabel}</p>
                                         <p>{versionSource.promptLabel}</p>
                                         <p>恢复状态：{replayStatusText}</p>
                                       </div>
@@ -943,6 +950,37 @@ export function TasksPage() {
                                             : '—'}
                                         </p>
                                       </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-[1.35rem] border border-porcelain-50/10 bg-ink-950/[0.45] p-4">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-porcelain-100/40">
+                                      当前版比上一版改了什么
+                                    </p>
+                                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                      {versionSource.deltaItems.map((item) => (
+                                        <article
+                                          key={`${slot.slotId}:${item.id}`}
+                                          className="rounded-2xl border border-porcelain-50/10 bg-porcelain-50/[0.035] p-3"
+                                        >
+                                          <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <span className="text-xs font-semibold text-porcelain-50">
+                                              {item.label}
+                                            </span>
+                                            <span className="rounded-full border border-porcelain-50/10 px-2 py-1 text-[11px] text-porcelain-100/58">
+                                              {item.toneLabel}
+                                            </span>
+                                          </div>
+                                          <p className="mt-2 text-sm text-porcelain-100/72">
+                                            {item.summary}
+                                          </p>
+                                          {item.detail ? (
+                                            <p className="mt-1 text-xs leading-6 text-porcelain-100/45">
+                                              {item.detail}
+                                            </p>
+                                          ) : null}
+                                        </article>
+                                      ))}
                                     </div>
                                   </div>
 

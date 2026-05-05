@@ -17,9 +17,14 @@ import {
   type UpdateGenerationTaskInput,
   updateGenerationTask,
 } from '@/features/generation/generation.api'
+import {
+  buildGenerationContractSnapshot,
+  buildGenerationReferenceSnapshot,
+} from '@/features/generation/generation.contract'
 import { singleGenerationTimeoutSec } from '@/features/generation/generation.constants'
 import { requestGenerationImage } from '@/features/generation/generation.request'
 import type {
+  GenerationContractSnapshot,
   GenerationError,
   GenerationMode,
   GenerationRequestOptions,
@@ -114,16 +119,6 @@ function isGenerationError(value: unknown): value is GenerationError {
       'message' in value &&
       'retryable' in value,
   )
-}
-
-function toReferencePayload(referenceImages: ReferenceImage[]) {
-  return referenceImages.map((reference) => ({
-    source: reference.source,
-    name: reference.name,
-    src: reference.src,
-    assetId: reference.assetId,
-    assetRemoteKey: reference.assetRemoteKey,
-  }))
 }
 
 function buildTaskResult(image: GalleryImage) {
@@ -235,31 +230,64 @@ export function useGenerationFlow({
     drawTaskSnapshotsRef.current = new Map(tasks.map((task) => [task.id, task]))
   }
 
-  function buildGenerationTaskPayload(options: {
+  function buildFlowGenerationContract(options: {
     mode: GenerationMode
-    title: string
-    meta: string
-    promptText: string
-    workspacePrompt: string
     requestPrompt: string
-    snapshotId?: string
+    workspacePrompt: string
+    qualityValue?: string
+    streamValue?: boolean
     drawSnapshot?: GenerationRequestOptions['drawSnapshot']
-  }): CreateGenerationTaskInput {
-    return {
-      mode: options.mode,
-      title: options.title,
-      meta: options.meta,
-      promptText: options.promptText,
-      workspacePrompt: options.workspacePrompt,
+  }): GenerationContractSnapshot {
+    return buildGenerationContractSnapshot({
+      scene: scene ?? consumerGuidedFlow?.scene ?? undefined,
       requestPrompt: options.requestPrompt,
-      snapshotId: options.snapshotId,
+      workspacePrompt: options.workspacePrompt,
+      mode: options.mode,
       size,
-      quality,
+      quality: options.qualityValue ?? quality,
       model: config.model,
       providerId: config.providerId,
-      stream,
-      referenceImages: referenceImages.length ? toReferencePayload(referenceImages) : undefined,
+      stream: options.streamValue ?? stream,
+      references: buildGenerationReferenceSnapshot(referenceImages),
       draw: options.drawSnapshot,
+      guidedFlow: consumerGuidedFlow,
+    })
+  }
+
+  function buildGenerationTaskPayload(options: {
+    contract: GenerationContractSnapshot
+    title: string
+    meta: string
+    snapshotId?: string
+  }): CreateGenerationTaskInput {
+    const references = options.contract.references?.sources.flatMap((reference) =>
+      reference.src
+        ? [
+            {
+              source: reference.source,
+              name: reference.name,
+              src: reference.src,
+              assetId: reference.assetId,
+              assetRemoteKey: reference.assetRemoteKey,
+            },
+          ]
+        : [],
+    )
+    return {
+      mode: options.contract.parameters.mode,
+      title: options.title,
+      meta: options.meta,
+      promptText: options.contract.prompt.request,
+      workspacePrompt: options.contract.prompt.workspace,
+      requestPrompt: options.contract.prompt.request,
+      snapshotId: options.snapshotId,
+      size: options.contract.parameters.size,
+      quality: options.contract.parameters.quality,
+      model: options.contract.parameters.model,
+      providerId: options.contract.parameters.providerId,
+      stream: options.contract.parameters.stream,
+      referenceImages: references?.length ? references : undefined,
+      draw: options.contract.draw,
     }
   }
 
@@ -365,13 +393,15 @@ export function useGenerationFlow({
     const mode: GenerationMode = hasReferenceImage ? 'image2image' : 'text2image'
     const title = prompt.slice(0, 28)
     const meta = `${hasReferenceImage ? '图生图' : '文生图'} · ${config.model} · ${size} · ${quality}`
-    const payload = buildGenerationTaskPayload({
+    const contract = buildFlowGenerationContract({
       mode,
+      requestPrompt,
+      workspacePrompt,
+    })
+    const payload = buildGenerationTaskPayload({
+      contract,
       title,
       meta,
-      promptText: requestPrompt,
-      workspacePrompt,
-      requestPrompt,
       snapshotId,
     })
     const createdTask = await safeCreateGenerationTask(payload)
@@ -390,11 +420,12 @@ export function useGenerationFlow({
 
     try {
       const nextImage = await requestGeneration({
-        promptText: requestPrompt,
-        workspacePrompt,
-        guidedFlow: consumerGuidedFlow,
-        scene: scene ?? consumerGuidedFlow?.scene,
-        mode,
+        promptText: contract.prompt.request,
+        workspacePrompt: contract.prompt.workspace,
+        contract,
+        guidedFlow: contract.guidedFlow,
+        scene: contract.scene,
+        mode: contract.parameters.mode,
         title,
         meta,
         timeoutSec: singleGenerationTimeoutSec,
@@ -456,10 +487,34 @@ export function useGenerationFlow({
     batchSnapshotId: string,
     abortController: AbortController,
   ): GenerationRequestOptions {
-    return {
-      promptText: task.prompt,
-      workspacePrompt,
+    const drawSnapshot = {
+      count: total,
+      strategy: drawStrategy,
+      concurrency,
+      delayMs: drawDelayMs,
+      retries: drawRetries,
+      timeoutSec: drawTimeoutSec,
+      safeMode: drawSafeMode,
+      variationStrength,
+      dimensions: [...enabledVariationDimensions],
+      batchId: task.batchId,
+      batchSnapshotId,
+      drawIndex: task.index,
+      variation: task.variation,
+    } satisfies NonNullable<GenerationRequestOptions['drawSnapshot']>
+    const contract = buildFlowGenerationContract({
       mode: drawMode,
+      requestPrompt: task.prompt,
+      workspacePrompt,
+      qualityValue: drawSafeMode ? 'low' : quality,
+      streamValue: true,
+      drawSnapshot,
+    })
+    return {
+      promptText: contract.prompt.request,
+      workspacePrompt: contract.prompt.workspace,
+      contract,
+      mode: contract.parameters.mode,
       title: task.title,
       meta: task.meta,
       variation: task.variation,
@@ -468,27 +523,13 @@ export function useGenerationFlow({
       taskId: task.id,
       snapshotId: task.snapshotId,
       timeoutSec: drawTimeoutSec,
-      qualityValue: drawSafeMode ? 'low' : quality,
-      streamValue: true,
-      guidedFlow: consumerGuidedFlow,
-      scene: scene ?? consumerGuidedFlow?.scene,
+      qualityValue: contract.parameters.quality,
+      streamValue: contract.parameters.stream,
+      guidedFlow: contract.guidedFlow,
+      scene: contract.scene,
       previewMode: 'none',
       abortController,
-      drawSnapshot: {
-        count: total,
-        strategy: drawStrategy,
-        concurrency,
-        delayMs: drawDelayMs,
-        retries: drawRetries,
-        timeoutSec: drawTimeoutSec,
-        safeMode: drawSafeMode,
-        variationStrength,
-        dimensions: [...enabledVariationDimensions],
-        batchId: task.batchId,
-        batchSnapshotId,
-        drawIndex: task.index,
-        variation: task.variation,
-      },
+      drawSnapshot,
       onReceiveImage: () => {
         const currentTask = drawTaskSnapshotsRef.current.get(task.id) ?? task
         if (currentTask.status === 'receiving') return
@@ -697,29 +738,34 @@ export function useGenerationFlow({
 
     const tasks: DrawTask[] = await Promise.all(
       draftTasks.map(async (task) => {
-        const payload = buildGenerationTaskPayload({
+        const drawSnapshot = {
+          count: total,
+          strategy: drawStrategy,
+          concurrency,
+          delayMs: drawDelayMs,
+          retries: drawRetries,
+          timeoutSec: drawTimeoutSec,
+          safeMode: drawSafeMode,
+          variationStrength,
+          dimensions: [...enabledVariationDimensions],
+          batchId,
+          batchSnapshotId,
+          drawIndex: task.index,
+          variation: task.variation,
+        } satisfies NonNullable<GenerationRequestOptions['drawSnapshot']>
+        const contract = buildFlowGenerationContract({
           mode: drawMode,
+          requestPrompt: task.prompt,
+          workspacePrompt,
+          qualityValue: stableQuality,
+          streamValue: true,
+          drawSnapshot,
+        })
+        const payload = buildGenerationTaskPayload({
+          contract,
           title: task.title,
           meta: task.meta,
-          promptText: task.prompt,
-          workspacePrompt,
-          requestPrompt: task.prompt,
           snapshotId: task.snapshotId,
-          drawSnapshot: {
-            count: total,
-            strategy: drawStrategy,
-            concurrency,
-            delayMs: drawDelayMs,
-            retries: drawRetries,
-            timeoutSec: drawTimeoutSec,
-            safeMode: drawSafeMode,
-            variationStrength,
-            dimensions: [...enabledVariationDimensions],
-            batchId,
-            batchSnapshotId,
-            drawIndex: task.index,
-            variation: task.variation,
-          },
         })
         const createdTask = await safeCreateGenerationTask(payload)
         return {

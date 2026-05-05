@@ -1,7 +1,10 @@
 import type {
+  ConsumerGuidedFlowRuntimeDecision,
+  ConsumerGuidedFlowRuntimeEntryDecision,
   ConsumerGuidedFlowSnapshot,
   ConsumerGuidedFlowStepSnapshot,
 } from '@/features/studio-consumer/consumerGuidedFlow'
+import { buildConsumerGuidedFlowLoopState } from '@/features/studio-consumer/consumerGuidedFlow'
 import { buildPromptTemplatePresentation } from './promptTemplate.presentation'
 import {
   getPromptTemplateStructure,
@@ -10,6 +13,7 @@ import {
 import type {
   PromptTemplateFieldDefinition,
   PromptTemplateListItem,
+  PromptTemplateWorkbenchEntryMode,
 } from './promptTemplate.types'
 
 function isGuidedField(field: PromptTemplateFieldDefinition) {
@@ -47,14 +51,121 @@ function buildTemplateFollowUpSummary(steps: ConsumerGuidedFlowStepSnapshot[]) {
     .join(' / ')}`
 }
 
+function buildRuntimeEntryDecisions(
+  template: PromptTemplateListItem,
+  selectedMode: PromptTemplateWorkbenchEntryMode,
+): ConsumerGuidedFlowRuntimeDecision['entries'] {
+  const structure = getPromptTemplateStructure(template)
+  const presentation = buildPromptTemplatePresentation(template)
+  const availableModes: PromptTemplateWorkbenchEntryMode[] = structure.entryModes.length
+    ? structure.entryModes
+    : ['consumer', 'pro']
+  const recommendedMode = presentation.recommendedEntry.mode
+
+  const createDecision = (
+    mode: PromptTemplateWorkbenchEntryMode,
+  ): ConsumerGuidedFlowRuntimeEntryDecision => {
+    const entry = presentation.entries.find((item) => item.mode === mode)
+    const available = availableModes.includes(mode)
+    const recommended = recommendedMode === mode
+    const locked = selectedMode === mode && !available
+    const fallbackReason = available
+      ? recommended
+        ? '当前模板推荐从这个入口进入。'
+        : '当前模板允许从这个入口进入。'
+      : '当前模板没有把这个入口作为主要起手路径。'
+
+    return {
+      mode,
+      intent: entry?.intent ?? (mode === 'consumer' ? 'task' : 'panel'),
+      available,
+      recommended,
+      locked,
+      reason: presentation.recommendedEntry.mode === mode ? presentation.recommendedEntry.reason : fallbackReason,
+      summary:
+        mode === 'consumer'
+          ? presentation.runtime.consumerEntrySummary
+          : presentation.runtime.proEntrySummary,
+      bestFor: entry?.bestFor,
+      nextStep: entry?.nextStep,
+    }
+  }
+
+  return {
+    consumer: createDecision('consumer'),
+    pro: createDecision('pro'),
+  }
+}
+
+export function resolvePromptTemplateRuntimeMode(
+  template: PromptTemplateListItem,
+  preferredMode: PromptTemplateWorkbenchEntryMode,
+): PromptTemplateWorkbenchEntryMode {
+  const structure = getPromptTemplateStructure(template)
+  const presentation = buildPromptTemplatePresentation(template)
+  const availableModes: PromptTemplateWorkbenchEntryMode[] = structure.entryModes.length
+    ? structure.entryModes
+    : ['consumer', 'pro']
+  if (availableModes.includes(preferredMode)) return preferredMode
+  if (availableModes.includes(presentation.recommendedEntry.mode)) return presentation.recommendedEntry.mode
+  return availableModes[0] ?? preferredMode
+}
+
+export function buildPromptTemplateRuntimeDecision(
+  template: PromptTemplateListItem,
+  steps: ConsumerGuidedFlowStepSnapshot[],
+  mode: PromptTemplateWorkbenchEntryMode,
+): ConsumerGuidedFlowRuntimeDecision {
+  const presentation = buildPromptTemplatePresentation(template)
+  const structure = getPromptTemplateStructure(template)
+  const entries = buildRuntimeEntryDecisions(template, mode)
+  const availableEntryModes = (Object.values(entries) as ConsumerGuidedFlowRuntimeEntryDecision[])
+    .filter((entry) => entry.available)
+    .map((entry) => entry.mode)
+  const recommendedEntry = entries[presentation.recommendedEntry.mode]
+  const activeEntry = entries[mode]
+  const defaultSelectionSummary = steps.length
+    ? steps.map((step) => `${step.questionTitle}：${step.optionLabel}`).join(' / ')
+    : undefined
+  const actionPriority = presentation.resultBridge.actions.map((action) => action.id)
+
+  return {
+    entries,
+    availableEntryModes,
+    recommendedEntry,
+    activeEntry,
+    followUp: {
+      mode: 'template-guided',
+      summary: buildTemplateFollowUpSummary(steps),
+      guidedQuestionCount: steps.length,
+      guidedFieldLabels: structure.fields.filter(isGuidedField).map((field) => field.label),
+      defaultSelectionSummary,
+    },
+    result: {
+      defaultActionId: presentation.runtime.defaultAction?.id,
+      actionPriority,
+      summary: presentation.runtime.resultActionPrioritySummary,
+    },
+    contract: {
+      sourceType: 'template',
+      summary: `运行时 contract 会优先承接模板入口、模板追问和结果动作优先级，来源上下文记为模板「${presentation.title}」。`,
+    },
+    version: {
+      summary: presentation.chainContext.versionSummary,
+    },
+  }
+}
+
 export function buildPromptTemplateGuidedFlowSnapshot(
   template: PromptTemplateListItem,
+  preferredMode: PromptTemplateWorkbenchEntryMode = 'consumer',
   updatedAt = Date.now(),
 ): ConsumerGuidedFlowSnapshot | null {
   const structure = getPromptTemplateStructure(template)
   const presentation = buildPromptTemplatePresentation(template)
   const guidedFields = structure.fields.filter(isGuidedField)
   if (!guidedFields.length) return null
+  const resolvedMode = resolvePromptTemplateRuntimeMode(template, preferredMode)
 
   const steps = guidedFields
     .map((field, index) => buildTemplateDefaultStep(field, index))
@@ -63,6 +174,8 @@ export function buildPromptTemplateGuidedFlowSnapshot(
     .filter(Boolean)
     .join('\n')
   const fieldLabels = guidedFields.map((field) => field.label)
+  const runtimeDecision = buildPromptTemplateRuntimeDecision(template, steps, resolvedMode)
+  const activeEntry = runtimeDecision.activeEntry
 
   return {
     version: 1,
@@ -81,12 +194,24 @@ export function buildPromptTemplateGuidedFlowSnapshot(
     sourceType: 'template',
     templateId: template.id,
     templateTitle: presentation.title,
-    entryMode: 'consumer',
-    entryIntent: 'task',
+    entryMode: activeEntry.mode,
+    entryIntent: activeEntry.intent,
     followUpMode: 'template-guided',
     followUpLabel: `模板追问 ${steps.length}/${guidedFields.length} 步`,
-    actionPriority: presentation.resultBridge.actions.map((action) => action.id),
-    defaultActionId: presentation.resultBridge.actions[0]?.id,
+    actionPriority: runtimeDecision.result.actionPriority,
+    defaultActionId: runtimeDecision.result.defaultActionId,
+    runtimeDecision,
+    loopState: buildConsumerGuidedFlowLoopState({
+      guideId: `template:${template.id}`,
+      guideTitle: `${presentation.title} · 模板追问`,
+      templateId: template.id,
+      templateTitle: presentation.title,
+      sourceType: 'template',
+      stage: 'template-entry',
+      defaultActionId: runtimeDecision.result.defaultActionId,
+      actionPriority: runtimeDecision.result.actionPriority,
+      versionLabel: presentation.chainContext.versionSummary,
+    }),
     updatedAt,
   }
 }

@@ -23,7 +23,10 @@ import {
   getPromptTemplateSortTime,
   resolvePromptTemplateFamily,
 } from '@/features/prompt-templates/promptTemplate.presentation'
-import { buildPromptTemplateStudioPath } from '@/features/prompt-templates/promptTemplate.studioEntry'
+import {
+  buildPromptTemplateStudioLaunch,
+  buildPromptTemplateStudioPath,
+} from '@/features/prompt-templates/promptTemplate.studioEntry'
 import type { StudioFlowSceneId } from '@/features/prompt-templates/studioFlowSemantic'
 import { getStudioFlowSceneLabel } from '@/features/prompt-templates/studioFlowSemantic'
 import {
@@ -564,18 +567,22 @@ export function TemplatesPage() {
                       {presentation.entries.map((entry) => (
                         <Link
                           key={`${template.id}:${entry.mode}`}
-                          to={buildPromptTemplateStudioPath({
-                            templateId: template.id,
-                            mode: entry.mode,
-                            intent: entry.intent,
-                            sceneId: presentation.structureMeta.sceneId as never,
-                            sourceType: 'template',
-                            nextAction: presentation.resultBridge.actions[0]?.id,
-                          })}
+                          to={buildPromptTemplateStudioPath(
+                            buildPromptTemplateStudioLaunch({
+                              templateId: template.id,
+                              mode: entry.mode,
+                              intent: entry.intent,
+                              sceneId: presentation.structureMeta.sceneId as never,
+                              sourceType: 'template',
+                              nextAction: presentation.runtime.defaultAction?.id,
+                            }),
+                          )}
                           className={`rounded-[1.1rem] border px-4 py-3 transition ${
                             entry.recommended
                               ? 'border-signal-cyan/45 bg-signal-cyan/[0.1]'
-                              : 'border-porcelain-50/10 bg-ink-950/[0.3] hover:border-porcelain-50/25'
+                              : entry.available
+                                ? 'border-porcelain-50/10 bg-ink-950/[0.3] hover:border-porcelain-50/25'
+                                : 'border-porcelain-50/10 bg-ink-950/[0.18] opacity-75'
                           }`}
                         >
                           <div className="flex items-center justify-between gap-3">
@@ -593,6 +600,9 @@ export function TemplatesPage() {
                             {entry.description}
                           </p>
                           <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
+                            {entry.reason}
+                          </p>
+                          <p className="mt-2 text-xs leading-5 text-porcelain-100/55">
                             {entry.mode === 'consumer'
                               ? presentation.runtime.consumerEntrySummary
                               : presentation.runtime.proEntrySummary}
@@ -606,6 +616,11 @@ export function TemplatesPage() {
                           {entry.recommended ? (
                             <p className="mt-2 text-[11px] font-medium text-signal-cyan">
                               推荐入口
+                            </p>
+                          ) : null}
+                          {!entry.available ? (
+                            <p className="mt-2 text-[11px] font-medium text-signal-amber">
+                              当前模板不主推这个入口，进入后会优先按模板推荐路径纠偏
                             </p>
                           ) : null}
                         </Link>
